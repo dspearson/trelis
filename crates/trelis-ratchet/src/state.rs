@@ -1,8 +1,11 @@
-//! Double Ratchet state machine.
+//! Per-Message Ratchet state machine.
 //!
-//! The state machine maintains the current keypair, root key, counters,
-//! and skipped keys. It transitions between states based on message
-//! send/receive operations.
+//! The state machine maintains the current keypair, root key, and counters.
+//! It transitions between states based on message send/receive operations.
+//!
+//! Note: Unlike Signal's double ratchet, this implementation does not store
+//! skipped message keys. Per-message KEM with ordered delivery eliminates
+//! the need for out-of-order message handling.
 
 #[cfg(feature = "alloc")]
 use alloc::collections::VecDeque;
@@ -12,7 +15,6 @@ use trelis_hybrid::{HybridKemKeypair, HybridKemPublicKey};
 use zeroize::Zeroize;
 
 use crate::kdf::{derive_initial_root_key, ROOT_KEY_SIZE};
-use crate::skipped_keys::SkippedKeys;
 use crate::{MAX_PREVIOUS_KEYPAIRS, SESSION_EXHAUSTION_THRESHOLD};
 
 /// Key ID derived from a public key (8-byte fingerprint).
@@ -40,7 +42,11 @@ pub enum RatchetStatus {
     Compromised,
 }
 
-/// Double Ratchet state machine.
+/// Per-Message Ratchet state machine.
+///
+/// Note: The type is named `DoubleRatchet` for backward compatibility,
+/// but this is actually a single per-message KEM ratchet (not Signal's
+/// double ratchet design).
 #[cfg(feature = "alloc")]
 pub struct DoubleRatchet {
     /// Our current hybrid keypair.
@@ -57,10 +63,8 @@ pub struct DoubleRatchet {
     root_key: [u8; ROOT_KEY_SIZE],
     /// Number of messages we've sent.
     send_count: u64,
-    /// Number of messages we've received from current sender key.
+    /// Number of messages we've received (globally sequential).
     recv_count: u64,
-    /// Skipped message keys for out-of-order delivery.
-    skipped_keys: SkippedKeys,
     /// Current session status.
     status: RatchetStatus,
     /// Last activity timestamp (for staleness detection).
@@ -101,7 +105,6 @@ impl DoubleRatchet {
             root_key: derive_initial_root_key(session_key),
             send_count: 0,
             recv_count: 0,
-            skipped_keys: SkippedKeys::new(),
             status: RatchetStatus::Active,
             last_activity: current_time,
         })
@@ -133,7 +136,6 @@ impl DoubleRatchet {
             root_key: derive_initial_root_key(session_key),
             send_count: 0,
             recv_count: 0,
-            skipped_keys: SkippedKeys::new(),
             status: RatchetStatus::Active,
             last_activity: current_time,
         }
@@ -185,17 +187,6 @@ impl DoubleRatchet {
     #[must_use]
     pub fn status(&self) -> RatchetStatus {
         self.status
-    }
-
-    /// Returns a reference to the skipped keys store.
-    #[must_use]
-    pub fn skipped_keys(&self) -> &SkippedKeys {
-        &self.skipped_keys
-    }
-
-    /// Returns a mutable reference to the skipped keys store.
-    pub fn skipped_keys_mut(&mut self) -> &mut SkippedKeys {
-        &mut self.skipped_keys
     }
 
     /// Checks if the session is exhausted (counter near overflow).
@@ -312,7 +303,6 @@ impl DoubleRatchet {
 impl Zeroize for DoubleRatchet {
     fn zeroize(&mut self) {
         self.root_key.zeroize();
-        self.skipped_keys.zeroize();
         // Note: keypairs should implement Zeroize as well
     }
 }

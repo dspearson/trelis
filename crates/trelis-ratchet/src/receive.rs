@@ -1,12 +1,16 @@
-//! Double Ratchet decryption (receive) path.
+//! Per-Message Ratchet decryption (receive) path.
 //!
 //! Decrypts messages by:
-//! 1. Checking for skipped message keys
+//! 1. Validating message order (ordered delivery required)
 //! 2. Handling sender key changes (ratchet step)
-//! 3. Skipping keys for out-of-order delivery
-//! 4. Decapsulating to derive shared secret
-//! 5. Deriving message key via KDF
-//! 6. Decrypting with XChaCha20-Poly1305
+//! 3. Decapsulating to derive shared secret
+//! 4. Deriving message key via KDF
+//! 5. Decrypting with XChaCha20-Poly1305
+//!
+//! # Transport Requirements
+//!
+//! This implementation requires ordered, reliable message delivery.
+//! Out-of-order messages are rejected with `MessageOrderViolation`.
 
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
@@ -17,22 +21,19 @@ use zeroize::Zeroize;
 
 use crate::header::RatchetMessage;
 use crate::kdf::kdf_rk;
-use crate::skipped_keys::SkippedKeyIndex;
 use crate::state::{DoubleRatchet, RatchetStatus};
-use crate::{MAX_CHAIN_LOOKAHEAD, MAX_SKIP};
 
 /// Decrypts a received message and updates the ratchet state.
 ///
 /// This is the main receive function. It:
 /// 1. Validates the session state
-/// 2. Checks for skipped message key (out-of-order handling)
+/// 2. Validates message order (ordered delivery required)
 /// 3. Validates that we have the decapsulation keypair
 /// 4. Handles sender key change (ratchet step)
-/// 5. Skips keys if message number > expected
-/// 6. Decapsulates to get shared secret
-/// 7. Derives message key via KDF
-/// 8. Decrypts with AAD verification
-/// 9. Updates the ratchet state
+/// 5. Decapsulates to get shared secret
+/// 6. Derives message key via KDF
+/// 7. Decrypts with AAD verification
+/// 8. Updates the ratchet state
 ///
 /// # Arguments
 ///
@@ -48,8 +49,8 @@ use crate::{MAX_CHAIN_LOOKAHEAD, MAX_SKIP};
 ///
 /// - `NoActiveSession` if the session is not active
 /// - `SessionCompromised` if the session was compromised
+/// - `MessageOrderViolation` if messages arrive out of order
 /// - `UnknownRecipientKeyId` if we don't have the decapsulation keypair
-/// - `TooManySkippedKeys` if the message gap is too large
 /// - `AeadAuthenticationFailed` if decryption fails
 #[cfg(feature = "alloc")]
 pub fn receive_message(
@@ -60,69 +61,51 @@ pub fn receive_message(
     // Step 1: Validate state
     state.validate_can_receive()?;
 
-    // Step 2: Check for skipped message key (out-of-order handling)
-    let sender_key_bytes = message.header.sender_public_key.to_bytes();
-    let skip_index =
-        SkippedKeyIndex::from_sender_key(&sender_key_bytes, message.header.message_number);
-
-    if let Some(message_key) = state.skipped_keys_mut().remove(&skip_index) {
-        // Found in skipped keys - decrypt and return
-        let aad = message.header.to_bytes();
-        let aead_key = AeadKey::from_bytes(message_key);
-        let aead_nonce = Nonce::from_bytes(message.nonce);
-        let plaintext = aead::decrypt(&aead_key, &aead_nonce, &message.ciphertext, &aad);
-        return plaintext;
+    // Step 2: Validate message order (ordered delivery required)
+    // Transport layer (NATS JetStream) guarantees in-order delivery.
+    // If message_number != recv_count, this indicates transport failure
+    // or session desync, requiring session re-establishment.
+    if message.header.message_number != state.recv_count() {
+        return Err(CryptoError::MessageOrderViolation {
+            expected: state.recv_count(),
+            received: message.header.message_number,
+        });
     }
 
-    // Step 3: Validate that we have the decapsulation keypair (just check, don't hold ref)
+    // Step 3: Validate that we have the decapsulation keypair
     let recipient_key_id = message.header.recipient_key_id;
     if state.find_keypair(recipient_key_id).is_none() {
         return Err(CryptoError::UnknownRecipientKeyId);
     }
 
     // Step 4: Check for sender key change (ratchet step)
+    let sender_key_bytes = message.header.sender_public_key.to_bytes();
     let sender_key_changed = match state.their_public_key() {
         Some(their_pk) => their_pk.to_bytes() != sender_key_bytes,
         None => true, // First message from this peer
     };
 
     if sender_key_changed {
-        // Skip remaining keys in the OLD chain before switching
-        // This handles late arrivals from the previous chain
-        let lookahead_end = state.recv_count().saturating_add(MAX_CHAIN_LOOKAHEAD);
-        skip_message_keys(state, state.recv_count(), lookahead_end)?;
-
-        // Update sender key
+        // Update sender key (recv_count NOT reset - globally sequential)
         state.set_their_public_key(message.header.sender_public_key.clone());
-        state.reset_recv_count();
     }
 
-    // Step 5: Skip keys if message number > expected
-    if message.header.message_number > state.recv_count() {
-        let gap = message.header.message_number - state.recv_count();
-        if gap > MAX_SKIP {
-            return Err(CryptoError::TooManySkippedMessages);
-        }
-        skip_message_keys(state, state.recv_count(), message.header.message_number)?;
-    }
-
-    // Step 6: Now get the keypair and decapsulate
-    // (safe because we validated it exists above and haven't removed it)
+    // Step 5: Decapsulate to get shared secret
     let keypair = state
         .find_keypair(recipient_key_id)
         .expect("keypair validated above");
     let shared_secret = keypair.decapsulate(&message.header.encapsulation)?;
 
-    // Step 7: Derive keys via KDF
+    // Step 6: Derive keys via KDF
     let mut kdf_output = kdf_rk(state.root_key(), shared_secret.as_bytes());
 
-    // Step 8: Decrypt with AAD verification
+    // Step 7: Decrypt with AAD verification
     let aad = message.header.to_bytes();
     let aead_key = AeadKey::from_bytes(kdf_output.message_key);
     let aead_nonce = Nonce::from_bytes(message.nonce);
     let plaintext = aead::decrypt(&aead_key, &aead_nonce, &message.ciphertext, &aad)?;
 
-    // Step 9: Update state atomically (MUST be after successful decrypt)
+    // Step 8: Update state atomically (MUST be after successful decrypt)
     state.set_root_key(kdf_output.new_root_key);
     state.set_recv_count(message.header.message_number);
     state.set_status(RatchetStatus::Active); // PCS restored
@@ -132,33 +115,6 @@ pub fn receive_message(
     kdf_output.zeroize();
 
     Ok(plaintext)
-}
-
-/// Placeholder for skipped message key derivation.
-///
-/// # Current Limitation
-///
-/// This implementation uses KEM-based ratcheting where each message includes
-/// a fresh encapsulation. Unlike DH-based ratchets (Signal), we cannot derive
-/// skipped message keys without the encapsulations from those messages.
-///
-/// For out-of-order message delivery, the receiver must:
-/// 1. Store received messages that arrive early
-/// 2. Process them in order once gaps are filled
-///
-/// A future enhancement could add a symmetric chain key ratchet alongside
-/// the KEM ratchet to enable skipped key derivation.
-#[cfg(feature = "alloc")]
-fn skip_message_keys(_state: &mut DoubleRatchet, start: u64, end: u64) -> Result<()> {
-    if end <= start {
-        return Ok(());
-    }
-
-    // KEM-based ratchet limitation: we cannot derive skipped message keys
-    // without the encapsulations from those messages. Messages arriving
-    // out-of-order must be buffered and processed when gaps are filled.
-
-    Ok(())
 }
 
 #[cfg(test)]

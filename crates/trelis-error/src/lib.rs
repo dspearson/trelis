@@ -256,7 +256,19 @@ pub enum CryptoError {
     NoRecipientKey,
 
     /// Too many messages skipped (exceeds MAX_SKIP).
+    #[deprecated(note = "Skipped keys not supported in per-message KEM ratchet")]
     TooManySkippedMessages,
+
+    /// Message arrived out of order (ordered delivery required).
+    ///
+    /// Per-message KEM ratchet requires ordered, reliable delivery.
+    /// This error indicates transport failure or session desync.
+    MessageOrderViolation {
+        /// Expected message number.
+        expected: u64,
+        /// Received message number.
+        received: u64,
+    },
 
     // ─── Serialisation Errors ───────────────────────────────────────────────
 
@@ -372,6 +384,9 @@ impl fmt::Display for CryptoError {
             Self::SessionCompromised => write!(f, "session compromised"),
             Self::NoRecipientKey => write!(f, "no recipient public key"),
             Self::TooManySkippedMessages => write!(f, "too many skipped messages"),
+            Self::MessageOrderViolation { expected, received } => {
+                write!(f, "message order violation: expected {expected}, received {received}")
+            }
 
             // Serialisation errors
             Self::InvalidMagic => write!(f, "invalid magic bytes"),
@@ -426,7 +441,8 @@ impl CryptoError {
             | Self::CannotRemoveSelf
             | Self::InvalidLeafPosition
             | Self::RemovedFromGroup
-            | Self::EpochMismatch { .. } => ErrorCategory::Protocol,
+            | Self::EpochMismatch { .. }
+            | Self::MessageOrderViolation { .. } => ErrorCategory::Protocol,
 
             // Security errors (potential attacks)
             Self::SignatureVerificationFailed
