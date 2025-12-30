@@ -28,10 +28,14 @@ extern crate std;
 
 pub mod aead;
 pub mod blake3_kdf;
+pub mod ed448;
 pub mod random;
+pub mod x448;
 
 // Re-export key types for convenience
 pub use aead::{decrypt, encrypt, AeadKey, Nonce, Tag};
 pub use blake3_kdf::{derive_key, hash, keyed_hash};
+pub use ed448::{Ed448Signature, Ed448SigningKey, Ed448VerifyingKey};
 pub use random::{fill_bytes, generate_bytes};
 pub use trelis_error::{CryptoError, Result};
+pub use x448::{X448Public, X448Secret, X448SharedSecret};
