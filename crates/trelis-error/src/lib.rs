@@ -208,6 +208,29 @@ pub enum CryptoError {
     /// Invalid tree state.
     InvalidTreeState,
 
+    /// Invalid group size (e.g., zero members).
+    InvalidGroupSize,
+
+    /// Group ID mismatch between commit and session.
+    GroupIdMismatch,
+
+    /// Cannot remove yourself from the group.
+    CannotRemoveSelf,
+
+    /// Invalid leaf position in tree.
+    InvalidLeafPosition,
+
+    /// You have been removed from the group.
+    RemovedFromGroup,
+
+    /// Epoch mismatch between message and session.
+    EpochMismatch {
+        /// Expected epoch.
+        expected: u64,
+        /// Received epoch.
+        received: u64,
+    },
+
     // ─── Rate Limiting ──────────────────────────────────────────────────────
 
     /// Rate limit exceeded.
@@ -321,6 +344,14 @@ impl fmt::Display for CryptoError {
             Self::MemberNotFound => write!(f, "member not found in group"),
             Self::GroupFull => write!(f, "group is full"),
             Self::InvalidTreeState => write!(f, "invalid tree state"),
+            Self::InvalidGroupSize => write!(f, "invalid group size"),
+            Self::GroupIdMismatch => write!(f, "group ID mismatch"),
+            Self::CannotRemoveSelf => write!(f, "cannot remove yourself from group"),
+            Self::InvalidLeafPosition => write!(f, "invalid leaf position"),
+            Self::RemovedFromGroup => write!(f, "you have been removed from the group"),
+            Self::EpochMismatch { expected, received } => {
+                write!(f, "epoch mismatch: expected {expected}, received {received}")
+            }
 
             // Rate limiting
             Self::RateLimitExceeded => write!(f, "rate limit exceeded"),
@@ -363,7 +394,8 @@ impl CryptoError {
             Self::KeyGenerationFailed
             | Self::RngFailure
             | Self::InvalidTreeState
-            | Self::GroupFull => ErrorCategory::Fatal,
+            | Self::GroupFull
+            | Self::InvalidGroupSize => ErrorCategory::Fatal,
 
             // Transient errors
             Self::RateLimitExceeded => ErrorCategory::Transient,
@@ -378,7 +410,12 @@ impl CryptoError {
             | Self::InvalidNodeIndex
             | Self::NoActiveSession
             | Self::SessionCompromised
-            | Self::NoRecipientKey => ErrorCategory::Protocol,
+            | Self::NoRecipientKey
+            | Self::GroupIdMismatch
+            | Self::CannotRemoveSelf
+            | Self::InvalidLeafPosition
+            | Self::RemovedFromGroup
+            | Self::EpochMismatch { .. } => ErrorCategory::Protocol,
 
             // Security errors (potential attacks)
             Self::SignatureVerificationFailed

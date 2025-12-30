@@ -1,0 +1,30 @@
+[package]
+name = "trelis-cocoa"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "CoCoA-SA (Concurrent Continuous Group Key Agreement - Server Assisted) for Trelis"
+
+[features]
+default = ["std", "alloc"]
+std = ["alloc", "trelis-primitives/std", "trelis-hybrid/std"]
+alloc = ["trelis-primitives/alloc", "trelis-hybrid/alloc"]
+expose-internals = []
+
+[dependencies]
+trelis-error.workspace = true
+trelis-primitives.workspace = true
+trelis-hybrid = { workspace = true, features = ["expose-internals"] }
+trelis-wire.workspace = true
+blake3.workspace = true
+zeroize.workspace = true
+subtle.workspace = true
+
+[dev-dependencies]
+hex.workspace = true
+
+[lints]
+workspace = true

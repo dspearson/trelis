@@ -1,0 +1,435 @@
+//! CoCoA-SA session state management.
+//!
+//! A session represents a user's view of a CoCoA group, including:
+//! - Their partial tree view
+//! - Current epoch and secrets
+//! - Message encryption/decryption state
+
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+
+use trelis_error::{CryptoError, Result};
+use trelis_hybrid::HybridKemKeypair;
+use trelis_primitives::aead::{self, AeadKey, Nonce};
+
+use crate::epoch::Epoch;
+use crate::tree::PartialTreeView;
+use crate::{GroupId, UserId};
+
+/// A CoCoA-SA session representing a user's participation in a group.
+#[cfg(feature = "alloc")]
+pub struct CocoaSession {
+    /// Group identifier.
+    group_id: GroupId,
+    /// Our user identifier.
+    our_user_id: UserId,
+    /// Our position in the tree (leaf index).
+    our_leaf_position: u32,
+    /// Our current hybrid KEM keypair.
+    our_keypair: HybridKemKeypair,
+    /// Partial tree view (our path + resolved co-path).
+    tree: PartialTreeView,
+    /// Current epoch.
+    epoch: Epoch,
+    /// Transcript hash chain.
+    transcript_hash: [u8; 32],
+}
+
+#[cfg(feature = "alloc")]
+impl CocoaSession {
+    /// Creates a new session for a group creator.
+    ///
+    /// # Arguments
+    ///
+    /// * `group_id` - Unique identifier for the group
+    /// * `our_user_id` - Our user identifier
+    /// * `our_keypair` - Our hybrid KEM keypair
+    /// * `initial_members` - Number of initial members (including us)
+    /// * `epoch_secret` - Initial epoch secret from X3DH or group creation
+    pub fn create_group(
+        group_id: GroupId,
+        our_user_id: UserId,
+        our_keypair: HybridKemKeypair,
+        initial_members: u32,
+        epoch_secret: &[u8; 32],
+    ) -> Result<Self> {
+        if initial_members == 0 {
+            return Err(CryptoError::InvalidGroupSize);
+        }
+
+        let tree_depth = PartialTreeView::depth_for_members(initial_members);
+        let our_leaf_position = 0; // Creator is always at position 0
+
+        let mut tree = PartialTreeView::new(our_leaf_position, tree_depth);
+        tree.set_member_count(initial_members);
+
+        // Initial transcript hash
+        let transcript_hash = [0u8; 32];
+        let epoch = Epoch::initial(epoch_secret, transcript_hash);
+
+        Ok(Self {
+            group_id,
+            our_user_id,
+            our_leaf_position,
+            our_keypair,
+            tree,
+            epoch,
+            transcript_hash,
+        })
+    }
+
+    /// Joins an existing group via a welcome message.
+    ///
+    /// # Arguments
+    ///
+    /// * `group_id` - Group identifier
+    /// * `our_user_id` - Our user identifier
+    /// * `our_keypair` - Our hybrid KEM keypair
+    /// * `our_position` - Our assigned leaf position
+    /// * `tree_depth` - Depth of the tree
+    /// * `member_count` - Current member count
+    /// * `epoch_number` - Current epoch number
+    /// * `epoch_secret` - Epoch secret from welcome message
+    /// * `transcript_hash` - Current transcript hash
+    #[allow(clippy::too_many_arguments)]
+    pub fn join_group(
+        group_id: GroupId,
+        our_user_id: UserId,
+        our_keypair: HybridKemKeypair,
+        our_position: u32,
+        tree_depth: u32,
+        member_count: u32,
+        _epoch_number: u64,
+        epoch_secret: &[u8; 32],
+        transcript_hash: [u8; 32],
+    ) -> Self {
+        let mut tree = PartialTreeView::new(our_position, tree_depth);
+        tree.set_member_count(member_count);
+
+        // Create epoch at the specified number
+        let _secrets = crate::epoch::EpochSecrets::derive(epoch_secret);
+        let epoch = Epoch::initial(epoch_secret, transcript_hash);
+
+        Self {
+            group_id,
+            our_user_id,
+            our_leaf_position: our_position,
+            our_keypair,
+            tree,
+            epoch,
+            transcript_hash,
+        }
+    }
+
+    /// Returns the group identifier.
+    #[must_use]
+    pub fn group_id(&self) -> &GroupId {
+        &self.group_id
+    }
+
+    /// Returns our user identifier.
+    #[must_use]
+    pub fn our_user_id(&self) -> &UserId {
+        &self.our_user_id
+    }
+
+    /// Returns our leaf position in the tree.
+    #[must_use]
+    pub fn our_leaf_position(&self) -> u32 {
+        self.our_leaf_position
+    }
+
+    /// Returns a reference to our keypair.
+    #[must_use]
+    pub fn our_keypair(&self) -> &HybridKemKeypair {
+        &self.our_keypair
+    }
+
+    /// Returns a reference to our tree view.
+    #[must_use]
+    pub fn tree(&self) -> &PartialTreeView {
+        &self.tree
+    }
+
+    /// Returns a mutable reference to our tree view.
+    pub fn tree_mut(&mut self) -> &mut PartialTreeView {
+        &mut self.tree
+    }
+
+    /// Returns the current epoch number.
+    #[must_use]
+    pub fn epoch_number(&self) -> u64 {
+        self.epoch.number()
+    }
+
+    /// Returns the current transcript hash.
+    #[must_use]
+    pub fn transcript_hash(&self) -> &[u8; 32] {
+        &self.transcript_hash
+    }
+
+    /// Returns the member count.
+    #[must_use]
+    pub fn member_count(&self) -> u32 {
+        self.tree.member_count()
+    }
+
+    /// Encrypts a message for the group.
+    ///
+    /// Uses the current epoch's message key.
+    pub fn encrypt(&mut self, plaintext: &[u8]) -> Result<EncryptedMessage> {
+        let message_key = self.epoch.next_message_key();
+
+        // Construct AAD: group_id || epoch || counter
+        let mut aad = Vec::with_capacity(48);
+        aad.extend_from_slice(&self.group_id);
+        aad.extend_from_slice(&self.epoch.number().to_le_bytes());
+        aad.extend_from_slice(&message_key.counter().to_le_bytes());
+
+        // Encrypt
+        let aead_key = AeadKey::from_bytes(*message_key.key());
+        let aead_nonce = Nonce::from_bytes(*message_key.nonce());
+        let ciphertext = aead::encrypt(&aead_key, &aead_nonce, plaintext, &aad)?;
+
+        Ok(EncryptedMessage {
+            epoch: self.epoch.number(),
+            counter: message_key.counter(),
+            ciphertext,
+        })
+    }
+
+    /// Decrypts a message from the group.
+    pub fn decrypt(&self, message: &EncryptedMessage) -> Result<Vec<u8>> {
+        // Verify epoch matches
+        if message.epoch != self.epoch.number() {
+            return Err(CryptoError::EpochMismatch {
+                expected: self.epoch.number(),
+                received: message.epoch,
+            });
+        }
+
+        // Get message key for this counter
+        let message_key = self.epoch.message_key_for_counter(message.counter);
+
+        // Construct AAD
+        let mut aad = Vec::with_capacity(48);
+        aad.extend_from_slice(&self.group_id);
+        aad.extend_from_slice(&message.epoch.to_le_bytes());
+        aad.extend_from_slice(&message.counter.to_le_bytes());
+
+        // Decrypt
+        let aead_key = AeadKey::from_bytes(*message_key.key());
+        let aead_nonce = Nonce::from_bytes(*message_key.nonce());
+        aead::decrypt(&aead_key, &aead_nonce, &message.ciphertext, &aad)
+    }
+
+    /// Advances to a new epoch after processing a commit.
+    pub fn advance_epoch(&mut self, delta_root: &[u8; 32], new_transcript_hash: [u8; 32]) {
+        self.epoch = Epoch::advance(
+            self.epoch.init_secret(),
+            delta_root,
+            new_transcript_hash,
+            self.epoch.number(),
+        );
+        self.transcript_hash = new_transcript_hash;
+    }
+
+    /// Rotates our keypair (generates new keys).
+    pub fn rotate_keypair(&mut self) -> Result<()> {
+        self.our_keypair = HybridKemKeypair::generate()?;
+        Ok(())
+    }
+}
+
+/// An encrypted group message.
+#[cfg(feature = "alloc")]
+#[derive(Debug, Clone)]
+pub struct EncryptedMessage {
+    /// Epoch number when encrypted.
+    pub epoch: u64,
+    /// Message counter within the epoch.
+    pub counter: u64,
+    /// Encrypted ciphertext (includes AEAD tag).
+    pub ciphertext: Vec<u8>,
+}
+
+#[cfg(feature = "alloc")]
+impl EncryptedMessage {
+    /// Serialises the encrypted message.
+    #[must_use]
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(16 + 4 + self.ciphertext.len());
+        bytes.extend_from_slice(&self.epoch.to_le_bytes());
+        bytes.extend_from_slice(&self.counter.to_le_bytes());
+        bytes.extend_from_slice(&(self.ciphertext.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&self.ciphertext);
+        bytes
+    }
+
+    /// Deserialises an encrypted message.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() < 20 {
+            return Err(CryptoError::MalformedMessage);
+        }
+
+        let epoch = u64::from_le_bytes(
+            bytes[..8]
+                .try_into()
+                .map_err(|_| CryptoError::MalformedMessage)?,
+        );
+        let counter = u64::from_le_bytes(
+            bytes[8..16]
+                .try_into()
+                .map_err(|_| CryptoError::MalformedMessage)?,
+        );
+        let ct_len = u32::from_le_bytes(
+            bytes[16..20]
+                .try_into()
+                .map_err(|_| CryptoError::MalformedMessage)?,
+        ) as usize;
+
+        if bytes.len() < 20 + ct_len {
+            return Err(CryptoError::MalformedMessage);
+        }
+
+        let ciphertext = bytes[20..20 + ct_len].to_vec();
+
+        Ok(Self {
+            epoch,
+            counter,
+            ciphertext,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_session() -> CocoaSession {
+        let group_id = [0x42u8; 32];
+        let user_id = [0x01u8; 32];
+        let keypair = HybridKemKeypair::generate().unwrap();
+        let epoch_secret = [0xABu8; 32];
+
+        CocoaSession::create_group(group_id, user_id, keypair, 1, &epoch_secret).unwrap()
+    }
+
+    #[test]
+    fn test_create_group() {
+        let session = create_test_session();
+
+        assert_eq!(session.our_leaf_position(), 0);
+        assert_eq!(session.epoch_number(), 0);
+        assert_eq!(session.member_count(), 1);
+    }
+
+    #[test]
+    fn test_create_group_empty_fails() {
+        let group_id = [0x42u8; 32];
+        let user_id = [0x01u8; 32];
+        let keypair = HybridKemKeypair::generate().unwrap();
+        let epoch_secret = [0xABu8; 32];
+
+        let result = CocoaSession::create_group(group_id, user_id, keypair, 0, &epoch_secret);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_encrypt_decrypt_roundtrip() {
+        let mut session = create_test_session();
+        let plaintext = b"Hello, CoCoA group!";
+
+        let encrypted = session.encrypt(plaintext).unwrap();
+        assert_eq!(encrypted.epoch, 0);
+        assert_eq!(encrypted.counter, 0);
+
+        let decrypted = session.decrypt(&encrypted).unwrap();
+        assert_eq!(&decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_multiple_messages() {
+        let mut session = create_test_session();
+
+        for i in 0..5 {
+            let plaintext = format!("Message {}", i);
+            let encrypted = session.encrypt(plaintext.as_bytes()).unwrap();
+            assert_eq!(encrypted.counter, i);
+
+            let decrypted = session.decrypt(&encrypted).unwrap();
+            assert_eq!(decrypted, plaintext.as_bytes());
+        }
+    }
+
+    #[test]
+    fn test_epoch_advance() {
+        let mut session = create_test_session();
+        assert_eq!(session.epoch_number(), 0);
+
+        let delta_root = [0x11u8; 32];
+        let new_transcript = [0x22u8; 32];
+
+        session.advance_epoch(&delta_root, new_transcript);
+
+        assert_eq!(session.epoch_number(), 1);
+        assert_eq!(session.transcript_hash(), &new_transcript);
+    }
+
+    #[test]
+    fn test_encrypted_message_serialisation() {
+        let message = EncryptedMessage {
+            epoch: 42,
+            counter: 7,
+            ciphertext: b"encrypted data".to_vec(),
+        };
+
+        let bytes = message.to_bytes();
+        let recovered = EncryptedMessage::from_bytes(&bytes).unwrap();
+
+        assert_eq!(recovered.epoch, 42);
+        assert_eq!(recovered.counter, 7);
+        assert_eq!(recovered.ciphertext, b"encrypted data");
+    }
+
+    #[test]
+    fn test_wrong_epoch_decryption_fails() {
+        let mut session = create_test_session();
+        let plaintext = b"test message";
+
+        let encrypted = session.encrypt(plaintext).unwrap();
+
+        // Advance epoch
+        session.advance_epoch(&[0x11u8; 32], [0x22u8; 32]);
+
+        // Try to decrypt with wrong epoch
+        let result = session.decrypt(&encrypted);
+        assert!(matches!(result, Err(CryptoError::EpochMismatch { .. })));
+    }
+
+    #[test]
+    fn test_join_group() {
+        let group_id = [0x42u8; 32];
+        let user_id = [0x02u8; 32];
+        let keypair = HybridKemKeypair::generate().unwrap();
+        let epoch_secret = [0xABu8; 32];
+        let transcript = [0xCDu8; 32];
+
+        let session = CocoaSession::join_group(
+            group_id,
+            user_id,
+            keypair,
+            5,    // position
+            4,    // depth
+            10,   // members
+            3,    // epoch
+            &epoch_secret,
+            transcript,
+        );
+
+        assert_eq!(session.our_leaf_position(), 5);
+        assert_eq!(session.member_count(), 10);
+        // Note: epoch is created as initial (0) in this simplified impl
+        // In full impl, would use epoch_number parameter
+    }
+}

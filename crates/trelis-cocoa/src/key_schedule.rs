@@ -1,0 +1,378 @@
+//! CoCoA key schedule: H1-H5 hash functions.
+//!
+//! These domain-separated BLAKE3 hash functions provide:
+//! - H1: Seed chain advancement (leaf → root)
+//! - H2: Deterministic keypair generation from seed
+//! - H3: Tree labels, round hash, transcript hash
+//! - H4: Parent hash for tree integrity
+//! - H5: Epoch secret derivation
+
+use trelis_hybrid::HybridKemPublicKey;
+
+use crate::UserId;
+
+/// Context string for H1 (seed derivation).
+pub const H1_CONTEXT: &str = "cocoa-v1-seed-derive";
+
+/// Context string prefix for H2 (keypair generation).
+pub const H2_CONTEXT: &str = "cocoa-v1-keygen";
+
+/// Context string for H3 (tree labels).
+pub const H3_CONTEXT: &str = "cocoa-v1-tree-label";
+
+/// Context string for H4 (parent hash).
+pub const H4_CONTEXT: &str = "cocoa-v1-parent-hash";
+
+/// Context string for H5 (epoch secret).
+pub const H5_CONTEXT: &str = "cocoa-v1-epoch-secret";
+
+/// Context for round hash computation.
+pub const ROUND_HASH_CONTEXT: &str = "cocoa-v1-round-hash";
+
+/// Context for transcript hash chaining.
+pub const TRANSCRIPT_HASH_CONTEXT: &str = "cocoa-v1-transcript-hash";
+
+/// Context for app secret derivation.
+pub const APP_SECRET_CONTEXT: &str = "cocoa-v1-app-secret";
+
+/// Context for confirmation key derivation.
+pub const CONF_KEY_CONTEXT: &str = "cocoa-v1-conf-key";
+
+/// Context for init secret derivation.
+pub const INIT_SECRET_CONTEXT: &str = "cocoa-v1-init-secret";
+
+/// Context for message key derivation.
+pub const MESSAGE_KEY_CONTEXT: &str = "cocoa-v1-message-key";
+
+/// Context for message nonce derivation.
+pub const MESSAGE_NONCE_CONTEXT: &str = "cocoa-v1-message-nonce";
+
+/// H1: Seed chain advancement (leaf → root).
+///
+/// Each call advances the seed one level up the tree.
+#[must_use]
+pub fn h1_seed_derive(delta: &[u8; 32]) -> [u8; 32] {
+    blake3::derive_key(H1_CONTEXT, delta)
+}
+
+/// H2: Deterministic keypair seed generation.
+///
+/// Generates seed material for keypair creation.
+#[must_use]
+pub fn h2_keygen_seed(seed: &[u8; 32], key_type: &str) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new_derive_key(H2_CONTEXT);
+    hasher.update(key_type.as_bytes());
+    hasher.update(b":");
+    hasher.update(seed);
+    *hasher.finalize().as_bytes()
+}
+
+/// H3: Tree label computation.
+///
+/// Creates a unique label for a tree node based on its position and key.
+#[must_use]
+pub fn h3_tree_label(depth: u32, position: u32, public_key: &[u8]) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new_derive_key(H3_CONTEXT);
+    hasher.update(&depth.to_le_bytes());
+    hasher.update(&position.to_le_bytes());
+    hasher.update(public_key);
+    *hasher.finalize().as_bytes()
+}
+
+/// H3: Round hash computation.
+///
+/// Creates a Merkle commitment over the tree state for a round.
+/// H_round(n) = H3(tree_label(root), removed_users, added_users)
+#[cfg(feature = "alloc")]
+#[must_use]
+pub fn h3_round_hash(
+    root_tree_label: &[u8; 32],
+    removed_users: &[UserId],
+    added_users: &[UserId],
+) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new_derive_key(ROUND_HASH_CONTEXT);
+
+    // Root tree label
+    hasher.update(root_tree_label);
+
+    // Encode removed users
+    hasher.update(&(removed_users.len() as u32).to_le_bytes());
+    for user in removed_users {
+        hasher.update(user);
+    }
+
+    // Encode added users
+    hasher.update(&(added_users.len() as u32).to_le_bytes());
+    for user in added_users {
+        hasher.update(user);
+    }
+
+    *hasher.finalize().as_bytes()
+}
+
+/// H3: Transcript hash chaining.
+///
+/// Chains round hashes together: H_trans(n) = H3(H_trans(n-1) || H_round(n))
+#[must_use]
+pub fn h3_transcript_hash(prev_transcript: &[u8; 32], round_hash: &[u8; 32]) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new_derive_key(TRANSCRIPT_HASH_CONTEXT);
+    hasher.update(prev_transcript);
+    hasher.update(round_hash);
+    *hasher.finalize().as_bytes()
+}
+
+/// H4: Parent hash h1 component (sibling binding).
+///
+/// Computes h_1 = H4(pk_child || sibling_label)
+/// This binds the node to its sibling's subtree state.
+#[must_use]
+pub fn h4_parent_hash_h1(child_pk: &HybridKemPublicKey, sibling_label: &[u8; 32]) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new_derive_key(H4_CONTEXT);
+    hasher.update(b"h1-sibling");
+    hasher.update(&child_pk.to_bytes());
+    hasher.update(sibling_label);
+    *hasher.finalize().as_bytes()
+}
+
+/// H4: Parent hash h2 component (predecessor binding).
+///
+/// Computes h_2 = H4(pk_v, PKpr_v, h_2,child, {pk_w}_{w in R})
+/// This binds to predecessor keys and resolution keys.
+#[cfg(feature = "alloc")]
+#[must_use]
+pub fn h4_parent_hash_h2(
+    child_pk: &HybridKemPublicKey,
+    predecessor_keys: &[&HybridKemPublicKey],
+    child_h2: &[u8; 32],
+    resolution_keys: &[&HybridKemPublicKey],
+) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new_derive_key(H4_CONTEXT);
+    hasher.update(b"h2-predecessors");
+
+    // Include child public key
+    hasher.update(&child_pk.to_bytes());
+
+    // Include all predecessor keys
+    for pk in predecessor_keys {
+        hasher.update(&pk.to_bytes());
+    }
+
+    // Include child's h_2 for chaining
+    hasher.update(child_h2);
+
+    // Include resolution keys
+    for pk in resolution_keys {
+        hasher.update(&pk.to_bytes());
+    }
+
+    *hasher.finalize().as_bytes()
+}
+
+/// H5: Epoch secret derivation.
+///
+/// Derives epoch secret from previous init secret, root seed, and transcript.
+#[must_use]
+pub fn h5_epoch_secret(
+    init_secret_prev: &[u8; 32],
+    delta_root: &[u8; 32],
+    transcript_hash: &[u8; 32],
+) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new_derive_key(H5_CONTEXT);
+    hasher.update(init_secret_prev);
+    hasher.update(delta_root);
+    hasher.update(transcript_hash);
+    *hasher.finalize().as_bytes()
+}
+
+/// Derives app secret from epoch secret.
+#[must_use]
+pub fn derive_app_secret(epoch_secret: &[u8; 32]) -> [u8; 32] {
+    blake3::derive_key(APP_SECRET_CONTEXT, epoch_secret)
+}
+
+/// Derives confirmation key from epoch secret.
+#[must_use]
+pub fn derive_conf_key(epoch_secret: &[u8; 32]) -> [u8; 32] {
+    blake3::derive_key(CONF_KEY_CONTEXT, epoch_secret)
+}
+
+/// Derives init secret for next epoch from epoch secret.
+#[must_use]
+pub fn derive_init_secret(epoch_secret: &[u8; 32]) -> [u8; 32] {
+    blake3::derive_key(INIT_SECRET_CONTEXT, epoch_secret)
+}
+
+/// Derives message key from app secret and counter.
+#[must_use]
+pub fn derive_message_key(app_secret: &[u8; 32], counter: u64) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new_derive_key(MESSAGE_KEY_CONTEXT);
+    hasher.update(app_secret);
+    hasher.update(&counter.to_le_bytes());
+    *hasher.finalize().as_bytes()
+}
+
+/// Derives message nonce from app secret and counter.
+#[must_use]
+pub fn derive_message_nonce(app_secret: &[u8; 32], counter: u64) -> [u8; 24] {
+    let mut hasher = blake3::Hasher::new_derive_key(MESSAGE_NONCE_CONTEXT);
+    hasher.update(app_secret);
+    hasher.update(&counter.to_le_bytes());
+    let hash = hasher.finalize();
+    let mut nonce = [0u8; 24];
+    nonce.copy_from_slice(&hash.as_bytes()[..24]);
+    nonce
+}
+
+/// Advances a seed through the chain (for path updates).
+///
+/// Given a leaf seed, advances it up the tree by applying H1 repeatedly.
+#[must_use]
+pub fn advance_seed_chain(leaf_seed: &[u8; 32], levels: u32) -> [u8; 32] {
+    let mut current = *leaf_seed;
+    for _ in 0..levels {
+        current = h1_seed_derive(&current);
+    }
+    current
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_h1_deterministic() {
+        let delta = [0x42u8; 32];
+        let result1 = h1_seed_derive(&delta);
+        let result2 = h1_seed_derive(&delta);
+        assert_eq!(result1, result2);
+    }
+
+    #[test]
+    fn test_h1_different_inputs() {
+        let delta1 = [0x42u8; 32];
+        let delta2 = [0x43u8; 32];
+        assert_ne!(h1_seed_derive(&delta1), h1_seed_derive(&delta2));
+    }
+
+    #[test]
+    fn test_h2_key_type_matters() {
+        let seed = [0x42u8; 32];
+        let kem_seed = h2_keygen_seed(&seed, "kem");
+        let sig_seed = h2_keygen_seed(&seed, "sig");
+        assert_ne!(kem_seed, sig_seed);
+    }
+
+    #[test]
+    fn test_h3_tree_label() {
+        let pk = [0xABu8; 100];
+        let label1 = h3_tree_label(2, 3, &pk);
+        let label2 = h3_tree_label(2, 4, &pk);
+        let label3 = h3_tree_label(3, 3, &pk);
+
+        assert_ne!(label1, label2);
+        assert_ne!(label1, label3);
+    }
+
+    #[test]
+    fn test_h3_transcript_hash_chaining() {
+        let prev = [0x11u8; 32];
+        let round1 = [0x22u8; 32];
+        let round2 = [0x33u8; 32];
+
+        let trans1 = h3_transcript_hash(&prev, &round1);
+        let trans2 = h3_transcript_hash(&trans1, &round2);
+
+        // Order matters
+        let alt = h3_transcript_hash(&prev, &round2);
+        assert_ne!(trans1, alt);
+        assert_ne!(trans2, alt);
+    }
+
+    #[test]
+    fn test_h5_epoch_secret() {
+        let init = [0x11u8; 32];
+        let delta = [0x22u8; 32];
+        let trans = [0x33u8; 32];
+
+        let secret1 = h5_epoch_secret(&init, &delta, &trans);
+        let secret2 = h5_epoch_secret(&init, &delta, &trans);
+
+        assert_eq!(secret1, secret2);
+
+        // Different inputs produce different outputs
+        let secret3 = h5_epoch_secret(&init, &[0x44u8; 32], &trans);
+        assert_ne!(secret1, secret3);
+    }
+
+    #[test]
+    fn test_epoch_key_derivation() {
+        let epoch_secret = [0x42u8; 32];
+
+        let app = derive_app_secret(&epoch_secret);
+        let conf = derive_conf_key(&epoch_secret);
+        let init = derive_init_secret(&epoch_secret);
+
+        // All different
+        assert_ne!(app, conf);
+        assert_ne!(app, init);
+        assert_ne!(conf, init);
+    }
+
+    #[test]
+    fn test_message_key_derivation() {
+        let app = [0x42u8; 32];
+
+        let key0 = derive_message_key(&app, 0);
+        let key1 = derive_message_key(&app, 1);
+
+        assert_ne!(key0, key1);
+    }
+
+    #[test]
+    fn test_message_nonce_size() {
+        let app = [0x42u8; 32];
+        let nonce = derive_message_nonce(&app, 0);
+        assert_eq!(nonce.len(), 24);
+    }
+
+    #[test]
+    fn test_advance_seed_chain() {
+        let seed = [0x42u8; 32];
+
+        let advanced0 = advance_seed_chain(&seed, 0);
+        assert_eq!(advanced0, seed);
+
+        let advanced1 = advance_seed_chain(&seed, 1);
+        assert_eq!(advanced1, h1_seed_derive(&seed));
+
+        let advanced2 = advance_seed_chain(&seed, 2);
+        assert_eq!(advanced2, h1_seed_derive(&h1_seed_derive(&seed)));
+    }
+
+    #[test]
+    fn test_context_strings() {
+        // Verify context strings are non-empty and unique
+        let contexts = [
+            H1_CONTEXT,
+            H2_CONTEXT,
+            H3_CONTEXT,
+            H4_CONTEXT,
+            H5_CONTEXT,
+            ROUND_HASH_CONTEXT,
+            TRANSCRIPT_HASH_CONTEXT,
+        ];
+
+        for ctx in &contexts {
+            assert!(!ctx.is_empty());
+        }
+
+        // Check uniqueness
+        for (i, a) in contexts.iter().enumerate() {
+            for (j, b) in contexts.iter().enumerate() {
+                if i != j {
+                    assert_ne!(a, b);
+                }
+            }
+        }
+    }
+}
