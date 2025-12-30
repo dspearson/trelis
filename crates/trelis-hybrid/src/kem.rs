@@ -136,6 +136,28 @@ impl HybridKemKeypair {
     pub fn sntrup_secret(&self) -> &Sntrup761SecretKey {
         &self.sntrup_secret
     }
+
+    /// Returns the X448 public key (for internal use in X3DH-PQ).
+    #[cfg(feature = "expose-internals")]
+    #[must_use]
+    pub fn x448_public(&self) -> &X448Public {
+        &self.public_key.x448
+    }
+
+    /// Performs X448 DH with the secret key (for X3DH-PQ).
+    #[cfg(feature = "expose-internals")]
+    pub fn x448_dh(&self, their_public: &X448Public) -> Result<trelis_primitives::X448SharedSecret> {
+        self.x448_secret.diffie_hellman(their_public)
+    }
+
+    /// Decapsulates a sntrup761 ciphertext only (for X3DH-PQ).
+    #[cfg(feature = "expose-internals")]
+    pub fn sntrup_decapsulate(
+        &self,
+        ciphertext: &Sntrup761Ciphertext,
+    ) -> Result<trelis_primitives::Sntrup761SharedSecret> {
+        self.sntrup_secret.decapsulate(ciphertext)
+    }
 }
 
 impl core::fmt::Debug for HybridKemKeypair {
@@ -188,6 +210,28 @@ impl HybridKemPublicKey {
         let sntrup = Sntrup761PublicKey::from_bytes(&bytes[X448_PK_SIZE..])?;
 
         Ok(Self { x448, sntrup })
+    }
+
+    /// Returns the X448 public key (for internal use in X3DH-PQ).
+    #[cfg(feature = "expose-internals")]
+    #[must_use]
+    pub fn x448(&self) -> &X448Public {
+        &self.x448
+    }
+
+    /// Returns the sntrup761 public key (for internal use in X3DH-PQ).
+    #[cfg(feature = "expose-internals")]
+    #[must_use]
+    pub fn sntrup(&self) -> &Sntrup761PublicKey {
+        &self.sntrup
+    }
+
+    /// Encapsulates to the sntrup761 public key only (for X3DH-PQ).
+    ///
+    /// Returns (shared_secret, ciphertext).
+    #[cfg(feature = "expose-internals")]
+    pub fn sntrup_encapsulate(&self) -> (trelis_primitives::Sntrup761SharedSecret, Sntrup761Ciphertext) {
+        self.sntrup.encapsulate()
     }
 
     /// Encapsulates to this public key, producing a shared secret and encapsulation.

@@ -1,0 +1,24 @@
+[package]
+name = "trelis-x3dh-pq"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "X3DH-PQ session establishment for the Trelis protocol"
+
+[features]
+default = ["std"]
+std = ["alloc", "trelis-primitives/std", "trelis-hybrid/std"]
+alloc = ["trelis-primitives/alloc", "trelis-hybrid/alloc"]
+
+[dependencies]
+trelis-error.workspace = true
+trelis-primitives.workspace = true
+trelis-hybrid = { workspace = true, features = ["expose-internals"] }
+trelis-wire.workspace = true
+blake3.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+hex.workspace = true

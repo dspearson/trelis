@@ -5,6 +5,7 @@ members = [
     "crates/trelis-primitives",
     "crates/trelis-hybrid",
     "crates/trelis-wire",
+    "crates/trelis-x3dh-pq",
 ]
 
 [workspace.package]
@@ -22,6 +23,7 @@ trelis-error = { path = "crates/trelis-error" }
 trelis-primitives = { path = "crates/trelis-primitives" }
 trelis-hybrid = { path = "crates/trelis-hybrid" }
 trelis-wire = { path = "crates/trelis-wire" }
+trelis-x3dh-pq = { path = "crates/trelis-x3dh-pq" }
 
 # Cryptographic primitives
 chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
