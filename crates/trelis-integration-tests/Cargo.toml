@@ -9,14 +9,14 @@ description = "Integration tests for the Trelis cryptographic library"
 publish = false
 
 [dependencies]
-trelis-error = { workspace = true }
-trelis-primitives = { workspace = true }
-trelis-hybrid = { workspace = true }
+trelis-error = { workspace = true, features = ["std"] }
+trelis-primitives = { workspace = true, features = ["std"] }
+trelis-hybrid = { workspace = true, features = ["std"] }
 trelis-wire = { workspace = true }
-trelis-x3dh-pq = { workspace = true }
-trelis-ratchet = { workspace = true }
-trelis-cocoa = { workspace = true }
-trelis-multidevice = { workspace = true }
+trelis-x3dh-pq = { workspace = true, features = ["std"] }
+trelis-ratchet = { workspace = true, features = ["std"] }
+trelis-cocoa = { workspace = true, features = ["std"] }
+trelis-multidevice = { workspace = true, features = ["std"] }
 
 [lints]
 workspace = true

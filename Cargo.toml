@@ -10,6 +10,7 @@ members = [
     "crates/trelis-cocoa",
     "crates/trelis-multidevice",
     "crates/trelis-integration-tests",
+    "crates/trelis-wasm",
 ]
 
 [workspace.package]
@@ -22,15 +23,15 @@ repository = "https://github.com/dspearson/trelis"
 description = "Hybrid post-quantum cryptographic library implementing the Trelis protocol"
 
 [workspace.dependencies]
-# Internal crates
-trelis-error = { path = "crates/trelis-error" }
-trelis-primitives = { path = "crates/trelis-primitives" }
-trelis-hybrid = { path = "crates/trelis-hybrid" }
-trelis-wire = { path = "crates/trelis-wire" }
-trelis-x3dh-pq = { path = "crates/trelis-x3dh-pq" }
-trelis-ratchet = { path = "crates/trelis-ratchet" }
-trelis-cocoa = { path = "crates/trelis-cocoa" }
-trelis-multidevice = { path = "crates/trelis-multidevice" }
+# Internal crates (default-features = false for flexible feature propagation)
+trelis-error = { path = "crates/trelis-error", default-features = false }
+trelis-primitives = { path = "crates/trelis-primitives", default-features = false }
+trelis-hybrid = { path = "crates/trelis-hybrid", default-features = false }
+trelis-wire = { path = "crates/trelis-wire", default-features = false }
+trelis-x3dh-pq = { path = "crates/trelis-x3dh-pq", default-features = false }
+trelis-ratchet = { path = "crates/trelis-ratchet", default-features = false }
+trelis-cocoa = { path = "crates/trelis-cocoa", default-features = false }
+trelis-multidevice = { path = "crates/trelis-multidevice", default-features = false }
 
 # Cryptographic primitives
 chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
@@ -45,6 +46,9 @@ zeroize = { version = "1.8", default-features = false, features = ["derive", "al
 subtle = { version = "2.5", default-features = false }
 rand_core = { version = "0.6", default-features = false }
 getrandom = { version = "0.2", default-features = false }
+
+# WASM support
+wasm-bindgen = { version = "0.2", default-features = false }
 
 # Error handling (no_std compatible)
 # thiserror requires std, so we use core::fmt::Display directly

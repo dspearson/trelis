@@ -12,6 +12,8 @@ description = "Multi-device support and history synchronisation for Trelis"
 default = ["std", "alloc"]
 std = ["alloc", "trelis-primitives/std", "trelis-hybrid/std"]
 alloc = ["trelis-primitives/alloc", "trelis-hybrid/alloc"]
+# WASM target support (browser environment)
+wasm = ["alloc", "trelis-primitives/wasm", "trelis-hybrid/wasm"]
 expose-internals = []
 
 [dependencies]

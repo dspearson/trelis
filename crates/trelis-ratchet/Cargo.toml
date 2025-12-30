@@ -11,6 +11,8 @@ description = "Hybrid PQ Double Ratchet for the Trelis protocol"
 default = ["std"]
 std = ["alloc", "trelis-primitives/std", "trelis-hybrid/std"]
 alloc = ["trelis-primitives/alloc", "trelis-hybrid/alloc"]
+# WASM target support (browser environment)
+wasm = ["alloc", "trelis-primitives/wasm", "trelis-hybrid/wasm"]
 
 [dependencies]
 trelis-error.workspace = true
