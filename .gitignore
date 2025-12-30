@@ -29,3 +29,6 @@ criterion/
 # Local environment
 .env
 .env.local
+
+# Direnv
+.direnv/
