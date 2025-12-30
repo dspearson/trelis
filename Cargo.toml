@@ -8,6 +8,7 @@ members = [
     "crates/trelis-x3dh-pq",
     "crates/trelis-ratchet",
     "crates/trelis-cocoa",
+    "crates/trelis-multidevice",
 ]
 
 [workspace.package]
@@ -28,6 +29,7 @@ trelis-wire = { path = "crates/trelis-wire" }
 trelis-x3dh-pq = { path = "crates/trelis-x3dh-pq" }
 trelis-ratchet = { path = "crates/trelis-ratchet" }
 trelis-cocoa = { path = "crates/trelis-cocoa" }
+trelis-multidevice = { path = "crates/trelis-multidevice" }
 
 # Cryptographic primitives
 chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }

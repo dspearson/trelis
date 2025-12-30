@@ -1,0 +1,28 @@
+[package]
+name = "trelis-multidevice"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "Multi-device support and history synchronisation for Trelis"
+
+[features]
+default = ["std", "alloc"]
+std = ["alloc", "trelis-primitives/std", "trelis-hybrid/std"]
+alloc = ["trelis-primitives/alloc", "trelis-hybrid/alloc"]
+expose-internals = []
+
+[dependencies]
+trelis-error.workspace = true
+trelis-primitives.workspace = true
+trelis-hybrid.workspace = true
+trelis-wire.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+hex.workspace = true
+
+[lints]
+workspace = true
