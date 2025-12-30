@@ -1,0 +1,478 @@
+//! Safety number derivation for out-of-band identity verification.
+//!
+//! Safety numbers provide a way for users to verify they are communicating
+//! with the intended party, detecting man-in-the-middle attacks.
+//!
+//! # Security Requirements
+//!
+//! Safety numbers MUST include ALL FOUR key components:
+//! - **Signing keys**: Ed448 + ML-DSA-65
+//! - **KEM keys**: X448 + sntrup761
+//!
+//! This prevents attacks where an adversary substitutes only one component
+//! of a hybrid identity (e.g., replacing KEM keys while preserving signing keys).
+//!
+//! # Example
+//!
+//! ```rust,no_run
+//! use trelis_hybrid::{HybridIdentityKeypair, SafetyNumber};
+//!
+//! let alice = HybridIdentityKeypair::generate().unwrap();
+//! let bob = HybridIdentityKeypair::generate().unwrap();
+//!
+//! let safety_number = SafetyNumber::new(
+//!     alice.public_key(),
+//!     bob.public_key(),
+//! );
+//!
+//! // Display as 60 decimal digits
+//! println!("{}", safety_number.display());
+//! ```
+
+#[cfg(feature = "alloc")]
+use alloc::format;
+#[cfg(feature = "alloc")]
+use alloc::string::String;
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+
+use crate::identity::HybridIdentityPublicKey;
+
+/// Context string for standard safety number derivation (forward-secrecy only).
+pub const SAFETY_NUMBER_CONTEXT: &str = "trelis-safety-number-v1";
+
+/// Context string for history-sync-enabled safety numbers.
+pub const SAFETY_NUMBER_SYNC_CONTEXT: &str = "trelis-safety-number-sync-v1";
+
+/// Size of the thread ID for history-sync safety numbers.
+pub const THREAD_ID_SIZE: usize = 32;
+
+/// Safety number for out-of-band identity verification.
+///
+/// A safety number is derived from two users' identity public keys
+/// and can be compared visually or via QR code to verify identities.
+#[derive(Clone, PartialEq, Eq)]
+pub struct SafetyNumber {
+    /// 32-byte BLAKE3 fingerprint.
+    fingerprint: [u8; 32],
+}
+
+impl SafetyNumber {
+    /// Creates a new safety number from two hybrid identity public keys.
+    ///
+    /// The derivation includes all four key components (Ed448, ML-DSA-65,
+    /// X448, sntrup761) to prevent partial key substitution attacks.
+    ///
+    /// The order of keys does not matter - the same safety number is
+    /// produced regardless of which key is provided first.
+    #[cfg(feature = "alloc")]
+    #[must_use]
+    pub fn new(key_a: &HybridIdentityPublicKey, key_b: &HybridIdentityPublicKey) -> Self {
+        // Hash each hybrid identity to a fixed-size digest
+        let a_digest = Self::hash_identity(key_a);
+        let b_digest = Self::hash_identity(key_b);
+
+        // Sort digests for deterministic ordering (commutativity)
+        let (first, second) = if a_digest.as_bytes() < b_digest.as_bytes() {
+            (a_digest, b_digest)
+        } else {
+            (b_digest, a_digest)
+        };
+
+        // Combine and derive fingerprint
+        let mut input = [0u8; 64];
+        input[..32].copy_from_slice(first.as_bytes());
+        input[32..].copy_from_slice(second.as_bytes());
+
+        let fingerprint = blake3::derive_key(SAFETY_NUMBER_CONTEXT, &input);
+
+        Self { fingerprint }
+    }
+
+    /// Creates a safety number for a history-sync-enabled thread.
+    ///
+    /// Uses a distinct context string to differentiate from forward-secrecy-only
+    /// threads. The thread ID is included in the derivation.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_a` - First user's identity public key
+    /// * `key_b` - Second user's identity public key
+    /// * `thread_id` - 32-byte thread identifier
+    #[cfg(feature = "alloc")]
+    #[must_use]
+    pub fn new_with_history_sync(
+        key_a: &HybridIdentityPublicKey,
+        key_b: &HybridIdentityPublicKey,
+        thread_id: &[u8; THREAD_ID_SIZE],
+    ) -> Self {
+        // Hash each hybrid identity to a fixed-size digest
+        let a_digest = Self::hash_identity(key_a);
+        let b_digest = Self::hash_identity(key_b);
+
+        // Sort digests for deterministic ordering (commutativity)
+        let (first, second) = if a_digest.as_bytes() < b_digest.as_bytes() {
+            (a_digest, b_digest)
+        } else {
+            (b_digest, a_digest)
+        };
+
+        // Combine with thread ID
+        let mut input = Vec::with_capacity(96);
+        input.extend_from_slice(first.as_bytes());
+        input.extend_from_slice(second.as_bytes());
+        input.extend_from_slice(thread_id);
+
+        // DISTINCT context for sync-enabled threads
+        let fingerprint = blake3::derive_key(SAFETY_NUMBER_SYNC_CONTEXT, &input);
+
+        Self { fingerprint }
+    }
+
+    /// Hashes a hybrid identity public key to a 32-byte digest.
+    ///
+    /// Includes all four key components:
+    /// - Ed448 signing key (57 bytes)
+    /// - ML-DSA-65 signing key (1,952 bytes)
+    /// - X448 KEM key (56 bytes)
+    /// - sntrup761 KEM key (1,158 bytes)
+    #[cfg(feature = "alloc")]
+    fn hash_identity(key: &HybridIdentityPublicKey) -> blake3::Hash {
+        let mut data = Vec::with_capacity(3223); // Total size of all keys
+
+        // Signing keys (use to_bytes() which includes both Ed448 and ML-DSA-65)
+        data.extend_from_slice(&key.signing().to_bytes());
+
+        // KEM keys (use to_bytes() which includes both X448 and sntrup761)
+        data.extend_from_slice(&key.kem().to_bytes());
+
+        blake3::hash(&data)
+    }
+
+    /// Returns the raw 32-byte fingerprint.
+    #[must_use]
+    pub fn fingerprint(&self) -> &[u8; 32] {
+        &self.fingerprint
+    }
+
+    /// Formats the safety number as 60 decimal digits.
+    ///
+    /// The format is 12 groups of 5 digits each, displayed in 2 rows:
+    /// ```text
+    /// 12345 67890 12345 67890 12345 67890
+    /// 12345 67890 12345 67890 12345 67890
+    /// ```
+    ///
+    /// The 60 digits encode approximately 199 bits of information
+    /// (log2(10^60) ≈ 199.3), providing strong collision resistance.
+    #[cfg(feature = "alloc")]
+    #[must_use]
+    pub fn display(&self) -> String {
+        // Convert fingerprint to a large integer and extract decimal digits
+        // We use 30 bytes (240 bits) and convert to 60 decimal digits
+        let digits = Self::bytes_to_decimal(&self.fingerprint[..30], 60);
+
+        // Format as 12 groups of 5 digits
+        let groups: Vec<&str> = digits
+            .as_bytes()
+            .chunks(5)
+            .map(|chunk| core::str::from_utf8(chunk).unwrap_or("00000"))
+            .collect();
+
+        // Display in 2 rows of 6 groups
+        format!(
+            "{} {} {} {} {} {}\n{} {} {} {} {} {}",
+            groups[0],
+            groups[1],
+            groups[2],
+            groups[3],
+            groups[4],
+            groups[5],
+            groups[6],
+            groups[7],
+            groups[8],
+            groups[9],
+            groups[10],
+            groups[11]
+        )
+    }
+
+    /// Converts bytes to a decimal string of specified length.
+    ///
+    /// Uses repeated division by 10 on a large integer representation.
+    #[cfg(feature = "alloc")]
+    fn bytes_to_decimal(bytes: &[u8], num_digits: usize) -> String {
+        // Work with bytes as a big-endian large integer
+        // We'll extract decimal digits by repeated division
+        let mut data: Vec<u16> = bytes.iter().map(|&b| b as u16).collect();
+        let mut digits = Vec::with_capacity(num_digits);
+
+        for _ in 0..num_digits {
+            // Divide by 10, collect remainder as digit
+            let mut carry: u16 = 0;
+            for byte in data.iter_mut() {
+                let value = carry * 256 + *byte;
+                *byte = value / 10;
+                carry = value % 10;
+            }
+            digits.push((carry as u8) + b'0');
+        }
+
+        // Reverse to get most significant digit first
+        digits.reverse();
+        String::from_utf8(digits).unwrap_or_else(|_| "0".repeat(num_digits))
+    }
+
+    /// Returns the safety number as a QR-code-friendly string.
+    ///
+    /// Format: version byte (0x01) + 32-byte fingerprint, Base64-URL encoded.
+    /// Total: 44 characters (no padding).
+    #[cfg(feature = "alloc")]
+    #[must_use]
+    pub fn to_qr_string(&self) -> String {
+        use alloc::vec;
+
+        let mut data = vec![0x01u8]; // Version byte
+        data.extend_from_slice(&self.fingerprint);
+
+        // Base64-URL encode (no padding)
+        base64_url_encode(&data)
+    }
+
+    /// Parses a safety number from a QR code string.
+    ///
+    /// # Errors
+    ///
+    /// Returns `None` if the string is invalid or has wrong version.
+    #[cfg(feature = "alloc")]
+    pub fn from_qr_string(s: &str) -> Option<Self> {
+        let data = base64_url_decode(s)?;
+
+        if data.len() != 33 || data[0] != 0x01 {
+            return None;
+        }
+
+        let mut fingerprint = [0u8; 32];
+        fingerprint.copy_from_slice(&data[1..]);
+
+        Some(Self { fingerprint })
+    }
+}
+
+impl core::fmt::Debug for SafetyNumber {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        // Simple hex display without external dependencies
+        write!(f, "SafetyNumber({:02x}{:02x}{:02x}{:02x}...)",
+            self.fingerprint[0], self.fingerprint[1],
+            self.fingerprint[2], self.fingerprint[3])
+    }
+}
+
+/// Base64-URL encode without padding.
+#[cfg(feature = "alloc")]
+fn base64_url_encode(data: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+    let mut result = String::with_capacity((data.len() * 4 + 2) / 3);
+    let mut i = 0;
+
+    while i + 3 <= data.len() {
+        let n = ((data[i] as u32) << 16) | ((data[i + 1] as u32) << 8) | (data[i + 2] as u32);
+        result.push(ALPHABET[(n >> 18) as usize & 0x3F] as char);
+        result.push(ALPHABET[(n >> 12) as usize & 0x3F] as char);
+        result.push(ALPHABET[(n >> 6) as usize & 0x3F] as char);
+        result.push(ALPHABET[n as usize & 0x3F] as char);
+        i += 3;
+    }
+
+    let remaining = data.len() - i;
+    if remaining == 1 {
+        let n = (data[i] as u32) << 16;
+        result.push(ALPHABET[(n >> 18) as usize & 0x3F] as char);
+        result.push(ALPHABET[(n >> 12) as usize & 0x3F] as char);
+    } else if remaining == 2 {
+        let n = ((data[i] as u32) << 16) | ((data[i + 1] as u32) << 8);
+        result.push(ALPHABET[(n >> 18) as usize & 0x3F] as char);
+        result.push(ALPHABET[(n >> 12) as usize & 0x3F] as char);
+        result.push(ALPHABET[(n >> 6) as usize & 0x3F] as char);
+    }
+
+    result
+}
+
+/// Base64-URL decode.
+#[cfg(feature = "alloc")]
+fn base64_url_decode(s: &str) -> Option<Vec<u8>> {
+    fn char_to_value(c: u8) -> Option<u8> {
+        match c {
+            b'A'..=b'Z' => Some(c - b'A'),
+            b'a'..=b'z' => Some(c - b'a' + 26),
+            b'0'..=b'9' => Some(c - b'0' + 52),
+            b'-' => Some(62),
+            b'_' => Some(63),
+            _ => None,
+        }
+    }
+
+    let bytes = s.as_bytes();
+    let mut result = Vec::with_capacity(bytes.len() * 3 / 4);
+    let mut i = 0;
+
+    while i + 4 <= bytes.len() {
+        let a = char_to_value(bytes[i])?;
+        let b = char_to_value(bytes[i + 1])?;
+        let c = char_to_value(bytes[i + 2])?;
+        let d = char_to_value(bytes[i + 3])?;
+
+        result.push((a << 2) | (b >> 4));
+        result.push((b << 4) | (c >> 2));
+        result.push((c << 6) | d);
+        i += 4;
+    }
+
+    let remaining = bytes.len() - i;
+    if remaining == 2 {
+        let a = char_to_value(bytes[i])?;
+        let b = char_to_value(bytes[i + 1])?;
+        result.push((a << 2) | (b >> 4));
+    } else if remaining == 3 {
+        let a = char_to_value(bytes[i])?;
+        let b = char_to_value(bytes[i + 1])?;
+        let c = char_to_value(bytes[i + 2])?;
+        result.push((a << 2) | (b >> 4));
+        result.push((b << 4) | (c >> 2));
+    }
+
+    Some(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::HybridIdentityKeypair;
+
+    #[test]
+    fn test_safety_number_commutativity() {
+        let alice = HybridIdentityKeypair::generate().unwrap();
+        let bob = HybridIdentityKeypair::generate().unwrap();
+
+        let sn1 = SafetyNumber::new(alice.public_key(), bob.public_key());
+        let sn2 = SafetyNumber::new(bob.public_key(), alice.public_key());
+
+        assert_eq!(sn1.fingerprint(), sn2.fingerprint(), "Order should not matter");
+    }
+
+    #[test]
+    fn test_safety_number_different_keys_different_numbers() {
+        let alice = HybridIdentityKeypair::generate().unwrap();
+        let bob = HybridIdentityKeypair::generate().unwrap();
+        let carol = HybridIdentityKeypair::generate().unwrap();
+
+        let sn_ab = SafetyNumber::new(alice.public_key(), bob.public_key());
+        let sn_ac = SafetyNumber::new(alice.public_key(), carol.public_key());
+
+        assert_ne!(
+            sn_ab.fingerprint(),
+            sn_ac.fingerprint(),
+            "Different keys should produce different safety numbers"
+        );
+    }
+
+    #[test]
+    fn test_safety_number_same_keys_same_number() {
+        let alice = HybridIdentityKeypair::generate().unwrap();
+        let bob = HybridIdentityKeypair::generate().unwrap();
+
+        let sn1 = SafetyNumber::new(alice.public_key(), bob.public_key());
+        let sn2 = SafetyNumber::new(alice.public_key(), bob.public_key());
+
+        assert_eq!(sn1.fingerprint(), sn2.fingerprint(), "Same keys should produce same safety number");
+    }
+
+    #[test]
+    fn test_safety_number_display_format() {
+        let alice = HybridIdentityKeypair::generate().unwrap();
+        let bob = HybridIdentityKeypair::generate().unwrap();
+
+        let sn = SafetyNumber::new(alice.public_key(), bob.public_key());
+        let display = sn.display();
+
+        // Should have 60 digits + 11 spaces + 1 newline = 72 characters
+        let digits_only: String = display.chars().filter(|c| c.is_ascii_digit()).collect();
+        assert_eq!(digits_only.len(), 60, "Should have 60 decimal digits");
+
+        // Check format: 2 lines
+        let lines: Vec<&str> = display.lines().collect();
+        assert_eq!(lines.len(), 2, "Should have 2 lines");
+    }
+
+    #[test]
+    fn test_safety_number_qr_roundtrip() {
+        let alice = HybridIdentityKeypair::generate().unwrap();
+        let bob = HybridIdentityKeypair::generate().unwrap();
+
+        let sn = SafetyNumber::new(alice.public_key(), bob.public_key());
+        let qr = sn.to_qr_string();
+
+        // Should be 44 characters (ceil(33 * 4 / 3))
+        assert_eq!(qr.len(), 44, "QR string should be 44 characters");
+
+        // Should decode back to same safety number
+        let decoded = SafetyNumber::from_qr_string(&qr).expect("Should decode");
+        assert_eq!(sn.fingerprint(), decoded.fingerprint(), "Should roundtrip correctly");
+    }
+
+    #[test]
+    fn test_history_sync_uses_different_context() {
+        let alice = HybridIdentityKeypair::generate().unwrap();
+        let bob = HybridIdentityKeypair::generate().unwrap();
+        let thread_id = [0x42u8; 32];
+
+        let standard = SafetyNumber::new(alice.public_key(), bob.public_key());
+        let sync = SafetyNumber::new_with_history_sync(alice.public_key(), bob.public_key(), &thread_id);
+
+        assert_ne!(
+            standard.fingerprint(),
+            sync.fingerprint(),
+            "Standard and sync safety numbers should differ"
+        );
+    }
+
+    #[test]
+    fn test_history_sync_commutativity() {
+        let alice = HybridIdentityKeypair::generate().unwrap();
+        let bob = HybridIdentityKeypair::generate().unwrap();
+        let thread_id = [0x42u8; 32];
+
+        let sn1 = SafetyNumber::new_with_history_sync(alice.public_key(), bob.public_key(), &thread_id);
+        let sn2 = SafetyNumber::new_with_history_sync(bob.public_key(), alice.public_key(), &thread_id);
+
+        assert_eq!(sn1.fingerprint(), sn2.fingerprint(), "Order should not matter for sync numbers");
+    }
+
+    #[test]
+    fn test_different_thread_ids_different_numbers() {
+        let alice = HybridIdentityKeypair::generate().unwrap();
+        let bob = HybridIdentityKeypair::generate().unwrap();
+        let thread_id_1 = [0x01u8; 32];
+        let thread_id_2 = [0x02u8; 32];
+
+        let sn1 = SafetyNumber::new_with_history_sync(alice.public_key(), bob.public_key(), &thread_id_1);
+        let sn2 = SafetyNumber::new_with_history_sync(alice.public_key(), bob.public_key(), &thread_id_2);
+
+        assert_ne!(
+            sn1.fingerprint(),
+            sn2.fingerprint(),
+            "Different thread IDs should produce different safety numbers"
+        );
+    }
+
+    #[test]
+    fn test_base64_url_encode_decode() {
+        let data = [0x01u8, 0x02, 0x03, 0x04, 0x05];
+        let encoded = base64_url_encode(&data);
+        let decoded = base64_url_decode(&encoded).unwrap();
+        assert_eq!(data.to_vec(), decoded);
+    }
+}

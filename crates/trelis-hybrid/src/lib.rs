@@ -41,6 +41,8 @@ pub mod identity;
 pub mod one_time_key;
 #[cfg(feature = "std")]
 pub mod prekey_bundle;
+#[cfg(feature = "std")]
+pub mod safety_number;
 
 // Re-export key types
 pub use combiner::HybridSharedSecret;
@@ -54,5 +56,7 @@ pub use identity::{HybridIdentityKeypair, HybridIdentityPublicKey};
 pub use one_time_key::{HybridOneTimeKey, HybridOneTimeKeyPair};
 #[cfg(feature = "std")]
 pub use prekey_bundle::HybridPreKeyBundle;
+#[cfg(feature = "std")]
+pub use safety_number::SafetyNumber;
 
 pub use trelis_error::{CryptoError, Result};
