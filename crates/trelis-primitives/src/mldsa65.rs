@@ -1,0 +1,563 @@
+//! ML-DSA-65 signature primitives.
+//!
+//! This module provides ML-DSA-65 digital signatures as specified in FIPS 204.
+//! ML-DSA-65 (formerly Dilithium3) is a lattice-based post-quantum signature
+//! scheme providing approximately 128-bit security against quantum attacks
+//! (NIST Level 3).
+//!
+//! # Key Sizes
+//!
+//! - Public key: 1,952 bytes
+//! - Secret key: 4,032 bytes
+//! - Signature: 3,309 bytes
+//!
+//! # Security Properties
+//!
+//! - Post-quantum security (lattice-based)
+//! - Strong unforgeability under chosen message attacks (SUF-CMA)
+//! - Constant-time implementation
+//!
+//! # Examples
+//!
+//! ```
+//! use trelis_primitives::mldsa65::{MlDsa65SigningKey, MlDsa65VerifyingKey};
+//!
+//! // Generate a new signing key
+//! let signing_key = MlDsa65SigningKey::generate().unwrap();
+//!
+//! // Get the corresponding verifying key
+//! let verifying_key = signing_key.verifying_key();
+//!
+//! // Sign a message
+//! let message = b"Hello, Trelis!";
+//! let signature = signing_key.sign(message).unwrap();
+//!
+//! // Verify the signature
+//! assert!(verifying_key.verify(message, &signature));
+//! ```
+
+use fips204::ml_dsa_65;
+use fips204::traits::{SerDes, Signer, Verifier};
+use subtle::ConstantTimeEq;
+use zeroize::{Zeroize, ZeroizeOnDrop};
+
+use crate::random::fill_bytes;
+use trelis_error::{CryptoError, Result};
+
+/// Size of ML-DSA-65 public key in bytes.
+pub const PUBLIC_KEY_SIZE: usize = ml_dsa_65::PK_LEN;
+
+/// Size of ML-DSA-65 secret key in bytes.
+pub const SECRET_KEY_SIZE: usize = ml_dsa_65::SK_LEN;
+
+/// Size of ML-DSA-65 signature in bytes.
+pub const SIGNATURE_SIZE: usize = ml_dsa_65::SIG_LEN;
+
+/// ML-DSA-65 signing key (secret key).
+///
+/// This key is used to create signatures. It contains the secret key material
+/// and is zeroized on drop to prevent key material leakage.
+#[derive(Clone, Zeroize, ZeroizeOnDrop)]
+pub struct MlDsa65SigningKey {
+    bytes: [u8; SECRET_KEY_SIZE],
+}
+
+impl MlDsa65SigningKey {
+    /// Generates a new random signing key.
+    ///
+    /// # Errors
+    ///
+    /// Returns `RngFailure` if the system CSPRNG fails, or `KeyGenerationFailed`
+    /// if key generation fails internally.
+    pub fn generate() -> Result<Self> {
+        // Create a CSPRNG that implements CryptoRngCore
+        let mut rng = CsprngAdapter::new()?;
+        let (_pk, sk) = ml_dsa_65::try_keygen_with_rng(&mut rng)
+            .map_err(|_| CryptoError::KeyGenerationFailed)?;
+        Ok(Self {
+            bytes: sk.into_bytes(),
+        })
+    }
+
+    /// Creates a signing key from raw bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidKeyLength` if the slice length is wrong, or
+    /// `KeyGenerationFailed` if the bytes don't represent a valid key.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() != SECRET_KEY_SIZE {
+            return Err(CryptoError::InvalidKeyLength {
+                expected: SECRET_KEY_SIZE,
+                actual: bytes.len(),
+            });
+        }
+        let mut key_bytes = [0u8; SECRET_KEY_SIZE];
+        key_bytes.copy_from_slice(bytes);
+
+        // Validate by attempting to expand the key
+        let _ = ml_dsa_65::PrivateKey::try_from_bytes(key_bytes)
+            .map_err(|_| CryptoError::KeyGenerationFailed)?;
+
+        Ok(Self { bytes: key_bytes })
+    }
+
+    /// Returns the secret key bytes.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8; SECRET_KEY_SIZE] {
+        &self.bytes
+    }
+
+    /// Derives the verifying (public) key from this signing key.
+    #[must_use]
+    pub fn verifying_key(&self) -> MlDsa65VerifyingKey {
+        // Expand the private key and extract the public key
+        let sk = ml_dsa_65::PrivateKey::try_from_bytes(self.bytes)
+            .expect("key bytes validated in constructor");
+        let pk = sk.get_public_key();
+        MlDsa65VerifyingKey {
+            bytes: pk.into_bytes(),
+        }
+    }
+
+    /// Signs a message.
+    ///
+    /// # Arguments
+    ///
+    /// * `message` - The message to sign.
+    ///
+    /// # Returns
+    ///
+    /// The ML-DSA-65 signature (3,309 bytes).
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidSignature` if signing fails (e.g., RNG failure).
+    pub fn sign(&self, message: &[u8]) -> Result<MlDsa65Signature> {
+        let sk = ml_dsa_65::PrivateKey::try_from_bytes(self.bytes)
+            .expect("key bytes validated in constructor");
+        let mut rng = CsprngAdapter::new()?;
+        let sig = sk
+            .try_sign_with_rng(&mut rng, message, &[])
+            .map_err(|_| CryptoError::InvalidSignature)?;
+        Ok(MlDsa65Signature { bytes: sig })
+    }
+
+    /// Signs a message with a context string.
+    ///
+    /// # Arguments
+    ///
+    /// * `message` - The message to sign.
+    /// * `context` - The context string (max 255 bytes).
+    ///
+    /// # Returns
+    ///
+    /// The ML-DSA-65 signature (3,309 bytes).
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidSignature` if the context string is too long or signing fails.
+    pub fn sign_with_context(&self, message: &[u8], context: &[u8]) -> Result<MlDsa65Signature> {
+        if context.len() > 255 {
+            return Err(CryptoError::InvalidSignature);
+        }
+        let sk = ml_dsa_65::PrivateKey::try_from_bytes(self.bytes)
+            .expect("key bytes validated in constructor");
+        let mut rng = CsprngAdapter::new()?;
+        let sig = sk
+            .try_sign_with_rng(&mut rng, message, context)
+            .map_err(|_| CryptoError::InvalidSignature)?;
+        Ok(MlDsa65Signature { bytes: sig })
+    }
+}
+
+/// ML-DSA-65 verifying key (public key).
+///
+/// This key is used to verify signatures created by the corresponding
+/// signing key.
+#[derive(Clone)]
+pub struct MlDsa65VerifyingKey {
+    bytes: [u8; PUBLIC_KEY_SIZE],
+}
+
+impl MlDsa65VerifyingKey {
+    /// Creates a verifying key from raw bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidKeyLength` if the slice is not exactly 1,952 bytes,
+    /// or `SignatureVerificationFailed` if the bytes don't represent a valid key.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() != PUBLIC_KEY_SIZE {
+            return Err(CryptoError::InvalidKeyLength {
+                expected: PUBLIC_KEY_SIZE,
+                actual: bytes.len(),
+            });
+        }
+        let mut key_bytes = [0u8; PUBLIC_KEY_SIZE];
+        key_bytes.copy_from_slice(bytes);
+
+        // Validate by attempting to expand the key
+        let _ = ml_dsa_65::PublicKey::try_from_bytes(key_bytes)
+            .map_err(|_| CryptoError::SignatureVerificationFailed)?;
+
+        Ok(Self { bytes: key_bytes })
+    }
+
+    /// Creates a verifying key from a fixed-size array.
+    ///
+    /// # Errors
+    ///
+    /// Returns `SignatureVerificationFailed` if the bytes don't represent a valid key.
+    pub fn from_array(bytes: [u8; PUBLIC_KEY_SIZE]) -> Result<Self> {
+        // Validate by attempting to expand the key
+        let _ = ml_dsa_65::PublicKey::try_from_bytes(bytes)
+            .map_err(|_| CryptoError::SignatureVerificationFailed)?;
+        Ok(Self { bytes })
+    }
+
+    /// Returns the public key as bytes.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8; PUBLIC_KEY_SIZE] {
+        &self.bytes
+    }
+
+    /// Returns the public key as a byte array.
+    #[must_use]
+    pub fn to_bytes(&self) -> [u8; PUBLIC_KEY_SIZE] {
+        self.bytes
+    }
+
+    /// Verifies a signature on a message.
+    ///
+    /// # Arguments
+    ///
+    /// * `message` - The message that was signed.
+    /// * `signature` - The signature to verify.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the signature is valid, `false` otherwise.
+    #[must_use]
+    pub fn verify(&self, message: &[u8], signature: &MlDsa65Signature) -> bool {
+        let pk = match ml_dsa_65::PublicKey::try_from_bytes(self.bytes) {
+            Ok(pk) => pk,
+            Err(_) => return false,
+        };
+        pk.verify(message, &signature.bytes, &[])
+    }
+
+    /// Verifies a signature on a message with a context string.
+    ///
+    /// # Arguments
+    ///
+    /// * `message` - The message that was signed.
+    /// * `context` - The context string used during signing.
+    /// * `signature` - The signature to verify.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the signature is valid, `false` otherwise.
+    #[must_use]
+    pub fn verify_with_context(
+        &self,
+        message: &[u8],
+        context: &[u8],
+        signature: &MlDsa65Signature,
+    ) -> bool {
+        if context.len() > 255 {
+            return false;
+        }
+        let pk = match ml_dsa_65::PublicKey::try_from_bytes(self.bytes) {
+            Ok(pk) => pk,
+            Err(_) => return false,
+        };
+        pk.verify(message, &signature.bytes, context)
+    }
+}
+
+impl PartialEq for MlDsa65VerifyingKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.bytes.ct_eq(&other.bytes).into()
+    }
+}
+
+impl Eq for MlDsa65VerifyingKey {}
+
+impl core::fmt::Debug for MlDsa65VerifyingKey {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("MlDsa65VerifyingKey")
+            .field("bytes", &"[1952 bytes]")
+            .finish()
+    }
+}
+
+/// ML-DSA-65 signature.
+#[derive(Clone)]
+pub struct MlDsa65Signature {
+    bytes: [u8; SIGNATURE_SIZE],
+}
+
+impl MlDsa65Signature {
+    /// Creates a signature from raw bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidSignature` if the slice is not exactly 3,309 bytes.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() != SIGNATURE_SIZE {
+            return Err(CryptoError::InvalidSignature);
+        }
+        let mut sig_bytes = [0u8; SIGNATURE_SIZE];
+        sig_bytes.copy_from_slice(bytes);
+        Ok(Self { bytes: sig_bytes })
+    }
+
+    /// Creates a signature from a fixed-size array.
+    #[must_use]
+    pub const fn from_array(bytes: [u8; SIGNATURE_SIZE]) -> Self {
+        Self { bytes }
+    }
+
+    /// Returns the signature as bytes.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8; SIGNATURE_SIZE] {
+        &self.bytes
+    }
+
+    /// Returns the signature as a byte array.
+    #[must_use]
+    pub fn to_bytes(&self) -> [u8; SIGNATURE_SIZE] {
+        self.bytes
+    }
+}
+
+impl ConstantTimeEq for MlDsa65Signature {
+    fn ct_eq(&self, other: &Self) -> subtle::Choice {
+        self.bytes.ct_eq(&other.bytes)
+    }
+}
+
+impl PartialEq for MlDsa65Signature {
+    fn eq(&self, other: &Self) -> bool {
+        self.ct_eq(other).into()
+    }
+}
+
+impl Eq for MlDsa65Signature {}
+
+impl core::fmt::Debug for MlDsa65Signature {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("MlDsa65Signature")
+            .field("bytes", &"[3309 bytes]")
+            .finish()
+    }
+}
+
+/// CSPRNG adapter that wraps our random module.
+///
+/// This allows us to use our getrandom-based RNG with fips204's CryptoRngCore trait.
+struct CsprngAdapter;
+
+impl CsprngAdapter {
+    fn new() -> Result<Self> {
+        Ok(Self)
+    }
+}
+
+impl fips204::RngCore for CsprngAdapter {
+    fn next_u32(&mut self) -> u32 {
+        let mut buf = [0u8; 4];
+        self.fill_bytes(&mut buf);
+        u32::from_le_bytes(buf)
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        let mut buf = [0u8; 8];
+        self.fill_bytes(&mut buf);
+        u64::from_le_bytes(buf)
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        // Panic if RNG fails - this is acceptable for CSPRNG
+        fill_bytes(dest).expect("CSPRNG failed");
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> core::result::Result<(), fips204::RngError> {
+        fill_bytes(dest).map_err(|_| {
+            // Use a custom error code for CSPRNG failure
+            core::num::NonZeroU32::new(fips204::RngError::CUSTOM_START)
+                .map(fips204::RngError::from)
+                .expect("CUSTOM_START is non-zero")
+        })
+    }
+}
+
+impl fips204::CryptoRng for CsprngAdapter {}
+
+#[cfg(test)]
+mod tests {
+    extern crate alloc;
+    use alloc::vec;
+
+    use super::*;
+
+    #[test]
+    fn test_key_sizes() {
+        // Verify sizes match FIPS 204 ML-DSA-65 specification
+        assert_eq!(PUBLIC_KEY_SIZE, 1952);
+        assert_eq!(SECRET_KEY_SIZE, 4032);
+        assert_eq!(SIGNATURE_SIZE, 3309);
+    }
+
+    #[test]
+    fn test_key_generation() {
+        let signing_key = MlDsa65SigningKey::generate().unwrap();
+        let verifying_key = signing_key.verifying_key();
+
+        assert_eq!(verifying_key.as_bytes().len(), PUBLIC_KEY_SIZE);
+    }
+
+    #[test]
+    fn test_sign_verify_roundtrip() {
+        let signing_key = MlDsa65SigningKey::generate().unwrap();
+        let verifying_key = signing_key.verifying_key();
+
+        let message = b"Hello, ML-DSA-65!";
+        let signature = signing_key.sign(message).unwrap();
+
+        assert!(verifying_key.verify(message, &signature));
+    }
+
+    #[test]
+    fn test_signature_sizes() {
+        let signing_key = MlDsa65SigningKey::generate().unwrap();
+        let signature = signing_key.sign(b"test").unwrap();
+
+        assert_eq!(signature.as_bytes().len(), SIGNATURE_SIZE);
+    }
+
+    #[test]
+    fn test_wrong_message_fails() {
+        let signing_key = MlDsa65SigningKey::generate().unwrap();
+        let verifying_key = signing_key.verifying_key();
+
+        let message = b"correct message";
+        let signature = signing_key.sign(message).unwrap();
+
+        let wrong_message = b"wrong message";
+        assert!(!verifying_key.verify(wrong_message, &signature));
+    }
+
+    #[test]
+    fn test_wrong_key_fails() {
+        let signing_key1 = MlDsa65SigningKey::generate().unwrap();
+        let signing_key2 = MlDsa65SigningKey::generate().unwrap();
+        let verifying_key2 = signing_key2.verifying_key();
+
+        let message = b"test message";
+        let signature = signing_key1.sign(message).unwrap();
+
+        // Verify with wrong key should fail
+        assert!(!verifying_key2.verify(message, &signature));
+    }
+
+    #[test]
+    fn test_empty_message() {
+        let signing_key = MlDsa65SigningKey::generate().unwrap();
+        let verifying_key = signing_key.verifying_key();
+
+        let message = b"";
+        let signature = signing_key.sign(message).unwrap();
+
+        assert!(verifying_key.verify(message, &signature));
+    }
+
+    #[test]
+    fn test_large_message() {
+        let signing_key = MlDsa65SigningKey::generate().unwrap();
+        let verifying_key = signing_key.verifying_key();
+
+        let message = vec![0xffu8; 10000];
+        let signature = signing_key.sign(&message).unwrap();
+
+        assert!(verifying_key.verify(&message, &signature));
+    }
+
+    #[test]
+    fn test_context_string() {
+        let signing_key = MlDsa65SigningKey::generate().unwrap();
+        let verifying_key = signing_key.verifying_key();
+
+        let message = b"test message";
+        let context = b"trelis-test-context";
+
+        let signature = signing_key.sign_with_context(message, context).unwrap();
+
+        // Verify with same context should succeed
+        assert!(verifying_key.verify_with_context(message, context, &signature));
+
+        // Verify with wrong context should fail
+        assert!(!verifying_key.verify_with_context(message, b"wrong-context", &signature));
+
+        // Verify without context should fail
+        assert!(!verifying_key.verify(message, &signature));
+    }
+
+    #[test]
+    fn test_verifying_key_from_bytes() {
+        let signing_key = MlDsa65SigningKey::generate().unwrap();
+        let verifying_key = signing_key.verifying_key();
+
+        let bytes = verifying_key.to_bytes();
+        let recovered = MlDsa65VerifyingKey::from_bytes(&bytes).unwrap();
+
+        assert_eq!(verifying_key, recovered);
+    }
+
+    #[test]
+    fn test_signature_from_bytes() {
+        let signing_key = MlDsa65SigningKey::generate().unwrap();
+        let signature = signing_key.sign(b"test").unwrap();
+
+        let bytes = signature.to_bytes();
+        let recovered = MlDsa65Signature::from_bytes(&bytes).unwrap();
+
+        assert_eq!(signature, recovered);
+    }
+
+    #[test]
+    fn test_invalid_signature_length() {
+        let result = MlDsa65Signature::from_bytes(&[0u8; 100]);
+        assert!(matches!(result, Err(CryptoError::InvalidSignature)));
+    }
+
+    #[test]
+    fn test_invalid_key_length() {
+        let result = MlDsa65VerifyingKey::from_bytes(&[0u8; 50]);
+        assert!(matches!(
+            result,
+            Err(CryptoError::InvalidKeyLength {
+                expected: 1952,
+                actual: 50
+            })
+        ));
+    }
+
+    #[test]
+    fn test_signing_key_from_bytes_roundtrip() {
+        let signing_key = MlDsa65SigningKey::generate().unwrap();
+        let bytes = signing_key.as_bytes().clone();
+
+        let recovered = MlDsa65SigningKey::from_bytes(&bytes).unwrap();
+
+        // Sign with both keys and verify they produce working signatures
+        let message = b"test roundtrip";
+        let sig1 = signing_key.sign(message).unwrap();
+        let sig2 = recovered.sign(message).unwrap();
+
+        let verifying_key = signing_key.verifying_key();
+        assert!(verifying_key.verify(message, &sig1));
+        assert!(verifying_key.verify(message, &sig2));
+    }
+}
