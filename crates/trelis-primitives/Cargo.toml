@@ -1,0 +1,27 @@
+[package]
+name = "trelis-primitives"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Cryptographic primitives for the Trelis protocol"
+
+[features]
+default = ["std"]
+std = ["alloc", "trelis-error/std", "blake3/std", "chacha20poly1305/std", "getrandom/std"]
+alloc = ["trelis-error/alloc", "chacha20poly1305/alloc"]
+# Expose internal functions for testing
+expose-internals = []
+
+[dependencies]
+trelis-error.workspace = true
+blake3.workspace = true
+chacha20poly1305.workspace = true
+zeroize.workspace = true
+subtle.workspace = true
+rand_core.workspace = true
+getrandom.workspace = true
+
+[dev-dependencies]
+hex.workspace = true

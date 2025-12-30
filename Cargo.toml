@@ -1,0 +1,56 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/trelis-error",
+    "crates/trelis-primitives",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["Trelis Team"]
+license = "ISC"
+rust-version = "1.85"
+repository = "https://github.com/example/trelis"
+description = "Hybrid post-quantum cryptographic library implementing the Trelis protocol"
+
+[workspace.dependencies]
+# Internal crates
+trelis-error = { path = "crates/trelis-error" }
+trelis-primitives = { path = "crates/trelis-primitives" }
+
+# Cryptographic primitives
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
+blake3 = { version = "1.5", default-features = false }
+# ed448-goldilocks = "0.12"  # TODO: Find suitable Ed448 crate
+# fips204 = "0.4"            # TODO: ML-DSA-65
+# pqcrypto-ntruprime = "0.1" # TODO: sntrup761
+
+# Security utilities
+zeroize = { version = "1.8", default-features = false, features = ["derive", "alloc"] }
+subtle = { version = "2.5", default-features = false }
+rand_core = { version = "0.6", default-features = false }
+getrandom = { version = "0.2", default-features = false }
+
+# Error handling (no_std compatible)
+# thiserror requires std, so we use core::fmt::Display directly
+
+# Development and testing
+hex = "0.4"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+
+[profile.dev]
+opt-level = 0
+debug = true
+
+[profile.release]
+opt-level = 3
+lto = "thin"
