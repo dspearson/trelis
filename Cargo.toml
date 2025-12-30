@@ -9,6 +9,7 @@ members = [
     "crates/trelis-ratchet",
     "crates/trelis-cocoa",
     "crates/trelis-multidevice",
+    "crates/trelis-integration-tests",
 ]
 
 [workspace.package]
