@@ -12,13 +12,15 @@ default = ["std"]
 std = ["alloc", "trelis-error/std", "blake3/std", "chacha20poly1305/std", "getrandom/std", "pqcrypto-ntruprime", "pqcrypto-traits"]
 alloc = ["trelis-error/alloc", "chacha20poly1305/alloc"]
 # WASM target support (browser environment)
-wasm = ["alloc", "getrandom/js"]
+# Uses ntrulp (pure Rust) with custom encoding to match standard wire format
+wasm = ["alloc", "getrandom/js", "ntrulp"]
 # Expose internal functions for testing
 expose-internals = []
 
 [dependencies]
 trelis-error.workspace = true
 blake3.workspace = true
+sha2.workspace = true
 chacha20poly1305.workspace = true
 ed448-goldilocks-plus.workspace = true
 fips204.workspace = true
@@ -27,10 +29,18 @@ subtle.workspace = true
 rand_core.workspace = true
 getrandom.workspace = true
 
-# Post-quantum KEM (requires std due to C FFI)
+# Post-quantum KEM - C FFI (requires std, native builds only)
 pqcrypto-ntruprime = { workspace = true, optional = true }
 pqcrypto-traits = { workspace = true, optional = true }
+# Post-quantum KEM - Pure Rust (WASM builds, with custom encoding layer)
+ntrulp = { workspace = true, optional = true }
 
 [dev-dependencies]
 hex.workspace = true
 proptest.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "sntrup761_benchmark"
+harness = false
+required-features = ["std", "wasm"]

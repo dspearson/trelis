@@ -88,6 +88,14 @@ pub enum CryptoError {
     /// Invalid ciphertext format.
     InvalidCiphertext,
 
+    /// Ciphertext length does not match expected size.
+    InvalidCiphertextLength {
+        /// Expected length in bytes.
+        expected: usize,
+        /// Actual length in bytes.
+        actual: usize,
+    },
+
     // ─── Protocol Errors ────────────────────────────────────────────────────
 
     /// Session has not been initialised.
@@ -287,6 +295,9 @@ impl fmt::Display for CryptoError {
             Self::EncapsulationFailed => write!(f, "KEM encapsulation failed"),
             Self::DecapsulationFailed => write!(f, "KEM decapsulation failed"),
             Self::InvalidCiphertext => write!(f, "invalid ciphertext format"),
+            Self::InvalidCiphertextLength { expected, actual } => {
+                write!(f, "invalid ciphertext length: expected {expected}, got {actual}")
+            }
 
             // Protocol errors
             Self::SessionNotInitialised => write!(f, "session not initialised"),
@@ -442,6 +453,7 @@ impl CryptoError {
             | Self::InvalidKeyLength { .. }
             | Self::InvalidNonceLength { .. }
             | Self::InvalidCiphertext
+            | Self::InvalidCiphertextLength { .. }
             | Self::EncapsulationFailed
             | Self::KeyDerivationFailed
             | Self::TooManySkippedMessages

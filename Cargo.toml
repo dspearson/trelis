@@ -36,10 +36,12 @@ trelis-multidevice = { path = "crates/trelis-multidevice", default-features = fa
 # Cryptographic primitives
 chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
 blake3 = { version = "1.5", default-features = false }
+sha2 = { version = "0.10", default-features = false }  # SHA-512 for sntrup761 compatibility
 ed448-goldilocks-plus = { version = "0.16", default-features = false, features = ["alloc", "signing", "zeroize", "pkcs8"] }
 fips204 = { version = "0.4", default-features = false, features = ["ml-dsa-65"] }
-pqcrypto-ntruprime = "0.1"  # C FFI bindings, requires std
+pqcrypto-ntruprime = "0.1"  # C FFI bindings, requires std (native builds)
 pqcrypto-traits = "0.3"    # Traits for pqcrypto crates
+ntrulp = { version = "0.2", default-features = false, features = ["ntrup761"] }  # Pure Rust (WASM builds)
 
 # Security utilities
 zeroize = { version = "1.8", default-features = false, features = ["derive", "alloc"] }
@@ -56,6 +58,7 @@ wasm-bindgen = { version = "0.2", default-features = false }
 # Development and testing
 hex = "0.4"
 proptest = "1.4"
+criterion = { version = "0.5", features = ["html_reports"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
