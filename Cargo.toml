@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/trelis-error",
     "crates/trelis-primitives",
+    "crates/trelis-hybrid",
 ]
 
 [workspace.package]
@@ -18,6 +19,7 @@ description = "Hybrid post-quantum cryptographic library implementing the Trelis
 # Internal crates
 trelis-error = { path = "crates/trelis-error" }
 trelis-primitives = { path = "crates/trelis-primitives" }
+trelis-hybrid = { path = "crates/trelis-hybrid" }
 
 # Cryptographic primitives
 chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }

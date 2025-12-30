@@ -1,0 +1,24 @@
+[package]
+name = "trelis-hybrid"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Hybrid post-quantum cryptographic constructions for the Trelis protocol"
+
+[features]
+default = ["std"]
+std = ["alloc", "trelis-primitives/std", "trelis-error/std"]
+alloc = ["trelis-primitives/alloc", "trelis-error/alloc"]
+# Expose internal functions for testing
+expose-internals = []
+
+[dependencies]
+trelis-primitives.workspace = true
+trelis-error.workspace = true
+zeroize.workspace = true
+subtle.workspace = true
+
+[dev-dependencies]
+hex.workspace = true
