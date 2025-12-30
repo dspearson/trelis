@@ -1,0 +1,44 @@
+# Third-Party Licences
+
+This file lists the licences of all third-party dependencies used by Trelis.
+
+Generated: {{timestamp}}
+
+## Licence Summary
+
+| Licence | Crates |
+|---------|--------|
+{{#each licenses}}
+| {{name}} | {{#each used_by}}{{crate.name}}{{#unless @last}}, {{/unless}}{{/each}} |
+{{/each}}
+
+---
+
+## Crate Details
+
+{{#each licenses}}
+### {{name}}
+
+{{#each used_by}}
+- **{{crate.name}}** ({{crate.version}}){{#if crate.repository}} - [source]({{crate.repository}}){{/if}}
+{{/each}}
+
+{{/each}}
+
+---
+
+## Full Licence Texts
+
+For the full text of each licence:
+
+- **Apache-2.0**: https://www.apache.org/licenses/LICENSE-2.0
+- **MIT**: https://opensource.org/licenses/MIT
+- **BSD-2-Clause**: https://opensource.org/licenses/BSD-2-Clause
+- **BSD-3-Clause**: https://opensource.org/licenses/BSD-3-Clause
+- **ISC**: https://opensource.org/licenses/ISC
+- **Zlib**: https://opensource.org/licenses/Zlib
+- **CC0-1.0**: https://creativecommons.org/publicdomain/zero/1.0/
+- **MPL-2.0**: https://www.mozilla.org/en-US/MPL/2.0/
+- **Unicode-DFS-2016**: https://www.unicode.org/license.html
+- **BSL-1.0**: https://www.boost.org/LICENSE_1_0.txt
+- **OpenSSL**: https://www.openssl.org/source/license.html
