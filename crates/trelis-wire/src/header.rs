@@ -60,7 +60,10 @@ impl CipherSuite {
     pub fn from_byte(byte: u8) -> Result<Self> {
         match byte {
             0x01 => Ok(Self::TrelisHybridV1),
-            _ => Err(CryptoError::UnsupportedCipherSuite { suite: byte }),
+            _ => Err(CryptoError::UnsupportedCipherSuite {
+                received: byte,
+                supported: CIPHER_SUITE,
+            }),
         }
     }
 
@@ -130,7 +133,8 @@ impl Header {
         }
         if self.suite.as_byte() != CIPHER_SUITE {
             return Err(CryptoError::UnsupportedCipherSuite {
-                suite: self.suite.as_byte(),
+                received: self.suite.as_byte(),
+                supported: CIPHER_SUITE,
             });
         }
         Ok(())
@@ -186,7 +190,10 @@ mod tests {
         let result = CipherSuite::from_byte(0x02);
         assert!(matches!(
             result,
-            Err(CryptoError::UnsupportedCipherSuite { suite: 0x02 })
+            Err(CryptoError::UnsupportedCipherSuite {
+                received: 0x02,
+                supported: 0x01
+            })
         ));
     }
 
