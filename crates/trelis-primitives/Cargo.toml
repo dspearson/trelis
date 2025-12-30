@@ -18,6 +18,7 @@ expose-internals = []
 trelis-error.workspace = true
 blake3.workspace = true
 chacha20poly1305.workspace = true
+ed448-goldilocks-plus.workspace = true
 zeroize.workspace = true
 subtle.workspace = true
 rand_core.workspace = true
