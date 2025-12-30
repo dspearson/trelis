@@ -1,9 +1,9 @@
 //! ML-DSA-65 signature primitives.
 //!
 //! This module provides ML-DSA-65 digital signatures as specified in FIPS 204.
-//! ML-DSA-65 (formerly Dilithium3) is a lattice-based post-quantum signature
-//! scheme providing approximately 128-bit security against quantum attacks
-//! (NIST Level 3).
+//! ML-DSA-65 is NIST's standardisation of the Dilithium3 lattice-based
+//! post-quantum signature scheme, providing approximately 128-bit security
+//! against quantum attacks (NIST Level 3).
 //!
 //! # Key Sizes
 //!

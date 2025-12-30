@@ -284,11 +284,15 @@ pub fn mldsa65_verify(public_key: &[u8], message: &[u8], signature: &[u8]) -> Re
 
 /// Generate a hybrid signing keypair (Ed448 + ML-DSA-65).
 ///
-/// Note: The keypair cannot be serialised. Use the returned object
-/// to sign messages and get the public key.
+/// # Limitations
+///
+/// This function only returns the public key. The secret key cannot be
+/// exported due to WASM serialisation constraints. For signing operations,
+/// use the individual `ed448_sign` and `mldsa65_sign` functions with
+/// separately managed keys.
 ///
 /// # Returns
-/// Object with `public_key` (2,009 bytes) - use `hybrid_sign_with_keypair` to sign
+/// Object with `public_key` (2,009 bytes)
 #[wasm_bindgen]
 pub fn hybrid_sign_generate() -> Result<JsValue, JsValue> {
     let keypair = trelis_hybrid::HybridSigningKeypair::generate()
@@ -299,8 +303,6 @@ pub fn hybrid_sign_generate() -> Result<JsValue, JsValue> {
 
     js_sys::Reflect::set(&obj, &"public_key".into(), &public_arr)?;
 
-    // Note: We can't serialise the full keypair, so we store the Ed448 seed and ML-DSA key
-    // This is a simplified approach - in production you'd want proper key storage
     Ok(obj.into())
 }
 

@@ -9,8 +9,12 @@ use crate::header::Header;
 pub enum DecoderError {
     /// Not enough bytes remaining in the buffer.
     UnexpectedEof,
-    /// Invalid header values.
+    /// Invalid or malformed header.
     InvalidHeader,
+    /// Protocol version not supported.
+    UnsupportedProtocolVersion(u8),
+    /// Cipher suite not supported.
+    UnsupportedCipherSuite(u8),
 }
 
 impl core::fmt::Display for DecoderError {
@@ -18,6 +22,10 @@ impl core::fmt::Display for DecoderError {
         match self {
             Self::UnexpectedEof => write!(f, "unexpected end of input"),
             Self::InvalidHeader => write!(f, "invalid protocol header"),
+            Self::UnsupportedProtocolVersion(v) => {
+                write!(f, "unsupported protocol version: {}", v)
+            }
+            Self::UnsupportedCipherSuite(s) => write!(f, "unsupported cipher suite: {}", s),
         }
     }
 }
@@ -133,7 +141,18 @@ impl<'a> Decoder<'a> {
     /// Reads a protocol header.
     pub fn read_header(&mut self) -> Result<Header, DecoderError> {
         let bytes: [u8; 2] = self.read_array()?;
-        Header::from_bytes(&bytes).map_err(|_| DecoderError::InvalidHeader)
+        Header::from_bytes(&bytes).map_err(|e| {
+            use trelis_error::CryptoError;
+            match e {
+                CryptoError::UnsupportedProtocolVersion { received, .. } => {
+                    DecoderError::UnsupportedProtocolVersion(received)
+                }
+                CryptoError::UnsupportedCipherSuite { received, .. } => {
+                    DecoderError::UnsupportedCipherSuite(received)
+                }
+                _ => DecoderError::InvalidHeader,
+            }
+        })
     }
 
     /// Reads a length-prefixed byte slice (u32 length prefix).
@@ -273,7 +292,10 @@ mod tests {
         let buf = [0x02, 0x01]; // Invalid version
         let mut dec = Decoder::new(&buf);
 
-        assert!(matches!(dec.read_header(), Err(DecoderError::InvalidHeader)));
+        assert!(matches!(
+            dec.read_header(),
+            Err(DecoderError::UnsupportedProtocolVersion(0x02))
+        ));
     }
 
     #[test]

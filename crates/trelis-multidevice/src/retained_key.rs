@@ -113,7 +113,7 @@ impl RetainedKey {
 impl core::fmt::Debug for RetainedKey {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("RetainedKey")
-            .field("message_id", &hex_prefix(&self.message_id))
+            .field("message_id", &format_redacted())
             .field("message_key", &"[REDACTED]")
             .field("sequence", &self.sequence)
             .field("timestamp", &self.timestamp)
@@ -121,10 +121,8 @@ impl core::fmt::Debug for RetainedKey {
     }
 }
 
-/// Helper to format a byte array as hex prefix.
-fn hex_prefix(_bytes: &[u8]) -> &'static str {
-    // In a real impl, would format first 8 bytes as hex
-    // For now, just indicate it's present
+/// Formats a byte array as a redacted placeholder for Debug output.
+fn format_redacted() -> &'static str {
     "[32 bytes]"
 }
 

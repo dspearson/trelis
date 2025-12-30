@@ -45,7 +45,7 @@ impl HybridOneTimeKeyPair {
     pub fn generate() -> Result<Self> {
         let kem = HybridKemKeypair::generate()?;
 
-        // Derive key ID from public key hash
+        // Derive key ID from first 8 bytes of BLAKE3 hash of public key
         let pk_bytes = kem.public_key().to_bytes();
         let hash = trelis_primitives::hash(&pk_bytes);
         let mut key_id = [0u8; 8];

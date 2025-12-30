@@ -134,33 +134,29 @@ pub fn receive_message(
     Ok(plaintext)
 }
 
-/// Derives and stores skipped message keys for the range [start, end).
+/// Placeholder for skipped message key derivation.
 ///
-/// This is called when:
-/// 1. The sender key changes (to handle late arrivals from old chain)
-/// 2. A message arrives with a gap (out-of-order delivery)
+/// # Current Limitation
+///
+/// This implementation uses KEM-based ratcheting where each message includes
+/// a fresh encapsulation. Unlike DH-based ratchets (Signal), we cannot derive
+/// skipped message keys without the encapsulations from those messages.
+///
+/// For out-of-order message delivery, the receiver must:
+/// 1. Store received messages that arrive early
+/// 2. Process them in order once gaps are filled
+///
+/// A future enhancement could add a symmetric chain key ratchet alongside
+/// the KEM ratchet to enable skipped key derivation.
 #[cfg(feature = "alloc")]
-fn skip_message_keys(state: &mut DoubleRatchet, start: u64, end: u64) -> Result<()> {
+fn skip_message_keys(_state: &mut DoubleRatchet, start: u64, end: u64) -> Result<()> {
     if end <= start {
         return Ok(());
     }
 
-    // Get sender key hash for indexing
-    let _their_pk = match state.their_public_key() {
-        Some(pk) => pk.to_bytes(),
-        None => return Ok(()), // No sender key yet, nothing to skip
-    };
-
-    // We need to derive keys for each skipped message
-    // But we don't have the encapsulations for those messages
-    // In a real implementation, we'd need to store the shared secrets
-    // or use a different approach (like a chain key ratchet)
-    //
-    // For now, we just record that these messages were skipped
-    // and will need their keys when they arrive
-
-    // NOTE: This is a simplified implementation. The full protocol
-    // would derive actual message keys here using stored chain state.
+    // KEM-based ratchet limitation: we cannot derive skipped message keys
+    // without the encapsulations from those messages. Messages arriving
+    // out-of-order must be buffered and processed when gaps are filled.
 
     Ok(())
 }
@@ -172,10 +168,12 @@ mod tests {
     use trelis_hybrid::HybridKemKeypair;
 
     #[test]
-    fn test_receive_message() {
+    fn test_send_produces_valid_message() {
+        // This test validates that send_message produces a well-formed message.
+        // Full receive integration testing is done in trelis-integration-tests
+        // where X3DH provides the initial shared state.
         let session_key = [0x42u8; 32];
 
-        // Alice (initiator) and Bob (responder)
         let bob_keypair = HybridKemKeypair::generate().unwrap();
 
         let mut alice_state = DoubleRatchet::init_initiator(
@@ -185,20 +183,13 @@ mod tests {
         )
         .unwrap();
 
-        let mut _bob_state = DoubleRatchet::init_responder(&session_key, bob_keypair, 1000);
-
-        // Alice sends to Bob
         let plaintext = b"Hello, Bob!";
-        let _send_result = send_message(&mut alice_state, plaintext, 1001).unwrap();
+        let result = send_message(&mut alice_state, plaintext, 1001).unwrap();
 
-        // Bob needs to set up to receive - he needs Alice's public key from the message
-        // and set his recipient key ID to match what Alice used
-        // This is a simplified test - in reality, Bob would use his OTK key ID
-
-        // Bob receives
-        // Note: This test is incomplete because Bob's state doesn't have the right
-        // keypair ID. In a real scenario, the initial message would be handled
-        // specially (X3DH provides the initial state).
+        // Verify message structure
+        assert_eq!(result.message.header.message_number, 0);
+        assert!(!result.message.ciphertext.is_empty());
+        assert_ne!(result.message.nonce, [0u8; 24]);
     }
 
     #[test]

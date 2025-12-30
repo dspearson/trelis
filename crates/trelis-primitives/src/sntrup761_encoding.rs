@@ -853,8 +853,9 @@ mod tests {
         // Test with values that are already multiples of 3 (no rounding loss)
         let mut coeffs = [0i16; P];
         for i in 0..P {
-            // Values in valid range, all multiples of 3
-            coeffs[i] = (((i as i16 * 7) % 1500) - 750) * 3 / 3 * 3;
+            // Generate values in range [-750, 749], rounded to nearest multiple of 3
+            let raw = ((i as i16 * 7) % 1500) - 750;
+            coeffs[i] = (raw / 3) * 3;
         }
 
         let encoded = rounded_encode_raw(&coeffs);

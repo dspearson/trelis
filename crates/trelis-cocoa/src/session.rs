@@ -88,9 +88,13 @@ impl CocoaSession {
     /// * `our_position` - Our assigned leaf position
     /// * `tree_depth` - Depth of the tree
     /// * `member_count` - Current member count
-    /// * `epoch_number` - Current epoch number
     /// * `epoch_secret` - Epoch secret from welcome message
     /// * `transcript_hash` - Current transcript hash
+    ///
+    /// # Note
+    ///
+    /// The joining member starts at epoch 0. To join at a specific epoch,
+    /// call `advance_epoch()` after joining to synchronise with the group.
     #[allow(clippy::too_many_arguments)]
     pub fn join_group(
         group_id: GroupId,
@@ -99,15 +103,12 @@ impl CocoaSession {
         our_position: u32,
         tree_depth: u32,
         member_count: u32,
-        _epoch_number: u64,
         epoch_secret: &[u8; 32],
         transcript_hash: [u8; 32],
     ) -> Self {
         let mut tree = PartialTreeView::new(our_position, tree_depth);
         tree.set_member_count(member_count);
 
-        // Create epoch at the specified number
-        let _secrets = crate::epoch::EpochSecrets::derive(epoch_secret);
         let epoch = Epoch::initial(epoch_secret, transcript_hash);
 
         Self {
@@ -419,17 +420,15 @@ mod tests {
             group_id,
             user_id,
             keypair,
-            5,    // position
-            4,    // depth
-            10,   // members
-            3,    // epoch
+            5,  // position
+            4,  // depth
+            10, // members
             &epoch_secret,
             transcript,
         );
 
         assert_eq!(session.our_leaf_position(), 5);
         assert_eq!(session.member_count(), 10);
-        // Note: epoch is created as initial (0) in this simplified impl
-        // In full impl, would use epoch_number parameter
+        assert_eq!(session.epoch_number(), 0);
     }
 }

@@ -7,7 +7,7 @@
 //! # Key Sizes
 //!
 //! - Public key: 2,009 bytes (Ed448 57B + ML-DSA-65 1,952B)
-//! - Signature: 3,407 bytes (Ed448 114B + ML-DSA-65 3,293B)
+//! - Signature: 3,423 bytes (Ed448 114B + ML-DSA-65 3,309B)
 //!
 //! # Example
 //!
@@ -266,7 +266,7 @@ impl core::fmt::Debug for HybridSigningPublicKey {
 pub struct HybridSignature {
     /// Ed448 signature (114 bytes)
     pub ed448: Ed448Signature,
-    /// ML-DSA-65 signature (3,293 bytes)
+    /// ML-DSA-65 signature (3,309 bytes)
     pub mldsa: MlDsa65Signature,
 }
 

@@ -118,17 +118,21 @@ pub fn process_welcome(
     let epoch_secret = [0u8; 32]; // Would be decrypted from welcome.encrypted_info
     let transcript_hash = [0u8; 32]; // Would be included in welcome.encrypted_info
 
-    let session = CocoaSession::join_group(
+    let mut session = CocoaSession::join_group(
         welcome.group_id,
         our_user_id,
         our_kem,
         welcome.leaf_position,
         welcome.tree_depth,
         welcome.member_count,
-        welcome.epoch,
         &epoch_secret,
         transcript_hash,
     );
+
+    // Advance to the correct epoch if joining mid-session
+    for _ in 0..welcome.epoch {
+        session.advance_epoch(&[0u8; 32], transcript_hash);
+    }
 
     Ok(session)
 }

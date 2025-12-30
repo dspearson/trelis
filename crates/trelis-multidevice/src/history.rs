@@ -50,7 +50,7 @@ impl HistoryKeyShareMessage {
     ///
     /// # Errors
     ///
-    /// Returns `SignatureError` if signing fails.
+    /// Returns `CryptoError` if signing fails.
     pub fn new(
         thread_id: ThreadId,
         keys: Vec<RetainedKey>,
