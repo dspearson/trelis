@@ -1,0 +1,71 @@
+{
+  "meta": {
+    "suite": "trelis-v1",
+    "category": "hybrid-kem",
+    "version": "1.0.0",
+    "generated": "2025-12-30T00:00:00Z",
+    "description": "Test vectors for the hybrid KEM shared secret combiner"
+  },
+  "notes": {
+    "combiner_description": "The hybrid KEM combiner concatenates the X448 shared secret (56 bytes) with the sntrup761 shared secret (32 bytes), then derives the final shared secret using BLAKE3 derive_key with context 'trelis-hybrid-kem-v1'.",
+    "concatenation_order": "X448 shared secret (56 bytes) || sntrup761 shared secret (32 bytes)",
+    "context_string": "trelis-hybrid-kem-v1",
+    "output_size": 32
+  },
+  "vectors": [
+    {
+      "name": "hybrid_kem_all_zeros",
+      "description": "Hybrid KEM combiner with all-zero shared secrets",
+      "inputs": {
+        "x448_shared_secret_hex": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "x448_shared_secret_size": 56,
+        "x448_description": "56 zero bytes",
+        "sntrup761_shared_secret_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+        "sntrup761_shared_secret_size": 32,
+        "sntrup761_description": "32 zero bytes",
+        "combined_input_hex": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "combined_input_size": 88
+      },
+      "expected": {
+        "hybrid_shared_secret_hex": "b1a536835c623598d9fb2b945e28cb6532ad5120bdf795d7909616e8d14ed5c3",
+        "hybrid_shared_secret_size": 32
+      }
+    },
+    {
+      "name": "hybrid_kem_incrementing_xff",
+      "description": "Hybrid KEM combiner with incrementing X448 bytes and all-0xff sntrup761",
+      "inputs": {
+        "x448_shared_secret_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f3031323334353637",
+        "x448_shared_secret_size": 56,
+        "x448_description": "56 incrementing bytes from 0x00 to 0x37",
+        "sntrup761_shared_secret_hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "sntrup761_shared_secret_size": 32,
+        "sntrup761_description": "32 bytes of 0xff",
+        "combined_input_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f3031323334353637ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "combined_input_size": 88
+      },
+      "expected": {
+        "hybrid_shared_secret_hex": "bad5b5411b612206bd6eab920db30e2dd56c9bdd07e2eaac3365e818fe9fb1b0",
+        "hybrid_shared_secret_size": 32
+      }
+    },
+    {
+      "name": "hybrid_kem_realistic",
+      "description": "Hybrid KEM combiner with realistic-looking random-like shared secrets",
+      "inputs": {
+        "x448_shared_secret_hex": "6a3ef59b7c128ad4e731f94eb65d2c83a10976ef4bd81562c03f87a45e19d27bf3468ce129950d68ba541f73c6a842ed0691de3780cf5ab5",
+        "x448_shared_secret_size": 56,
+        "x448_description": "56 bytes of random-looking data simulating real X448 output",
+        "sntrup761_shared_secret_hex": "289de471b30c59f68e24ca7f16a365d048bc925be73a0184fd4fc3269e57ab08",
+        "sntrup761_shared_secret_size": 32,
+        "sntrup761_description": "32 bytes of random-looking data simulating real sntrup761 output",
+        "combined_input_hex": "6a3ef59b7c128ad4e731f94eb65d2c83a10976ef4bd81562c03f87a45e19d27bf3468ce129950d68ba541f73c6a842ed0691de3780cf5ab5289de471b30c59f68e24ca7f16a365d048bc925be73a0184fd4fc3269e57ab08",
+        "combined_input_size": 88
+      },
+      "expected": {
+        "hybrid_shared_secret_hex": "bf2b7e82c55bac99ab2fd45dd56605a9460172f0bd37059bdca39d261b88408a",
+        "hybrid_shared_secret_size": 32
+      }
+    }
+  ]
+}

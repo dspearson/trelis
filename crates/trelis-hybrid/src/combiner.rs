@@ -201,3 +201,121 @@ mod tests {
         assert_eq!(bytes, expected);
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    /// Strategy to generate a 56-byte X448 shared secret.
+    fn x448_strategy() -> impl Strategy<Value = [u8; X448_SS_SIZE]> {
+        proptest::collection::vec(any::<u8>(), X448_SS_SIZE..=X448_SS_SIZE).prop_map(|v| {
+            let mut arr = [0u8; X448_SS_SIZE];
+            arr.copy_from_slice(&v);
+            arr
+        })
+    }
+
+    proptest! {
+        /// Property: HybridSharedSecret::combine is deterministic.
+        /// The same inputs always produce the same output.
+        #[test]
+        fn combine_is_deterministic(
+            x448_ss in x448_strategy(),
+            sntrup_ss in proptest::array::uniform32(any::<u8>()),
+        ) {
+            let combined1 = HybridSharedSecret::combine(&x448_ss, &sntrup_ss);
+            let combined2 = HybridSharedSecret::combine(&x448_ss, &sntrup_ss);
+            prop_assert_eq!(combined1, combined2);
+        }
+
+        /// Property: Equality is reflexive (a == a).
+        #[test]
+        fn equality_reflexive(
+            x448_ss in x448_strategy(),
+            sntrup_ss in proptest::array::uniform32(any::<u8>()),
+        ) {
+            let combined = HybridSharedSecret::combine(&x448_ss, &sntrup_ss);
+            prop_assert!(combined == combined);
+        }
+
+        /// Property: Equality is symmetric (a == b implies b == a).
+        #[test]
+        fn equality_symmetric(
+            x448_ss in x448_strategy(),
+            sntrup_ss in proptest::array::uniform32(any::<u8>()),
+        ) {
+            let combined1 = HybridSharedSecret::combine(&x448_ss, &sntrup_ss);
+            let combined2 = HybridSharedSecret::combine(&x448_ss, &sntrup_ss);
+            prop_assert_eq!(combined1 == combined2, combined2 == combined1);
+        }
+
+        /// Property: Equality is transitive (a == b && b == c implies a == c).
+        #[test]
+        fn equality_transitive(
+            x448_ss in x448_strategy(),
+            sntrup_ss in proptest::array::uniform32(any::<u8>()),
+        ) {
+            let a = HybridSharedSecret::combine(&x448_ss, &sntrup_ss);
+            let b = HybridSharedSecret::combine(&x448_ss, &sntrup_ss);
+            let c = HybridSharedSecret::combine(&x448_ss, &sntrup_ss);
+            // If a == b and b == c, then a == c
+            prop_assert!((a == b && b == c) == (a == c));
+        }
+
+        /// Property: Different X448 inputs produce different outputs (with high probability).
+        #[test]
+        fn different_x448_different_output(
+            x448_ss1 in x448_strategy(),
+            x448_ss2 in x448_strategy(),
+            sntrup_ss in proptest::array::uniform32(any::<u8>()),
+        ) {
+            prop_assume!(x448_ss1 != x448_ss2);
+            let combined1 = HybridSharedSecret::combine(&x448_ss1, &sntrup_ss);
+            let combined2 = HybridSharedSecret::combine(&x448_ss2, &sntrup_ss);
+            prop_assert_ne!(combined1, combined2);
+        }
+
+        /// Property: Different sntrup inputs produce different outputs (with high probability).
+        #[test]
+        fn different_sntrup_different_output(
+            x448_ss in x448_strategy(),
+            sntrup_ss1 in proptest::array::uniform32(any::<u8>()),
+            sntrup_ss2 in proptest::array::uniform32(any::<u8>()),
+        ) {
+            prop_assume!(sntrup_ss1 != sntrup_ss2);
+            let combined1 = HybridSharedSecret::combine(&x448_ss, &sntrup_ss1);
+            let combined2 = HybridSharedSecret::combine(&x448_ss, &sntrup_ss2);
+            prop_assert_ne!(combined1, combined2);
+        }
+
+        /// Property: from_bytes roundtrip preserves the secret.
+        #[test]
+        fn from_bytes_roundtrip(bytes in proptest::array::uniform32(any::<u8>())) {
+            let secret = HybridSharedSecret::from_bytes(bytes);
+            prop_assert_eq!(*secret.as_bytes(), bytes);
+        }
+
+        /// Property: into_bytes preserves the secret.
+        #[test]
+        fn into_bytes_preserves(
+            x448_ss in x448_strategy(),
+            sntrup_ss in proptest::array::uniform32(any::<u8>()),
+        ) {
+            let combined = HybridSharedSecret::combine(&x448_ss, &sntrup_ss);
+            let expected = *combined.as_bytes();
+            let actual = combined.into_bytes();
+            prop_assert_eq!(actual, expected);
+        }
+
+        /// Property: Output is always SHARED_SECRET_SIZE bytes.
+        #[test]
+        fn output_size_constant(
+            x448_ss in x448_strategy(),
+            sntrup_ss in proptest::array::uniform32(any::<u8>()),
+        ) {
+            let combined = HybridSharedSecret::combine(&x448_ss, &sntrup_ss);
+            prop_assert_eq!(combined.as_bytes().len(), SHARED_SECRET_SIZE);
+        }
+    }
+}

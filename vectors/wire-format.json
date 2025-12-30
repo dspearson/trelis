@@ -1,0 +1,185 @@
+{
+  "meta": {
+    "suite": "trelis-v1",
+    "category": "wire-format",
+    "version": "1.0.0",
+    "generated": "2025-12-30T00:00:00Z",
+    "description": "Wire format constants and size definitions for the Trelis protocol"
+  },
+  "protocol": {
+    "version": {
+      "value": 1,
+      "hex": "0x01",
+      "description": "Current protocol version number"
+    },
+    "cipher_suite": {
+      "name": "TRELIS_HYBRID_V1",
+      "value": 1,
+      "hex": "0x01",
+      "description": "Cipher suite identifier for hybrid post-quantum (X448+sntrup761, Ed448+ML-DSA-65)"
+    },
+    "header_size": {
+      "value": 2,
+      "description": "Size of protocol header in bytes (version + cipher_suite)"
+    }
+  },
+  "symmetric_crypto": {
+    "nonce_size": {
+      "value": 24,
+      "description": "XChaCha20-Poly1305 nonce size in bytes (192 bits)"
+    },
+    "tag_size": {
+      "value": 16,
+      "description": "Poly1305 authentication tag size in bytes (128 bits)"
+    },
+    "aead_key_size": {
+      "value": 32,
+      "description": "AES/ChaCha encryption key size in bytes (256 bits)"
+    }
+  },
+  "classical_keys": {
+    "ed448": {
+      "public_key_size": {
+        "value": 57,
+        "description": "Ed448 public key size in bytes"
+      },
+      "signature_size": {
+        "value": 114,
+        "description": "Ed448 signature size in bytes"
+      }
+    },
+    "x448": {
+      "public_key_size": {
+        "value": 56,
+        "description": "X448 public key / shared secret size in bytes"
+      }
+    }
+  },
+  "post_quantum_keys": {
+    "ml_dsa_65": {
+      "public_key_size": {
+        "value": 1952,
+        "description": "ML-DSA-65 (FIPS 204) public key size in bytes"
+      },
+      "signature_size": {
+        "value": 3309,
+        "description": "ML-DSA-65 (FIPS 204) signature size in bytes"
+      }
+    },
+    "sntrup761": {
+      "public_key_size": {
+        "value": 1158,
+        "description": "sntrup761 public key size in bytes"
+      },
+      "ciphertext_size": {
+        "value": 1039,
+        "description": "sntrup761 ciphertext (encapsulation) size in bytes"
+      },
+      "shared_secret_size": {
+        "value": 32,
+        "description": "sntrup761 shared secret size in bytes"
+      }
+    }
+  },
+  "hybrid_keys": {
+    "signing": {
+      "public_key_size": {
+        "value": 2009,
+        "calculation": "57 (Ed448) + 1952 (ML-DSA-65)",
+        "description": "Hybrid signing public key size in bytes"
+      },
+      "signature_size": {
+        "value": 3423,
+        "calculation": "114 (Ed448) + 3309 (ML-DSA-65)",
+        "description": "Hybrid signature size in bytes"
+      }
+    },
+    "kem": {
+      "public_key_size": {
+        "value": 1214,
+        "calculation": "56 (X448) + 1158 (sntrup761)",
+        "description": "Hybrid KEM public key size in bytes"
+      },
+      "encapsulation_size": {
+        "value": 1095,
+        "calculation": "56 (X448 ephemeral) + 1039 (sntrup761 ciphertext)",
+        "description": "Hybrid encapsulation size in bytes"
+      }
+    },
+    "identity": {
+      "public_key_size": {
+        "value": 3223,
+        "calculation": "2009 (signing) + 1214 (KEM)",
+        "description": "Full hybrid identity public key size in bytes"
+      }
+    }
+  },
+  "protocol_messages": {
+    "key_id_size": {
+      "value": 8,
+      "description": "Key identifier size in bytes (64 bits)"
+    },
+    "one_time_key_size": {
+      "value": 1222,
+      "calculation": "8 (key_id) + 1214 (hybrid KEM public key)",
+      "description": "One-time key size in bytes"
+    },
+    "prekey_bundle_size": {
+      "value": 4445,
+      "calculation": "2009 (signing) + 1214 (KEM) + 1222 (OTK)",
+      "description": "Pre-key bundle size in bytes (without timestamps)"
+    },
+    "signed_bundle_size": {
+      "value": 7884,
+      "calculation": "4461 (bundle with timestamps) + 3423 (signature)",
+      "components": {
+        "identity_signing": 2009,
+        "identity_kem": 1214,
+        "one_time_key": 1214,
+        "otk_key_id": 8,
+        "timestamp": 8,
+        "expiration": 8,
+        "signature": 3423
+      },
+      "description": "Signed pre-key bundle size in bytes (with timestamps and signature)"
+    },
+    "device_key_wrap_size": {
+      "value": 1175,
+      "calculation": "8 (key_id) + 56 (X448 ephemeral) + 1039 (sntrup761 CT) + 24 (nonce) + 48 (encrypted + tag)",
+      "description": "Device key wrap size in bytes"
+    }
+  },
+  "double_ratchet": {
+    "max_skipped_keys": {
+      "value": 2000,
+      "description": "Maximum number of skipped message keys to store"
+    },
+    "max_skip": {
+      "value": 1000,
+      "description": "Maximum messages to skip within a single chain"
+    },
+    "max_chain_lookahead": {
+      "value": 100,
+      "description": "Maximum chain lookahead for out-of-order messages"
+    }
+  },
+  "x3dh_pq_transcript": {
+    "hash_size": {
+      "value": 32,
+      "description": "BLAKE3 hash output size in bytes"
+    },
+    "dh_size": {
+      "value": 56,
+      "description": "X448 DH output size in bytes"
+    },
+    "pq_ss_size": {
+      "value": 32,
+      "description": "sntrup761 shared secret size in bytes"
+    },
+    "transcript_size": {
+      "value": 296,
+      "calculation": "3 * 32 (identity hashes, bundle hash) + 3 * 56 (DH1, DH2, DH3) + 32 (PQ_ss) = 96 + 168 + 32",
+      "description": "Total transcript size in bytes for X3DH-PQ key derivation"
+    }
+  }
+}

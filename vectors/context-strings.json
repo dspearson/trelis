@@ -1,0 +1,226 @@
+{
+  "meta": {
+    "suite": "trelis-v1",
+    "category": "context-strings",
+    "version": "1.0.0",
+    "generated": "2025-12-30T00:00:00Z",
+    "description": "All context strings used in the Trelis protocol for BLAKE3 derive_key domain separation"
+  },
+  "notes": {
+    "purpose": "Context strings provide domain separation for key derivation. Each context string MUST be unique for its use case and MUST NOT change after protocol deployment.",
+    "usage": "Used with BLAKE3 derive_key(context, input) to derive keys",
+    "test_input": "32 zero bytes used as input for reference output computation"
+  },
+  "vectors": [
+    {
+      "name": "hybrid_kem_context",
+      "description": "Context for hybrid KEM shared secret combination (X448 + sntrup761)",
+      "inputs": {
+        "context_string": "trelis-hybrid-kem-v1",
+        "context_hex": "7472656c69732d6879627269642d6b656d2d7631",
+        "context_length": 20,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "22423b016388b64774e2c00931223851c803f8fff3371e927db74a183e258a9c"
+      },
+      "usage": "Used in trelis-hybrid/src/combiner.rs for combining X448 and sntrup761 shared secrets"
+    },
+    {
+      "name": "session_context",
+      "description": "Context for X3DH-PQ session key derivation from transcript",
+      "inputs": {
+        "context_string": "trelis-session-v1",
+        "context_hex": "7472656c69732d73657373696f6e2d7631",
+        "context_length": 17,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "b99711dc67d75a8a55c74d0a9b371fb07c9be44bed95fef7a5d5d352e328a3d0"
+      },
+      "usage": "Used in trelis-x3dh-pq/src/transcript.rs for deriving session shared secret"
+    },
+    {
+      "name": "pq_ratchet_root_context",
+      "description": "Context for double ratchet root key derivation",
+      "inputs": {
+        "context_string": "trelis-pq-ratchet-root-v1",
+        "context_hex": "7472656c69732d70712d726174636865742d726f6f742d7631",
+        "context_length": 25,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "37c79496d093ae7a6d08286c6f568f0fd3dddc2769c88be4f738a9927fb574e1"
+      },
+      "usage": "Used in trelis-ratchet/src/kdf.rs (KDF_ROOT) for deriving new root keys during ratchet step"
+    },
+    {
+      "name": "pq_ratchet_message_context",
+      "description": "Context for double ratchet message key derivation",
+      "inputs": {
+        "context_string": "trelis-pq-ratchet-message-v1",
+        "context_hex": "7472656c69732d70712d726174636865742d6d6573736167652d7631",
+        "context_length": 28,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "53d937caa45cf4b236029326e24c64786815c2f3c2845e072b041f26f2ca5f3d"
+      },
+      "usage": "Used in trelis-ratchet/src/kdf.rs (KDF_MESSAGE) for deriving message encryption keys"
+    },
+    {
+      "name": "ratchet_nonce_context",
+      "description": "Context for hedged nonce derivation in double ratchet",
+      "inputs": {
+        "context_string": "trelis-ratchet-nonce-v1",
+        "context_hex": "7472656c69732d726174636865742d6e6f6e63652d7631",
+        "context_length": 23,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "8083ee6053ddf59b47f68d4e7a48ae76f6d801db655a82b3d52b73553d0f324a"
+      },
+      "usage": "Used in trelis-ratchet/src/nonce.rs (NONCE_CONTEXT) for hedged nonce generation"
+    },
+    {
+      "name": "safety_number_context",
+      "description": "Context for safety number fingerprint derivation",
+      "inputs": {
+        "context_string": "trelis-safety-number-v1",
+        "context_hex": "7472656c69732d7361666574792d6e756d6265722d7631",
+        "context_length": 23,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "c0a133c19df21b0a02804d3d9513ce3f03930e20af02899814c41cf7624bec40"
+      },
+      "usage": "Used for deriving safety number fingerprints for identity verification"
+    },
+    {
+      "name": "sig_prekey_bundle_context",
+      "description": "Context for pre-key bundle signature prehash",
+      "inputs": {
+        "context_string": "trelis-sig-prekey-bundle-v1",
+        "context_hex": "7472656c69732d7369672d7072656b65792d62756e646c652d7631",
+        "context_length": 27,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "ff1cedd9b476701689b9d22f8e4d7ffd6118f3ada62dba8942d527a84a15ead6"
+      },
+      "usage": "Used for prehashing pre-key bundle data before signing"
+    },
+    {
+      "name": "bundle_wrap_context",
+      "description": "Context for device key wrap encryption",
+      "inputs": {
+        "context_string": "trelis-bundle-wrap-v1",
+        "context_hex": "7472656c69732d62756e646c652d777261702d7631",
+        "context_length": 21,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "af10945657c0faccf5055ea3826af2a6be2054b03471330dd5fbfd4463353533"
+      },
+      "usage": "Used for wrapping device keys during key distribution"
+    },
+    {
+      "name": "root_key_context",
+      "description": "Context for deriving initial root key from X3DH-PQ shared secret",
+      "inputs": {
+        "context_string": "trelis-root-key-v1",
+        "context_hex": "7472656c69732d726f6f742d6b65792d7631",
+        "context_length": 18,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "8045402ab96e4d2e335702f92cd3bc4b765a014596526511d21f1a61b3023e8e"
+      },
+      "usage": "Used in trelis-x3dh-pq/src/session_keys.rs (ROOT_KEY_CONTEXT) for session key derivation"
+    },
+    {
+      "name": "send_chain_context",
+      "description": "Context for deriving initial send chain key",
+      "inputs": {
+        "context_string": "trelis-send-chain-v1",
+        "context_hex": "7472656c69732d73656e642d636861696e2d7631",
+        "context_length": 20,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "4cd4c9f922194e3748ec2eb95f14aa77985a74eb7b91cc8402a3dc7203eae0ee"
+      },
+      "usage": "Used in trelis-x3dh-pq/src/session_keys.rs (SEND_CHAIN_CONTEXT) for session key derivation"
+    },
+    {
+      "name": "recv_chain_context",
+      "description": "Context for deriving initial receive chain key",
+      "inputs": {
+        "context_string": "trelis-recv-chain-v1",
+        "context_hex": "7472656c69732d726563762d636861696e2d7631",
+        "context_length": 20,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "10d569f637fa01e9cc2a758ee186cd679178637c1165f29767199eb204c8fbc7"
+      },
+      "usage": "Used in trelis-x3dh-pq/src/session_keys.rs (RECV_CHAIN_CONTEXT) for session key derivation"
+    },
+    {
+      "name": "ratchet_init_context",
+      "description": "Context for initialising double ratchet from session key",
+      "inputs": {
+        "context_string": "trelis-ratchet-init-v1",
+        "context_hex": "7472656c69732d726174636865742d696e69742d7631",
+        "context_length": 22,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "75006420def9ee31f92f068afb77bcd3c7ad1b1f5f781e4d7da9646aba4f0464"
+      },
+      "usage": "Used in trelis-ratchet/src/kdf.rs (derive_initial_root_key) for ratchet initialisation"
+    },
+    {
+      "name": "device_revocation_context",
+      "description": "Context for device revocation certificate signing",
+      "inputs": {
+        "context_string": "trelis-v1-device-revocation",
+        "context_hex": "7472656c69732d76312d6465766963652d7265766f636174696f6e",
+        "context_length": 27,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "96f24d9bc8e5033321a40ac11dc7a7bef530c53120c5e42c6032bd512e976727"
+      },
+      "usage": "Used in trelis-multidevice/src/revocation.rs (REVOCATION_CONTEXT) for device revocation"
+    },
+    {
+      "name": "history_key_share_context",
+      "description": "Context for history key sharing between devices",
+      "inputs": {
+        "context_string": "trelis-v1-history-key-share",
+        "context_hex": "7472656c69732d76312d686973746f72792d6b65792d7368617265",
+        "context_length": 27,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "721c7049ac1032732d1e8fdb821206594a7fa8ddf8166fa4e3237f86ec39f391"
+      },
+      "usage": "Used in trelis-multidevice/src/history.rs (HISTORY_KEY_SHARE_CONTEXT) for sharing history access"
+    },
+    {
+      "name": "prekey_bundle_domain",
+      "description": "Domain separation prefix for pre-key bundle signing (used as bytes, not derive_key)",
+      "inputs": {
+        "context_string": "trelis-prekey-bundle-v1",
+        "context_hex": "7472656c69732d7072656b65792d62756e646c652d7631",
+        "context_length": 23,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "0904af2eb6586e60be67f13bc3a2fba10c6fd2d47c8bc62fd36acf91f868bad4"
+      },
+      "usage": "Used in trelis-x3dh-pq/src/bundle.rs (BUNDLE_DOMAIN) as prefix for bundle signing data"
+    }
+  ]
+}

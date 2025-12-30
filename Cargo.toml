@@ -50,6 +50,7 @@ getrandom = { version = "0.2", default-features = false }
 
 # Development and testing
 hex = "0.4"
+proptest = "1.4"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

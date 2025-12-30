@@ -293,3 +293,163 @@ mod tests {
         assert_eq!(key.len(), 32);
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Property: BLAKE3 hash is deterministic - same input always produces same output.
+        #[test]
+        fn hash_is_deterministic(input in proptest::collection::vec(any::<u8>(), 0..1024)) {
+            let hash1 = hash(&input);
+            let hash2 = hash(&input);
+            prop_assert_eq!(hash1, hash2);
+        }
+
+        /// Property: BLAKE3 derive_key is deterministic with same context and input.
+        #[test]
+        fn derive_key_is_deterministic(
+            input in proptest::collection::vec(any::<u8>(), 0..1024),
+        ) {
+            let context = "test-context-for-proptest";
+            let key1 = derive_key(context, &input);
+            let key2 = derive_key(context, &input);
+            prop_assert_eq!(key1, key2);
+        }
+
+        /// Property: Different contexts produce different outputs (with high probability).
+        #[test]
+        fn different_contexts_different_outputs(
+            input in proptest::collection::vec(any::<u8>(), 1..256),
+            context1 in "[a-z]{5,20}",
+            context2 in "[a-z]{5,20}",
+        ) {
+            prop_assume!(context1 != context2);
+            let key1 = derive_key(&context1, &input);
+            let key2 = derive_key(&context2, &input);
+            prop_assert_ne!(key1, key2);
+        }
+
+        /// Property: Different inputs produce different outputs (with high probability).
+        #[test]
+        fn different_inputs_different_outputs(
+            input1 in proptest::collection::vec(any::<u8>(), 1..256),
+            input2 in proptest::collection::vec(any::<u8>(), 1..256),
+        ) {
+            prop_assume!(input1 != input2);
+            let context = "same-context-for-both";
+            let key1 = derive_key(context, &input1);
+            let key2 = derive_key(context, &input2);
+            prop_assert_ne!(key1, key2);
+        }
+
+        /// Property: Hash output is always OUTPUT_SIZE bytes.
+        #[test]
+        fn hash_output_size_constant(input in proptest::collection::vec(any::<u8>(), 0..1024)) {
+            let h = hash(&input);
+            prop_assert_eq!(h.len(), OUTPUT_SIZE);
+        }
+
+        /// Property: derive_key output is always OUTPUT_SIZE bytes.
+        #[test]
+        fn derive_key_output_size_constant(input in proptest::collection::vec(any::<u8>(), 0..1024)) {
+            let context = "test-context";
+            let key = derive_key(context, &input);
+            prop_assert_eq!(key.len(), OUTPUT_SIZE);
+        }
+
+        /// Property: keyed_hash is deterministic.
+        #[test]
+        fn keyed_hash_is_deterministic(
+            key in proptest::array::uniform32(any::<u8>()),
+            input in proptest::collection::vec(any::<u8>(), 0..1024),
+        ) {
+            let tag1 = keyed_hash(&key, &input);
+            let tag2 = keyed_hash(&key, &input);
+            prop_assert_eq!(tag1, tag2);
+        }
+
+        /// Property: Different keys produce different keyed_hash outputs.
+        #[test]
+        fn different_keys_different_keyed_hash(
+            key1 in proptest::array::uniform32(any::<u8>()),
+            key2 in proptest::array::uniform32(any::<u8>()),
+            input in proptest::collection::vec(any::<u8>(), 1..256),
+        ) {
+            prop_assume!(key1 != key2);
+            let tag1 = keyed_hash(&key1, &input);
+            let tag2 = keyed_hash(&key2, &input);
+            prop_assert_ne!(tag1, tag2);
+        }
+
+        /// Property: keyed_hash output is always OUTPUT_SIZE bytes.
+        #[test]
+        fn keyed_hash_output_size_constant(
+            key in proptest::array::uniform32(any::<u8>()),
+            input in proptest::collection::vec(any::<u8>(), 0..1024),
+        ) {
+            let tag = keyed_hash(&key, &input);
+            prop_assert_eq!(tag.len(), OUTPUT_SIZE);
+        }
+
+        /// Property: DerivedKey wrapper preserves key bytes.
+        #[test]
+        fn derived_key_wrapper_preserves_bytes(
+            input in proptest::collection::vec(any::<u8>(), 0..256),
+        ) {
+            let context = "wrapper-test";
+            let key = DerivedKey::derive(context, &input);
+            let raw = derive_key(context, &input);
+            prop_assert_eq!(*key.as_bytes(), raw);
+        }
+
+        /// Property: DerivedKey into_bytes returns same bytes as as_bytes.
+        #[test]
+        fn derived_key_into_bytes_consistent(
+            input in proptest::collection::vec(any::<u8>(), 0..256),
+        ) {
+            let context = "into-bytes-test";
+            let key = DerivedKey::derive(context, &input);
+            let expected = *key.as_bytes();
+            let actual = key.into_bytes();
+            prop_assert_eq!(actual, expected);
+        }
+
+        /// Property: hash of different inputs produces different outputs.
+        #[test]
+        fn hash_different_inputs_different_outputs(
+            input1 in proptest::collection::vec(any::<u8>(), 1..256),
+            input2 in proptest::collection::vec(any::<u8>(), 1..256),
+        ) {
+            prop_assume!(input1 != input2);
+            let hash1 = hash(&input1);
+            let hash2 = hash(&input2);
+            prop_assert_ne!(hash1, hash2);
+        }
+
+        /// Property: Empty input produces valid output.
+        #[test]
+        fn empty_input_valid_output(_dummy: u8) {
+            // Empty input should not panic and should produce valid 32-byte output
+            let h = hash(b"");
+            prop_assert_eq!(h.len(), OUTPUT_SIZE);
+
+            let key = derive_key("context", b"");
+            prop_assert_eq!(key.len(), OUTPUT_SIZE);
+        }
+
+        /// Property: Context string affects output even with empty input.
+        #[test]
+        fn context_affects_empty_input(
+            context1 in "[a-z]{5,20}",
+            context2 in "[a-z]{5,20}",
+        ) {
+            prop_assume!(context1 != context2);
+            let key1 = derive_key(&context1, b"");
+            let key2 = derive_key(&context2, b"");
+            prop_assert_ne!(key1, key2);
+        }
+    }
+}

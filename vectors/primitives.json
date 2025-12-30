@@ -1,0 +1,141 @@
+{
+  "meta": {
+    "suite": "trelis-v1",
+    "category": "primitives",
+    "version": "1.0.0",
+    "generated": "2025-12-30T00:00:00Z",
+    "description": "Test vectors for basic cryptographic operations used in the Trelis protocol"
+  },
+  "vectors": [
+    {
+      "name": "blake3_derive_key_zero_input",
+      "description": "BLAKE3 derive_key with 32 zero bytes input",
+      "inputs": {
+        "context": "trelis-hybrid-kem-v1",
+        "context_hex": "7472656c69732d6879627269642d6b656d2d7631",
+        "input_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+        "input_description": "32 zero bytes"
+      },
+      "expected": {
+        "output_hex": "22423b016388b64774e2c00931223851c803f8fff3371e927db74a183e258a9c",
+        "output_size": 32
+      }
+    },
+    {
+      "name": "blake3_derive_key_incrementing_input",
+      "description": "BLAKE3 derive_key with incrementing bytes 0x00..0x1f",
+      "inputs": {
+        "context": "trelis-hybrid-kem-v1",
+        "context_hex": "7472656c69732d6879627269642d6b656d2d7631",
+        "input_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "input_description": "32 incrementing bytes from 0x00 to 0x1f"
+      },
+      "expected": {
+        "output_hex": "d8f4081538ce1592be15f1f65a896e0e0b36e4a0b979dfa9511537cc22fc7746",
+        "output_size": 32
+      }
+    },
+    {
+      "name": "blake3_hash_empty",
+      "description": "BLAKE3 hash of empty input",
+      "inputs": {
+        "input_hex": "",
+        "input_description": "empty input"
+      },
+      "expected": {
+        "output_hex": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
+        "output_size": 32
+      }
+    },
+    {
+      "name": "blake3_hash_test_string",
+      "description": "BLAKE3 hash of known test string",
+      "inputs": {
+        "input_hex": "7472656c6973207465737420766563746f72",
+        "input_description": "ASCII string \"trelis test vector\""
+      },
+      "expected": {
+        "output_hex": "85902da100952620737ae25b5aebc3bf2081924376ea5856a59daef98a957783",
+        "output_size": 32
+      }
+    },
+    {
+      "name": "xchacha20_poly1305_basic",
+      "description": "XChaCha20-Poly1305 encryption with associated data",
+      "inputs": {
+        "key_hex": "4242424242424242424242424242424242424242424242424242424242424242",
+        "key_description": "32 bytes of 0x42",
+        "nonce_hex": "000000000000000000000000000000000000000000000000",
+        "nonce_description": "24 zero bytes",
+        "plaintext_hex": "48656c6c6f2c205472656c697321",
+        "plaintext_description": "ASCII string \"Hello, Trelis!\"",
+        "aad_hex": "6173736f6369617465642064617461",
+        "aad_description": "ASCII string \"associated data\""
+      },
+      "expected": {
+        "ciphertext_hex": "8416b6359a7f78bf67478b628957e3eba45f97aa80fa53beeef8ce6b09ae",
+        "ciphertext_size": 30,
+        "tag_size": 16,
+        "tag_description": "Last 16 bytes of ciphertext are the Poly1305 tag"
+      }
+    },
+    {
+      "name": "xchacha20_poly1305_empty_plaintext",
+      "description": "XChaCha20-Poly1305 with empty plaintext (tag only output)",
+      "inputs": {
+        "key_hex": "4242424242424242424242424242424242424242424242424242424242424242",
+        "key_description": "32 bytes of 0x42",
+        "nonce_hex": "010101010101010101010101010101010101010101010101",
+        "nonce_description": "24 bytes of 0x01",
+        "plaintext_hex": "",
+        "plaintext_description": "empty",
+        "aad_hex": "736f6d6520616164",
+        "aad_description": "ASCII string \"some aad\""
+      },
+      "expected": {
+        "ciphertext_hex": "2306dbb8fbb48bb0137bd9db36e910a2",
+        "ciphertext_size": 16,
+        "tag_size": 16,
+        "tag_description": "Empty plaintext produces only authentication tag"
+      }
+    },
+    {
+      "name": "xchacha20_poly1305_no_aad",
+      "description": "XChaCha20-Poly1305 without associated data",
+      "inputs": {
+        "key_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+        "key_description": "32 zero bytes",
+        "nonce_hex": "000000000000000000000000000000000000000000000000",
+        "nonce_description": "24 zero bytes",
+        "plaintext_hex": "74657374206461746120776974686f757420616164",
+        "plaintext_description": "ASCII string \"test data without aad\"",
+        "aad_hex": "",
+        "aad_description": "empty"
+      },
+      "expected": {
+        "ciphertext_hex": "0cfbe5fdc544ec0bb8c184acc15c703d9b38c05f2572420ea0eeeec846578a6ecfc233b71c",
+        "ciphertext_size": 37,
+        "tag_size": 16
+      }
+    },
+    {
+      "name": "xchacha20_poly1305_long_message",
+      "description": "XChaCha20-Poly1305 with longer message",
+      "inputs": {
+        "key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "key_description": "32 incrementing bytes from 0x00 to 0x1f",
+        "nonce_hex": "07000000404142434445464748494a4b4c4d4e4f50515253",
+        "nonce_description": "24-byte nonce with specific pattern",
+        "plaintext_hex": "4c616469657320616e642047656e746c656d656e206f662074686520636c617373206f66202739393a204966204920636f756c64206f6666657220796f75206f6e6c79206f6e652074697020666f7220746865206675747572652c2073756e73637265656e20776f756c642062652069742e",
+        "plaintext_description": "ASCII string \"Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.\"",
+        "aad_hex": "353035313532353363306331633263336334633563366337",
+        "aad_description": "ASCII string \"50515253c0c1c2c3c4c5c6c7\""
+      },
+      "expected": {
+        "ciphertext_hex": "0db2ddff66569df1c85a42094a5f0be8ea8ff489282170be558073f3c6ed6a5d640b356c013fe14448219d5f4707d86f7487f9f509e03d611dd677b68ec2249b127bfcedb1fb642bdc03d607fa71ece053779ebe6ee0e5f93dd791d88ef4955d850e95ea0e7dd4ef6c021877dc526cdaf7f7cb7b472f139a76939648fa7e44555d2d",
+        "ciphertext_size": 130,
+        "tag_size": 16
+      }
+    }
+  ]
+}
