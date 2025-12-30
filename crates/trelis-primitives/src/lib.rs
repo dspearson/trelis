@@ -29,13 +29,21 @@ extern crate std;
 pub mod aead;
 pub mod blake3_kdf;
 pub mod ed448;
+pub mod mldsa65;
 pub mod random;
+#[cfg(feature = "std")]
+pub mod sntrup761;
 pub mod x448;
 
 // Re-export key types for convenience
 pub use aead::{decrypt, encrypt, AeadKey, Nonce, Tag};
 pub use blake3_kdf::{derive_key, hash, keyed_hash};
 pub use ed448::{Ed448Signature, Ed448SigningKey, Ed448VerifyingKey};
+pub use mldsa65::{MlDsa65Signature, MlDsa65SigningKey, MlDsa65VerifyingKey};
 pub use random::{fill_bytes, generate_bytes};
+#[cfg(feature = "std")]
+pub use sntrup761::{
+    Sntrup761Ciphertext, Sntrup761PublicKey, Sntrup761SecretKey, Sntrup761SharedSecret,
+};
 pub use trelis_error::{CryptoError, Result};
 pub use x448::{X448Public, X448Secret, X448SharedSecret};
