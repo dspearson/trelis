@@ -1,0 +1,18 @@
+[package]
+name = "trelis-wire"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Wire format encoding and decoding for the Trelis protocol"
+
+[features]
+default = []
+# No std/alloc needed - pure no_std without allocator
+
+[dependencies]
+trelis-error.workspace = true
+
+[dev-dependencies]
+hex.workspace = true
