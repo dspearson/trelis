@@ -151,7 +151,9 @@ pub enum CryptoError {
     /// Unsupported cipher suite.
     UnsupportedCipherSuite {
         /// Received cipher suite byte.
-        suite: u8,
+        received: u8,
+        /// Supported cipher suite byte.
+        supported: u8,
     },
 
     /// Message is malformed or truncated.
@@ -210,6 +212,28 @@ pub enum CryptoError {
 
     /// Rate limit exceeded.
     RateLimitExceeded,
+
+    // ─── Session Errors ─────────────────────────────────────────────────────
+
+    /// No active session established.
+    NoActiveSession,
+
+    /// Session has been marked as compromised.
+    SessionCompromised,
+
+    /// No recipient public key available.
+    NoRecipientKey,
+
+    /// Too many messages skipped (exceeds MAX_SKIP).
+    TooManySkippedMessages,
+
+    // ─── Serialisation Errors ───────────────────────────────────────────────
+
+    /// Invalid magic bytes in serialised data.
+    InvalidMagic,
+
+    /// Unsupported state serialisation version.
+    UnsupportedStateVersion,
 }
 
 impl fmt::Display for CryptoError {
@@ -268,8 +292,11 @@ impl fmt::Display for CryptoError {
                     "unsupported protocol version: received 0x{received:02x}, supported 0x{supported:02x}"
                 )
             }
-            Self::UnsupportedCipherSuite { suite } => {
-                write!(f, "unsupported cipher suite: 0x{suite:02x}")
+            Self::UnsupportedCipherSuite { received, supported } => {
+                write!(
+                    f,
+                    "unsupported cipher suite: received 0x{received:02x}, supported 0x{supported:02x}"
+                )
             }
             Self::MalformedMessage => write!(f, "malformed message"),
             Self::InvalidHeader => write!(f, "invalid header format"),
@@ -297,6 +324,16 @@ impl fmt::Display for CryptoError {
 
             // Rate limiting
             Self::RateLimitExceeded => write!(f, "rate limit exceeded"),
+
+            // Session errors
+            Self::NoActiveSession => write!(f, "no active session"),
+            Self::SessionCompromised => write!(f, "session compromised"),
+            Self::NoRecipientKey => write!(f, "no recipient public key"),
+            Self::TooManySkippedMessages => write!(f, "too many skipped messages"),
+
+            // Serialisation errors
+            Self::InvalidMagic => write!(f, "invalid magic bytes"),
+            Self::UnsupportedStateVersion => write!(f, "unsupported state version"),
         }
     }
 }
@@ -338,7 +375,10 @@ impl CryptoError {
             | Self::UnknownSenderKey
             | Self::UnknownRecipientKeyId
             | Self::MemberNotFound
-            | Self::InvalidNodeIndex => ErrorCategory::Protocol,
+            | Self::InvalidNodeIndex
+            | Self::NoActiveSession
+            | Self::SessionCompromised
+            | Self::NoRecipientKey => ErrorCategory::Protocol,
 
             // Security errors (potential attacks)
             Self::SignatureVerificationFailed
@@ -366,7 +406,10 @@ impl CryptoError {
             | Self::InvalidNonceLength { .. }
             | Self::InvalidCiphertext
             | Self::EncapsulationFailed
-            | Self::KeyDerivationFailed => ErrorCategory::Security,
+            | Self::KeyDerivationFailed
+            | Self::TooManySkippedMessages
+            | Self::InvalidMagic
+            | Self::UnsupportedStateVersion => ErrorCategory::Security,
         }
     }
 
