@@ -487,4 +487,106 @@ mod tests {
         // 8 + 56 + 1039 + 24 + 48 = 1,175 bytes
         assert_eq!(DEVICE_KEY_WRAP_SIZE, 1175);
     }
+
+    #[test]
+    fn test_device_key_wrap_from_bytes_wrong_size() {
+        // Too short
+        let short_bytes = [0u8; 100];
+        assert!(DeviceKeyWrap::from_bytes(&short_bytes).is_err());
+
+        // Too long
+        let long_bytes = [0u8; DEVICE_KEY_WRAP_SIZE + 10];
+        assert!(DeviceKeyWrap::from_bytes(&long_bytes).is_err());
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn test_device_key_wrap_debug() {
+        let keypair = HybridKemKeypair::generate().unwrap();
+        let secret = [0xABu8; 32];
+
+        let context = WrapContext::new(
+            [0x42u8; KEY_ID_SIZE],
+            WrapPurpose::BundleKey,
+            [0x11u8; 32],
+            [0x22u8; 32],
+            12345,
+        );
+
+        let wrap = DeviceKeyWrap::wrap(&secret, keypair.public_key(), &context).unwrap();
+
+        let debug_str = format!("{:?}", wrap);
+        assert!(debug_str.contains("DeviceKeyWrap"));
+        assert!(debug_str.contains("recipient_key_id"));
+        assert!(debug_str.contains("[56 bytes]"));
+        assert!(debug_str.contains("[1039 bytes]"));
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn test_wrap_context_new() {
+        let context = WrapContext::new(
+            [0x42u8; KEY_ID_SIZE],
+            WrapPurpose::HistoryKey,
+            [0x11u8; 32],
+            [0x22u8; 32],
+            99999,
+        );
+
+        assert_eq!(context.recipient_key_id, [0x42u8; KEY_ID_SIZE]);
+        assert_eq!(context.purpose, WrapPurpose::HistoryKey);
+        assert_eq!(context.thread_id, [0x11u8; 32]);
+        assert_eq!(context.bundle_id, [0x22u8; 32]);
+        assert_eq!(context.epoch, 99999);
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn test_wrong_keypair_fails() {
+        let keypair1 = HybridKemKeypair::generate().unwrap();
+        let keypair2 = HybridKemKeypair::generate().unwrap();
+        let secret = [0xABu8; 32];
+
+        let context = WrapContext::new(
+            [0x42u8; KEY_ID_SIZE],
+            WrapPurpose::BundleKey,
+            [0x11u8; 32],
+            [0x22u8; 32],
+            12345,
+        );
+
+        // Wrap to keypair1's public key
+        let wrap = DeviceKeyWrap::wrap(&secret, keypair1.public_key(), &context).unwrap();
+
+        // Try to unwrap with keypair2 (wrong key)
+        let result = wrap.unwrap(&keypair2, &context);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_wrap_purpose_debug() {
+        assert_eq!(format!("{:?}", WrapPurpose::BundleKey), "BundleKey");
+        assert_eq!(format!("{:?}", WrapPurpose::SessionSeed), "SessionSeed");
+        assert_eq!(format!("{:?}", WrapPurpose::HistoryKey), "HistoryKey");
+    }
+
+    #[test]
+    fn test_key_id_size() {
+        assert_eq!(KEY_ID_SIZE, 8);
+    }
+
+    #[test]
+    fn test_x448_ephemeral_size() {
+        assert_eq!(X448_EPHEMERAL_SIZE, 56);
+    }
+
+    #[test]
+    fn test_sntrup_ct_size() {
+        assert_eq!(SNTRUP_CT_SIZE, 1039);
+    }
+
+    #[test]
+    fn test_encrypted_payload_size() {
+        assert_eq!(ENCRYPTED_PAYLOAD_SIZE, 48); // 32 secret + 16 tag
+    }
 }

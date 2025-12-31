@@ -220,4 +220,50 @@ mod tests {
 
         assert_eq!(root_key1, root_key2);
     }
+
+    #[test]
+    fn test_kdf_rk_heap_fallback() {
+        // Test the heap fallback path by using a shared secret larger than KDF_MAX_STACK_INPUT
+        // KDF_MAX_STACK_INPUT is 256, root_key is 32 bytes, so we need > 224 bytes
+        let root_key = [0x42u8; 32];
+        let large_shared_secret = [0xABu8; 300]; // 300 bytes > 224 remaining
+
+        let output = kdf_rk(&root_key, &large_shared_secret);
+
+        // Verify keys are produced correctly
+        assert_ne!(output.new_root_key, output.message_key);
+        assert_ne!(output.new_root_key, root_key);
+        assert_eq!(output.new_root_key.len(), ROOT_KEY_SIZE);
+        assert_eq!(output.message_key.len(), MESSAGE_KEY_SIZE);
+    }
+
+    #[test]
+    fn test_kdf_rk_heap_fallback_deterministic() {
+        // Verify heap path is also deterministic
+        let root_key = [0x42u8; 32];
+        let large_shared_secret = [0xABu8; 300];
+
+        let output1 = kdf_rk(&root_key, &large_shared_secret);
+        let output2 = kdf_rk(&root_key, &large_shared_secret);
+
+        assert_eq!(output1.new_root_key, output2.new_root_key);
+        assert_eq!(output1.message_key, output2.message_key);
+    }
+
+    #[test]
+    fn test_kdf_output_zeroize() {
+        let root_key = [0x42u8; 32];
+        let shared_secret = [0xABu8; 64];
+
+        let mut output = kdf_rk(&root_key, &shared_secret);
+
+        // Verify we have valid keys before zeroizing
+        assert_ne!(output.new_root_key, [0u8; 32]);
+        assert_ne!(output.message_key, [0u8; 32]);
+
+        // Zeroize and verify
+        output.zeroize();
+        assert_eq!(output.new_root_key, [0u8; 32]);
+        assert_eq!(output.message_key, [0u8; 32]);
+    }
 }

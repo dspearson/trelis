@@ -303,4 +303,32 @@ mod tests {
         let fp3 = device_fingerprint(&other.public_key());
         assert_ne!(fp1, fp3);
     }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn test_approval_certificate_from_bytes_too_short() {
+        // Less than minimum size (56 bytes)
+        let bytes = [0u8; 20];
+        assert!(DeviceApprovalCertificate::from_bytes(&bytes).is_err());
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn test_approval_certificate_debug() {
+        let signing_key = HybridSigningKeypair::generate().unwrap();
+
+        let cert =
+            DeviceApprovalCertificate::new([0x42u8; 16], [0xAAu8; 32], 1000, &signing_key).unwrap();
+
+        let debug_str = format!("{:?}", cert);
+        assert!(debug_str.contains("DeviceApprovalCertificate"));
+        assert!(debug_str.contains("approved_at"));
+        assert!(debug_str.contains("1000"));
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn test_fingerprint_size() {
+        assert_eq!(FINGERPRINT_SIZE, 32);
+    }
 }

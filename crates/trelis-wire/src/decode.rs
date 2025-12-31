@@ -349,4 +349,122 @@ mod tests {
             assert_eq!(bytes, &[0xAA, 0xBB, 0xCC]);
         }
     }
+
+    #[test]
+    fn test_decoder_read_u16() {
+        let buf = [0x02, 0x01, 0xFF];
+        let mut dec = Decoder::new(&buf);
+
+        assert_eq!(dec.read_u16().unwrap(), 0x0102);
+        assert_eq!(dec.position(), 2);
+    }
+
+    #[test]
+    fn test_decoder_read_u16_underflow() {
+        let buf = [0x01]; // Only 1 byte
+        let mut dec = Decoder::new(&buf);
+
+        assert!(matches!(dec.read_u16(), Err(DecoderError::UnexpectedEof)));
+    }
+
+    #[test]
+    fn test_decoder_error_debug() {
+        // Test Debug trait instead of Display (no alloc needed)
+        let err1 = DecoderError::UnexpectedEof;
+        let err2 = DecoderError::InvalidHeader;
+        let err3 = DecoderError::UnsupportedProtocolVersion(5);
+        let err4 = DecoderError::UnsupportedCipherSuite(99);
+
+        // Verify all variants are Debug printable and Clone/Copy/PartialEq work
+        assert_eq!(err1, err1.clone());
+        assert_eq!(err2, err2.clone());
+        assert_eq!(err3, DecoderError::UnsupportedProtocolVersion(5));
+        assert_eq!(err4, DecoderError::UnsupportedCipherSuite(99));
+
+        // Different errors should not be equal
+        assert_ne!(err1, err2);
+        assert_ne!(err3, err4);
+    }
+
+    #[test]
+    fn test_decoder_has_remaining() {
+        let buf = [1, 2, 3, 4, 5];
+        let dec = Decoder::new(&buf);
+
+        assert!(dec.has_remaining(5));
+        assert!(dec.has_remaining(1));
+        assert!(!dec.has_remaining(6));
+    }
+
+    #[test]
+    fn test_decoder_is_empty() {
+        let buf = [1, 2];
+        let mut dec = Decoder::new(&buf);
+
+        assert!(!dec.is_empty());
+
+        dec.read_u8().unwrap();
+        assert!(!dec.is_empty());
+
+        dec.read_u8().unwrap();
+        assert!(dec.is_empty());
+    }
+
+    #[test]
+    fn test_decoder_peek_remaining() {
+        let buf = [1, 2, 3, 4, 5];
+        let mut dec = Decoder::new(&buf);
+
+        dec.read_u8().unwrap();
+        dec.read_u8().unwrap();
+
+        let remaining = dec.peek_remaining();
+        assert_eq!(remaining, &[3, 4, 5]);
+    }
+
+    #[test]
+    fn test_decoder_skip_underflow() {
+        let buf = [1, 2, 3];
+        let mut dec = Decoder::new(&buf);
+
+        assert!(dec.skip(10).is_err());
+        assert_eq!(dec.position(), 0); // Position unchanged on error
+    }
+
+    #[test]
+    fn test_decoder_invalid_cipher_suite_header() {
+        let buf = [0x01, 0x99]; // Valid version, invalid cipher suite
+        let mut dec = Decoder::new(&buf);
+
+        assert!(matches!(
+            dec.read_header(),
+            Err(DecoderError::UnsupportedCipherSuite(0x99))
+        ));
+    }
+
+    #[test]
+    fn test_decoder_read_bytes_underflow() {
+        let buf = [1, 2, 3];
+        let mut dec = Decoder::new(&buf);
+
+        assert!(dec.read_bytes(5).is_err());
+    }
+
+    #[test]
+    fn test_decoder_read_array_underflow() {
+        let buf = [1, 2];
+        let mut dec = Decoder::new(&buf);
+
+        let result: Result<[u8; 4], _> = dec.read_array();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decoder_length_prefixed_underflow() {
+        // Length prefix says 100 bytes but only 4 bytes of data
+        let buf = [0x64, 0x00, 0x00, 0x00, 0xAA, 0xBB, 0xCC, 0xDD];
+        let mut dec = Decoder::new(&buf);
+
+        assert!(dec.read_length_prefixed().is_err());
+    }
 }

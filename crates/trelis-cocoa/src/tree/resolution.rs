@@ -214,35 +214,76 @@ pub fn compute_lj<T: NodeLookup>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::collections::BTreeMap;
 
-    // Simple test lookup that marks even positions as populated
-    struct TestLookup {
+    use crate::tree::node::UpdateOrigin;
+
+    /// A test lookup that stores actual TreeNode objects.
+    struct RealNodeLookup {
         depth: u32,
-        // Reserved for future tests with blank nodes
-        #[allow(dead_code)]
-        blank_positions: Vec<(u32, u32)>,
+        nodes: BTreeMap<NodeIndex, TreeNode>,
     }
 
-    impl TestLookup {
+    impl RealNodeLookup {
         fn new(depth: u32) -> Self {
             Self {
                 depth,
-                blank_positions: Vec::new(),
+                nodes: BTreeMap::new(),
             }
         }
 
-        // Reserved for future tests with blank nodes
-        #[allow(dead_code)]
-        fn with_blank(mut self, depth: u32, position: u32) -> Self {
-            self.blank_positions.push((depth, position));
-            self
+        fn add_populated(&mut self, index: NodeIndex) {
+            let keypair = trelis_hybrid::HybridKemKeypair::generate().unwrap();
+            let identity = trelis_hybrid::HybridIdentityKeypair::generate().unwrap();
+            let signature = identity.sign(b"test").unwrap();
+
+            let node = TreeNode::new_populated(
+                index,
+                keypair.public_key().clone(),
+                None,
+                ([0u8; 32], [0u8; 32]),
+                [0u8; 32],
+                signature,
+                [0u8; 32],
+                [0u8; 32],
+                UpdateOrigin {
+                    epoch: 0,
+                    sequence: 0,
+                    timestamp: 0,
+                },
+            );
+            self.nodes.insert(index, node);
+        }
+
+        fn add_blank(&mut self, index: NodeIndex) {
+            let node = TreeNode::new_blank(index);
+            self.nodes.insert(index, node);
         }
     }
 
-    impl NodeLookup for TestLookup {
+    impl NodeLookup for RealNodeLookup {
+        fn get_node(&self, index: &NodeIndex) -> Option<&TreeNode> {
+            self.nodes.get(index)
+        }
+
+        fn tree_depth(&self) -> u32 {
+            self.depth
+        }
+    }
+
+    // Simple test lookup that always returns None
+    struct EmptyLookup {
+        depth: u32,
+    }
+
+    impl EmptyLookup {
+        fn new(depth: u32) -> Self {
+            Self { depth }
+        }
+    }
+
+    impl NodeLookup for EmptyLookup {
         fn get_node(&self, _index: &NodeIndex) -> Option<&TreeNode> {
-            // For testing, we use a static approach
-            // Return None to simulate nodes we need
             None
         }
 
@@ -287,11 +328,209 @@ mod tests {
     }
 
     #[test]
+    fn test_resolution_union_empty_first() {
+        let empty = Resolution::empty();
+        let singleton = Resolution::singleton(NodeIndex::new(2, 0));
+
+        // When first is empty, should return other
+        let combined = empty.union(singleton);
+        assert_eq!(combined.len(), 1);
+    }
+
+    #[test]
+    fn test_resolution_union_empty_second() {
+        let singleton = Resolution::singleton(NodeIndex::new(2, 0));
+        let empty = Resolution::empty();
+
+        // When second is empty, should return self
+        let combined = singleton.union(empty);
+        assert_eq!(combined.len(), 1);
+    }
+
+    #[test]
+    fn test_resolution_union_multiple_nodes() {
+        let mut res1 = Resolution::singleton(NodeIndex::new(2, 0));
+        res1.nodes.push(NodeIndex::new(2, 1));
+
+        let mut res2 = Resolution::singleton(NodeIndex::new(2, 1)); // Duplicate
+        res2.nodes.push(NodeIndex::new(2, 2));
+
+        let combined = res1.union(res2);
+        assert_eq!(combined.len(), 3); // 0, 1, 2 (1 deduplicated)
+    }
+
+    #[test]
+    fn test_resolution_iter() {
+        let res = Resolution::singleton(NodeIndex::new(2, 0));
+        let indices: Vec<_> = res.iter().collect();
+        assert_eq!(indices.len(), 1);
+        assert_eq!(*indices[0], NodeIndex::new(2, 0));
+    }
+
+    #[test]
     fn test_resolve_missing_node() {
-        let lookup = TestLookup::new(3);
+        let lookup = EmptyLookup::new(3);
         let res = resolve(&lookup, NodeIndex::new(2, 0));
 
         // Missing nodes are treated as blank leaves
         assert!(res.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_populated_node() {
+        let mut lookup = RealNodeLookup::new(3);
+        let index = NodeIndex::new(2, 0);
+        lookup.add_populated(index);
+
+        let res = resolve(&lookup, index);
+
+        // Populated node resolves to itself
+        assert_eq!(res.len(), 1);
+        assert_eq!(res.nodes[0], index);
+    }
+
+    #[test]
+    fn test_resolve_blank_leaf() {
+        let mut lookup = RealNodeLookup::new(3);
+        let index = NodeIndex::new(3, 0); // Leaf at max depth
+        lookup.add_blank(index);
+
+        let res = resolve(&lookup, index);
+
+        // Blank leaf resolves to empty
+        assert!(res.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_blank_internal_with_populated_children() {
+        // Tree depth 2 means leaves at depth 2
+        let mut lookup = RealNodeLookup::new(2);
+
+        // Root (0,0) is blank internal
+        let root = NodeIndex::new(0, 0);
+        lookup.add_blank(root);
+
+        // Left child (1,0) is populated
+        let left = NodeIndex::new(1, 0);
+        lookup.add_populated(left);
+
+        // Right child (1,1) is populated
+        let right = NodeIndex::new(1, 1);
+        lookup.add_populated(right);
+
+        let res = resolve(&lookup, root);
+
+        // Blank internal resolves to union of children's resolutions
+        assert_eq!(res.len(), 2);
+        assert!(res.nodes.contains(&left));
+        assert!(res.nodes.contains(&right));
+    }
+
+    #[test]
+    fn test_resolve_blank_internal_with_mixed_children() {
+        let mut lookup = RealNodeLookup::new(2);
+
+        let root = NodeIndex::new(0, 0);
+        lookup.add_blank(root);
+
+        // Left is populated
+        let left = NodeIndex::new(1, 0);
+        lookup.add_populated(left);
+
+        // Right is blank (and it's also a leaf in this tree)
+        let right = NodeIndex::new(1, 1);
+        lookup.add_blank(right);
+
+        let res = resolve(&lookup, root);
+
+        // Resolution should only contain the populated left child
+        // (blank leaf right child contributes empty)
+        assert_eq!(res.len(), 1);
+        assert!(res.nodes.contains(&left));
+    }
+
+    #[test]
+    fn test_resolve_set_empty() {
+        let lookup = EmptyLookup::new(3);
+        let res = resolve_set(&lookup, &[]);
+        assert!(res.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_set_single() {
+        let mut lookup = RealNodeLookup::new(3);
+        let index = NodeIndex::new(2, 0);
+        lookup.add_populated(index);
+
+        let res = resolve_set(&lookup, &[index]);
+        assert_eq!(res.len(), 1);
+    }
+
+    #[test]
+    fn test_resolve_set_multiple() {
+        let mut lookup = RealNodeLookup::new(3);
+
+        let idx1 = NodeIndex::new(2, 0);
+        let idx2 = NodeIndex::new(2, 1);
+        lookup.add_populated(idx1);
+        lookup.add_populated(idx2);
+
+        let res = resolve_set(&lookup, &[idx1, idx2]);
+        assert_eq!(res.len(), 2);
+    }
+
+    #[test]
+    fn test_compute_lj_root_no_sibling() {
+        let mut lookup = RealNodeLookup::new(3);
+        let root = NodeIndex::new(0, 0);
+        lookup.add_populated(root);
+
+        let res = compute_lj(&lookup, root, |_| Vec::new());
+
+        // Root has no sibling, so resolution is empty
+        assert!(res.is_empty());
+    }
+
+    #[test]
+    fn test_compute_lj_with_sibling() {
+        let mut lookup = RealNodeLookup::new(2);
+
+        // Path node at (1, 0), sibling at (1, 1)
+        let path_node = NodeIndex::new(1, 0);
+        let sibling = NodeIndex::new(1, 1);
+
+        lookup.add_populated(path_node);
+        lookup.add_populated(sibling);
+
+        let res = compute_lj(&lookup, path_node, |_| Vec::new());
+
+        // Should return resolution of sibling
+        assert_eq!(res.len(), 1);
+        assert!(res.nodes.contains(&sibling));
+    }
+
+    #[test]
+    fn test_compute_lj_sibling_blank_internal() {
+        let mut lookup = RealNodeLookup::new(3);
+
+        // Path node at depth 1, sibling is blank internal
+        let path_node = NodeIndex::new(1, 0);
+        let sibling = NodeIndex::new(1, 1);
+
+        lookup.add_populated(path_node);
+        lookup.add_blank(sibling);
+
+        // Sibling's children are populated
+        let sibling_left = NodeIndex::new(2, 2);
+        let sibling_right = NodeIndex::new(2, 3);
+        lookup.add_populated(sibling_left);
+        lookup.add_populated(sibling_right);
+
+        let res = compute_lj(&lookup, path_node, |_| Vec::new());
+
+        // Should return resolution of sibling (its populated children)
+        assert_eq!(res.len(), 2);
+        assert!(res.nodes.contains(&sibling_left));
+        assert!(res.nodes.contains(&sibling_right));
     }
 }

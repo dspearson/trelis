@@ -230,4 +230,138 @@ mod tests {
         assert_eq!(node.index.position, 3);
         assert!(node.state.is_blank());
     }
+
+    fn create_populated_node(index: NodeIndex) -> TreeNode {
+        let keypair = trelis_hybrid::HybridKemKeypair::generate().unwrap();
+        let identity = trelis_hybrid::HybridIdentityKeypair::generate().unwrap();
+        let signature = identity.sign(b"test message").unwrap();
+        let user_id = [0x42u8; 32];
+        let parent_hash = ([0x11u8; 32], [0x22u8; 32]);
+        let transcript_hash = [0x33u8; 32];
+        let confirmation_tag = [0x44u8; 32];
+        let origin = UpdateOrigin {
+            epoch: 1,
+            sequence: 0,
+            timestamp: 1234567890,
+        };
+
+        TreeNode::new_populated(
+            index,
+            keypair.public_key().clone(),
+            None,
+            parent_hash,
+            user_id,
+            signature,
+            transcript_hash,
+            confirmation_tag,
+            origin,
+        )
+    }
+
+    #[test]
+    fn test_populated_node_basic() {
+        let node = create_populated_node(NodeIndex::new(1, 2));
+
+        assert!(node.state.is_populated());
+        assert!(!node.state.is_blank());
+        assert!(node.state.public_key().is_some());
+    }
+
+    #[test]
+    fn test_populated_node_accessors() {
+        let node = create_populated_node(NodeIndex::new(1, 2));
+
+        // Test all accessors for populated nodes
+        assert!(node.state.public_key().is_some());
+        assert!(node.state.predecessor_key().is_none()); // We created without predecessor
+        assert!(node.state.parent_hash().is_some());
+        assert!(node.state.last_updater_id().is_some());
+        assert!(node.state.unmerged_leaves().is_none()); // Only for blank nodes
+    }
+
+    #[test]
+    fn test_populated_node_parent_hash() {
+        let node = create_populated_node(NodeIndex::new(1, 2));
+
+        let parent_hash = node.state.parent_hash().unwrap();
+        assert_eq!(parent_hash.0, [0x11u8; 32]);
+        assert_eq!(parent_hash.1, [0x22u8; 32]);
+    }
+
+    #[test]
+    fn test_populated_node_last_updater_id() {
+        let node = create_populated_node(NodeIndex::new(1, 2));
+
+        let updater_id = node.state.last_updater_id().unwrap();
+        assert_eq!(*updater_id, [0x42u8; 32]);
+    }
+
+    #[test]
+    fn test_populated_node_with_predecessor() {
+        let keypair = trelis_hybrid::HybridKemKeypair::generate().unwrap();
+        let pred_keypair = trelis_hybrid::HybridKemKeypair::generate().unwrap();
+        let identity = trelis_hybrid::HybridIdentityKeypair::generate().unwrap();
+        let signature = identity.sign(b"test message").unwrap();
+        let user_id = [0x42u8; 32];
+        let parent_hash = ([0x11u8; 32], [0x22u8; 32]);
+        let transcript_hash = [0x33u8; 32];
+        let confirmation_tag = [0x44u8; 32];
+        let origin = UpdateOrigin {
+            epoch: 1,
+            sequence: 0,
+            timestamp: 1234567890,
+        };
+
+        let node = TreeNode::new_populated(
+            NodeIndex::new(1, 2),
+            keypair.public_key().clone(),
+            Some(pred_keypair.public_key().clone()),
+            parent_hash,
+            user_id,
+            signature,
+            transcript_hash,
+            confirmation_tag,
+            origin,
+        );
+
+        assert!(node.state.predecessor_key().is_some());
+    }
+
+    #[test]
+    fn test_blank_node_accessors() {
+        let state = NodeState::blank();
+
+        // All populated-specific accessors return None
+        assert!(state.predecessor_key().is_none());
+        assert!(state.parent_hash().is_none());
+        assert!(state.last_updater_id().is_none());
+    }
+
+    #[test]
+    fn test_tree_node_is_leaf() {
+        // For a tree of depth 3, leaves are at depth 3
+        let leaf_node = TreeNode::new_blank(NodeIndex::new(3, 5));
+        assert!(leaf_node.is_leaf(3));
+
+        // Internal node at depth 2 is not a leaf
+        let internal_node = TreeNode::new_blank(NodeIndex::new(2, 2));
+        assert!(!internal_node.is_leaf(3));
+
+        // Root is not a leaf
+        let root_node = TreeNode::new_blank(NodeIndex::new(0, 0));
+        assert!(!root_node.is_leaf(3));
+    }
+
+    #[test]
+    fn test_add_unmerged_leaf_to_populated_node() {
+        let mut node = create_populated_node(NodeIndex::new(1, 2));
+
+        // Adding unmerged leaf to populated node should be a no-op
+        let user_id = [0x99u8; 32];
+        node.state.add_unmerged_leaf(user_id);
+
+        // Should still be populated, unmerged_leaves should be None
+        assert!(node.state.is_populated());
+        assert!(node.state.unmerged_leaves().is_none());
+    }
 }

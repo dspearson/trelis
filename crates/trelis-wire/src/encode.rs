@@ -239,6 +239,103 @@ mod tests {
         assert_eq!(enc.position(), 7); // 4 bytes length + 3 bytes data
         assert_eq!(&buf[..7], &[0x03, 0x00, 0x00, 0x00, 0xAA, 0xBB, 0xCC]);
     }
+
+    #[test]
+    fn test_encoder_write_u16() {
+        let mut buf = [0u8; 4];
+        let mut enc = Encoder::new(&mut buf);
+
+        assert!(enc.write_u16(0x0102).is_some());
+        assert_eq!(enc.position(), 2);
+        assert_eq!(&buf[..2], &[0x02, 0x01]);
+    }
+
+    #[test]
+    fn test_encoder_write_u16_overflow() {
+        let mut buf = [0u8; 1]; // Only 1 byte
+        let mut enc = Encoder::new(&mut buf);
+
+        assert!(enc.write_u16(0x0102).is_none());
+        assert_eq!(enc.position(), 0); // Position unchanged on failure
+    }
+
+    #[test]
+    fn test_encoder_write_array() {
+        let mut buf = [0u8; 8];
+        let mut enc = Encoder::new(&mut buf);
+
+        let arr: [u8; 4] = [1, 2, 3, 4];
+        assert!(enc.write_array(&arr).is_some());
+        assert_eq!(enc.position(), 4);
+        assert_eq!(&buf[..4], &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_encoder_write_u8_overflow() {
+        let mut buf = [0u8; 0]; // Empty buffer
+        let mut enc = Encoder::new(&mut buf);
+
+        assert!(enc.write_u8(0x42).is_none());
+    }
+
+    #[test]
+    fn test_encoder_write_u64_overflow() {
+        let mut buf = [0u8; 4]; // Only 4 bytes, need 8
+        let mut enc = Encoder::new(&mut buf);
+
+        assert!(enc.write_u64(0x0102030405060708).is_none());
+        assert_eq!(enc.position(), 0);
+    }
+
+    #[test]
+    fn test_encoder_write_bytes_overflow() {
+        let mut buf = [0u8; 2];
+        let mut enc = Encoder::new(&mut buf);
+
+        assert!(enc.write_bytes(&[1, 2, 3, 4, 5]).is_none());
+        assert_eq!(enc.position(), 0);
+    }
+
+    #[test]
+    fn test_encoder_remaining() {
+        let mut buf = [0u8; 10];
+        let mut enc = Encoder::new(&mut buf);
+
+        assert_eq!(enc.remaining(), 10);
+
+        enc.write_u32(0).unwrap();
+        assert_eq!(enc.remaining(), 6);
+
+        enc.write_u16(0).unwrap();
+        assert_eq!(enc.remaining(), 4);
+    }
+
+    #[test]
+    fn test_encoder_has_remaining() {
+        let mut buf = [0u8; 4];
+        let enc = Encoder::new(&mut buf);
+
+        assert!(enc.has_remaining(4));
+        assert!(enc.has_remaining(1));
+        assert!(!enc.has_remaining(5));
+    }
+
+    #[test]
+    fn test_encoder_header_overflow() {
+        let mut buf = [0u8; 1]; // Only 1 byte, need 2
+        let mut enc = Encoder::new(&mut buf);
+
+        let header = Header::new();
+        assert!(enc.write_header(&header).is_none());
+    }
+
+    #[test]
+    fn test_encoder_length_prefixed_overflow() {
+        let mut buf = [0u8; 6]; // Need 4 (prefix) + 5 (data) = 9 bytes
+        let mut enc = Encoder::new(&mut buf);
+
+        assert!(enc.write_length_prefixed(&[1, 2, 3, 4, 5]).is_none());
+    }
 }
 
 #[cfg(test)]

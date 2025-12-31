@@ -208,6 +208,7 @@ impl ThreadKeyStore {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -370,5 +371,158 @@ mod tests {
         });
 
         assert_eq!(store.sequence_range(), Some((5, 10)));
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn test_key_store_with_capacity() {
+        let store = ThreadKeyStore::with_capacity([0x42u8; 32], 100);
+
+        assert!(store.is_empty());
+        assert_eq!(store.len(), 0);
+        // Capacity is internal, but we can verify the store works
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn test_key_store_get_key() {
+        let mut store = ThreadKeyStore::new([0x42u8; 32]);
+
+        let message_id = [0x01u8; 32];
+        store.retain_key(RetainedKey {
+            message_id,
+            message_key: [0xAAu8; 32],
+            sequence: 5,
+            timestamp: 1000,
+        });
+
+        // Find by message_id
+        let found = store.get_key(&message_id);
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().sequence, 5);
+
+        // Non-existent message_id
+        let not_found = store.get_key(&[0x99u8; 32]);
+        assert!(not_found.is_none());
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn test_key_store_get_all_keys() {
+        let mut store = ThreadKeyStore::new([0x42u8; 32]);
+
+        store.retain_key(RetainedKey {
+            message_id: [0x01u8; 32],
+            message_key: [0xAAu8; 32],
+            sequence: 5,
+            timestamp: 1000,
+        });
+
+        store.retain_key(RetainedKey {
+            message_id: [0x02u8; 32],
+            message_key: [0xBBu8; 32],
+            sequence: 10,
+            timestamp: 2000,
+        });
+
+        let all_keys = store.get_all_keys();
+        assert_eq!(all_keys.len(), 2);
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn test_key_store_clear() {
+        let mut store = ThreadKeyStore::new([0x42u8; 32]);
+
+        store.retain_key(RetainedKey {
+            message_id: [0x01u8; 32],
+            message_key: [0xAAu8; 32],
+            sequence: 5,
+            timestamp: 1000,
+        });
+
+        store.retain_key(RetainedKey {
+            message_id: [0x02u8; 32],
+            message_key: [0xBBu8; 32],
+            sequence: 10,
+            timestamp: 2000,
+        });
+
+        assert_eq!(store.len(), 2);
+
+        store.clear();
+
+        assert!(store.is_empty());
+        assert_eq!(store.len(), 0);
+    }
+
+    #[test]
+    fn test_thread_settings_is_history_sync_enabled() {
+        let settings = ThreadSettings::new([0x42u8; 32]);
+        assert!(settings.is_history_sync_enabled());
+
+        let ephemeral = ThreadSettings::new_ephemeral([0x42u8; 32], 1000);
+        assert!(!ephemeral.is_history_sync_enabled());
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn test_key_store_merge_maintains_order() {
+        let mut store = ThreadKeyStore::new([0x42u8; 32]);
+
+        // Add some keys out of order
+        store.retain_key(RetainedKey {
+            message_id: [0x01u8; 32],
+            message_key: [0xAAu8; 32],
+            sequence: 10,
+            timestamp: 1000,
+        });
+
+        // Merge keys that fill in gaps
+        store.merge(vec![
+            RetainedKey {
+                message_id: [0x02u8; 32],
+                message_key: [0xBBu8; 32],
+                sequence: 5,
+                timestamp: 500,
+            },
+            RetainedKey {
+                message_id: [0x03u8; 32],
+                message_key: [0xCCu8; 32],
+                sequence: 15,
+                timestamp: 1500,
+            },
+        ]);
+
+        assert_eq!(store.len(), 3);
+        // Keys should be in sorted order
+        assert_eq!(store.keys[0].sequence, 5);
+        assert_eq!(store.keys[1].sequence, 10);
+        assert_eq!(store.keys[2].sequence, 15);
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn test_key_store_prune_all() {
+        let mut store = ThreadKeyStore::new([0x42u8; 32]);
+
+        store.retain_key(RetainedKey {
+            message_id: [0x01u8; 32],
+            message_key: [0xAAu8; 32],
+            sequence: 1,
+            timestamp: 1000,
+        });
+
+        store.retain_key(RetainedKey {
+            message_id: [0x02u8; 32],
+            message_key: [0xBBu8; 32],
+            sequence: 2,
+            timestamp: 2000,
+        });
+
+        // Prune all keys
+        store.prune_before(10000);
+
+        assert!(store.is_empty());
     }
 }

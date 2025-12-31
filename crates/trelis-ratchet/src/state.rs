@@ -450,4 +450,176 @@ mod tests {
             Err(CryptoError::SessionCompromised)
         ));
     }
+
+    #[test]
+    fn test_last_activity() {
+        let session_key = [0x42u8; 32];
+        let their_keypair = HybridKemKeypair::generate().unwrap();
+
+        let mut state =
+            KemRatchet::init_initiator(&session_key, their_keypair.public_key().clone(), 1000)
+                .unwrap();
+
+        assert_eq!(state.last_activity(), 1000);
+
+        state.set_last_activity(2000);
+        assert_eq!(state.last_activity(), 2000);
+    }
+
+    #[test]
+    fn test_validate_can_receive() {
+        let session_key = [0x42u8; 32];
+        let their_keypair = HybridKemKeypair::generate().unwrap();
+
+        let state =
+            KemRatchet::init_initiator(&session_key, their_keypair.public_key().clone(), 1000)
+                .unwrap();
+
+        // Active state should allow receiving
+        assert!(state.validate_can_receive().is_ok());
+    }
+
+    #[test]
+    fn test_validate_can_receive_compromised() {
+        let session_key = [0x42u8; 32];
+        let their_keypair = HybridKemKeypair::generate().unwrap();
+
+        let mut state =
+            KemRatchet::init_initiator(&session_key, their_keypair.public_key().clone(), 1000)
+                .unwrap();
+
+        state.mark_compromised();
+
+        assert!(matches!(
+            state.validate_can_receive(),
+            Err(CryptoError::SessionCompromised)
+        ));
+    }
+
+    #[test]
+    fn test_set_recv_count() {
+        let session_key = [0x42u8; 32];
+        let their_keypair = HybridKemKeypair::generate().unwrap();
+
+        let mut state =
+            KemRatchet::init_initiator(&session_key, their_keypair.public_key().clone(), 1000)
+                .unwrap();
+
+        assert_eq!(state.recv_count(), 0);
+
+        state.set_recv_count(5);
+        assert_eq!(state.recv_count(), 6); // message_number + 1
+
+        state.reset_recv_count();
+        assert_eq!(state.recv_count(), 0);
+    }
+
+    #[test]
+    fn test_set_their_public_key() {
+        let session_key = [0x42u8; 32];
+        let our_keypair = HybridKemKeypair::generate().unwrap();
+
+        let mut state = KemRatchet::init_responder(&session_key, our_keypair, 1000);
+
+        // Initially no their_public_key
+        assert!(state.their_public_key().is_none());
+        assert!(state.their_key_id().is_none());
+
+        // Set their public key
+        let their_keypair = HybridKemKeypair::generate().unwrap();
+        let expected_key_id = derive_key_id(their_keypair.public_key());
+
+        state.set_their_public_key(their_keypair.public_key().clone());
+
+        assert!(state.their_public_key().is_some());
+        assert_eq!(state.their_key_id(), Some(expected_key_id));
+    }
+
+    #[test]
+    fn test_set_status() {
+        let session_key = [0x42u8; 32];
+        let their_keypair = HybridKemKeypair::generate().unwrap();
+
+        let mut state =
+            KemRatchet::init_initiator(&session_key, their_keypair.public_key().clone(), 1000)
+                .unwrap();
+
+        assert_eq!(state.status(), RatchetStatus::Active);
+
+        state.set_status(RatchetStatus::AwaitingReply);
+        assert_eq!(state.status(), RatchetStatus::AwaitingReply);
+
+        state.set_status(RatchetStatus::Stale);
+        assert_eq!(state.status(), RatchetStatus::Stale);
+    }
+
+    #[test]
+    fn test_set_root_key() {
+        let session_key = [0x42u8; 32];
+        let their_keypair = HybridKemKeypair::generate().unwrap();
+
+        let mut state =
+            KemRatchet::init_initiator(&session_key, their_keypair.public_key().clone(), 1000)
+                .unwrap();
+
+        let original_root_key = *state.root_key();
+        let new_root_key = [0xFFu8; 32];
+
+        state.set_root_key(new_root_key);
+        assert_eq!(state.root_key(), &new_root_key);
+        assert_ne!(state.root_key(), &original_root_key);
+    }
+
+    #[test]
+    fn test_increment_send_count() {
+        let session_key = [0x42u8; 32];
+        let their_keypair = HybridKemKeypair::generate().unwrap();
+
+        let mut state =
+            KemRatchet::init_initiator(&session_key, their_keypair.public_key().clone(), 1000)
+                .unwrap();
+
+        assert_eq!(state.send_count(), 0);
+
+        state.increment_send_count();
+        assert_eq!(state.send_count(), 1);
+
+        state.increment_send_count();
+        assert_eq!(state.send_count(), 2);
+    }
+
+    #[test]
+    fn test_find_keypair_current() {
+        let session_key = [0x42u8; 32];
+        let their_keypair = HybridKemKeypair::generate().unwrap();
+
+        let state =
+            KemRatchet::init_initiator(&session_key, their_keypair.public_key().clone(), 1000)
+                .unwrap();
+
+        let current_key_id = state.our_key_id();
+
+        // Should find current keypair
+        assert!(state.find_keypair(current_key_id).is_some());
+
+        // Should not find non-existent keypair
+        assert!(state.find_keypair(0xDEADBEEF).is_none());
+    }
+
+    #[test]
+    fn test_ratchet_status_debug() {
+        // Test that all status variants can be debug-printed
+        let statuses = [
+            RatchetStatus::Uninitialised,
+            RatchetStatus::Active,
+            RatchetStatus::AwaitingReply,
+            RatchetStatus::Stale,
+            RatchetStatus::Compromised,
+        ];
+
+        for status in statuses {
+            let debug_str = format!("{:?}", status);
+            assert!(!debug_str.is_empty());
+        }
+    }
 }

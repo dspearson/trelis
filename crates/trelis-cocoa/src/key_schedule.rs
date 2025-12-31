@@ -421,4 +421,165 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_h3_round_hash_basic() {
+        let root_label = [0x42u8; 32];
+        let removed: [UserId; 0] = [];
+        let added: [UserId; 0] = [];
+
+        let hash = h3_round_hash(&root_label, &removed, &added);
+        assert_eq!(hash.len(), 32);
+    }
+
+    #[test]
+    fn test_h3_round_hash_with_users() {
+        let root_label = [0x42u8; 32];
+        let user1: UserId = [0x01u8; 32];
+        let user2: UserId = [0x02u8; 32];
+        let user3: UserId = [0x03u8; 32];
+
+        let removed = [user1];
+        let added = [user2, user3];
+
+        let hash = h3_round_hash(&root_label, &removed, &added);
+        assert_eq!(hash.len(), 32);
+    }
+
+    #[test]
+    fn test_h3_round_hash_different_inputs() {
+        let root_label = [0x42u8; 32];
+        let user1: UserId = [0x01u8; 32];
+        let user2: UserId = [0x02u8; 32];
+
+        // Different removed users produce different hashes
+        let hash1 = h3_round_hash(&root_label, &[user1], &[]);
+        let hash2 = h3_round_hash(&root_label, &[user2], &[]);
+        assert_ne!(hash1, hash2);
+
+        // Different added users produce different hashes
+        let hash3 = h3_round_hash(&root_label, &[], &[user1]);
+        let hash4 = h3_round_hash(&root_label, &[], &[user2]);
+        assert_ne!(hash3, hash4);
+
+        // Removed vs added matters
+        assert_ne!(hash1, hash3);
+    }
+
+    #[test]
+    fn test_h3_round_hash_order_matters() {
+        let root_label = [0x42u8; 32];
+        let user1: UserId = [0x01u8; 32];
+        let user2: UserId = [0x02u8; 32];
+
+        let hash1 = h3_round_hash(&root_label, &[user1, user2], &[]);
+        let hash2 = h3_round_hash(&root_label, &[user2, user1], &[]);
+        assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_h4_parent_hash_h1_basic() {
+        let keypair = trelis_hybrid::HybridKemKeypair::generate().unwrap();
+        let sibling_label = [0x42u8; 32];
+
+        let hash = h4_parent_hash_h1(keypair.public_key(), &sibling_label);
+        assert_eq!(hash.len(), 32);
+    }
+
+    #[test]
+    fn test_h4_parent_hash_h1_deterministic() {
+        let keypair = trelis_hybrid::HybridKemKeypair::generate().unwrap();
+        let sibling_label = [0x42u8; 32];
+
+        let hash1 = h4_parent_hash_h1(keypair.public_key(), &sibling_label);
+        let hash2 = h4_parent_hash_h1(keypair.public_key(), &sibling_label);
+        assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_h4_parent_hash_h1_different_inputs() {
+        let keypair1 = trelis_hybrid::HybridKemKeypair::generate().unwrap();
+        let keypair2 = trelis_hybrid::HybridKemKeypair::generate().unwrap();
+        let label1 = [0x42u8; 32];
+        let label2 = [0x43u8; 32];
+
+        // Different public keys
+        let hash1 = h4_parent_hash_h1(keypair1.public_key(), &label1);
+        let hash2 = h4_parent_hash_h1(keypair2.public_key(), &label1);
+        assert_ne!(hash1, hash2);
+
+        // Different sibling labels
+        let hash3 = h4_parent_hash_h1(keypair1.public_key(), &label1);
+        let hash4 = h4_parent_hash_h1(keypair1.public_key(), &label2);
+        assert_ne!(hash3, hash4);
+    }
+
+    #[test]
+    fn test_h4_parent_hash_h2_basic() {
+        let keypair = trelis_hybrid::HybridKemKeypair::generate().unwrap();
+        let child_h2 = [0x42u8; 32];
+
+        let hash = h4_parent_hash_h2(keypair.public_key(), &[], &child_h2, &[]);
+        assert_eq!(hash.len(), 32);
+    }
+
+    #[test]
+    fn test_h4_parent_hash_h2_with_predecessors() {
+        let child = trelis_hybrid::HybridKemKeypair::generate().unwrap();
+        let pred1 = trelis_hybrid::HybridKemKeypair::generate().unwrap();
+        let pred2 = trelis_hybrid::HybridKemKeypair::generate().unwrap();
+        let child_h2 = [0x42u8; 32];
+
+        let predecessors = [pred1.public_key(), pred2.public_key()];
+        let hash = h4_parent_hash_h2(child.public_key(), &predecessors, &child_h2, &[]);
+        assert_eq!(hash.len(), 32);
+    }
+
+    #[test]
+    fn test_h4_parent_hash_h2_with_resolution_keys() {
+        let child = trelis_hybrid::HybridKemKeypair::generate().unwrap();
+        let res1 = trelis_hybrid::HybridKemKeypair::generate().unwrap();
+        let res2 = trelis_hybrid::HybridKemKeypair::generate().unwrap();
+        let child_h2 = [0x42u8; 32];
+
+        let resolution = [res1.public_key(), res2.public_key()];
+        let hash = h4_parent_hash_h2(child.public_key(), &[], &child_h2, &resolution);
+        assert_eq!(hash.len(), 32);
+    }
+
+    #[test]
+    fn test_h4_parent_hash_h2_full() {
+        let child = trelis_hybrid::HybridKemKeypair::generate().unwrap();
+        let pred1 = trelis_hybrid::HybridKemKeypair::generate().unwrap();
+        let res1 = trelis_hybrid::HybridKemKeypair::generate().unwrap();
+        let child_h2 = [0x42u8; 32];
+
+        let predecessors = [pred1.public_key()];
+        let resolution = [res1.public_key()];
+        let hash = h4_parent_hash_h2(child.public_key(), &predecessors, &child_h2, &resolution);
+        assert_eq!(hash.len(), 32);
+    }
+
+    #[test]
+    fn test_h4_parent_hash_h2_different_inputs() {
+        let child = trelis_hybrid::HybridKemKeypair::generate().unwrap();
+        let pred1 = trelis_hybrid::HybridKemKeypair::generate().unwrap();
+        let pred2 = trelis_hybrid::HybridKemKeypair::generate().unwrap();
+        let child_h2_a = [0x42u8; 32];
+        let child_h2_b = [0x43u8; 32];
+
+        // Different child_h2
+        let hash1 = h4_parent_hash_h2(child.public_key(), &[], &child_h2_a, &[]);
+        let hash2 = h4_parent_hash_h2(child.public_key(), &[], &child_h2_b, &[]);
+        assert_ne!(hash1, hash2);
+
+        // Different predecessor keys
+        let hash3 = h4_parent_hash_h2(child.public_key(), &[pred1.public_key()], &child_h2_a, &[]);
+        let hash4 = h4_parent_hash_h2(child.public_key(), &[pred2.public_key()], &child_h2_a, &[]);
+        assert_ne!(hash3, hash4);
+
+        // With vs without predecessors
+        let hash5 = h4_parent_hash_h2(child.public_key(), &[], &child_h2_a, &[]);
+        assert_ne!(hash3, hash5);
+    }
 }

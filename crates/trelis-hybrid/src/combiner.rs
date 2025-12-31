@@ -126,6 +126,7 @@ impl core::fmt::Debug for HybridSharedSecret {
 #[allow(clippy::clone_on_copy)]
 mod tests {
     use super::*;
+    use alloc::format;
 
     #[test]
     fn test_combine_produces_32_bytes() {
@@ -200,6 +201,19 @@ mod tests {
 
         let bytes = combined.into_bytes();
         assert_eq!(bytes, expected);
+    }
+
+    #[test]
+    fn test_debug_redacts_secret() {
+        let x448_ss = [0x11u8; X448_SS_SIZE];
+        let sntrup_ss = [0x22u8; SNTRUP_SS_SIZE];
+
+        let combined = HybridSharedSecret::combine(&x448_ss, &sntrup_ss);
+        let debug_str = format!("{:?}", combined);
+
+        // Debug should NOT contain the actual bytes
+        assert!(debug_str.contains("[redacted]"));
+        assert!(!debug_str.contains("0x11"));
     }
 }
 

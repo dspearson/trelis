@@ -405,4 +405,133 @@ mod tests {
             assert_eq!(recovered.reason, reason);
         }
     }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn test_revocation_rekey_event_from_revocation() {
+        let signing_key = HybridSigningKeypair::generate().unwrap();
+        let device_id = [0x42u8; 16];
+
+        let revocation = DeviceRevocation::new(
+            device_id,
+            RevocationReason::DeviceCompromised,
+            5000,
+            &signing_key,
+        )
+        .unwrap();
+
+        let rekey_event = RevocationRekeyEvent::from_revocation(&revocation);
+
+        assert_eq!(rekey_event.device_id, device_id);
+        assert_eq!(rekey_event.reason, RevocationReason::DeviceCompromised);
+        assert_eq!(rekey_event.revoked_at, 5000);
+    }
+
+    #[test]
+    fn test_revocation_rekey_event_requires_immediate_rekey() {
+        // Only DeviceCompromised requires immediate rekey
+        let signing_key = HybridSigningKeypair::generate().unwrap();
+
+        let compromised_revocation = DeviceRevocation::new(
+            [0x42u8; 16],
+            RevocationReason::DeviceCompromised,
+            5000,
+            &signing_key,
+        )
+        .unwrap();
+        let compromised_event = RevocationRekeyEvent::from_revocation(&compromised_revocation);
+        assert!(compromised_event.requires_immediate_rekey());
+
+        let lost_revocation = DeviceRevocation::new(
+            [0x42u8; 16],
+            RevocationReason::DeviceLost,
+            5000,
+            &signing_key,
+        )
+        .unwrap();
+        let lost_event = RevocationRekeyEvent::from_revocation(&lost_revocation);
+        assert!(!lost_event.requires_immediate_rekey());
+
+        let user_revocation = DeviceRevocation::new(
+            [0x42u8; 16],
+            RevocationReason::UserInitiated,
+            5000,
+            &signing_key,
+        )
+        .unwrap();
+        let user_event = RevocationRekeyEvent::from_revocation(&user_revocation);
+        assert!(!user_event.requires_immediate_rekey());
+
+        let replaced_revocation = DeviceRevocation::new(
+            [0x42u8; 16],
+            RevocationReason::DeviceReplaced,
+            5000,
+            &signing_key,
+        )
+        .unwrap();
+        let replaced_event = RevocationRekeyEvent::from_revocation(&replaced_revocation);
+        assert!(!replaced_event.requires_immediate_rekey());
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn test_device_revocation_from_bytes_too_short() {
+        // Less than FIXED_SIZE (25 bytes)
+        let bytes = [0u8; 10];
+        assert!(DeviceRevocation::from_bytes(&bytes).is_err());
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn test_device_revocation_from_bytes_invalid_reason() {
+        // Valid length but invalid reason byte
+        let signing_key = HybridSigningKeypair::generate().unwrap();
+        let revocation = DeviceRevocation::new(
+            [0x42u8; 16],
+            RevocationReason::UserInitiated,
+            5000,
+            &signing_key,
+        )
+        .unwrap();
+
+        let mut bytes = revocation.to_bytes();
+        // Corrupt the reason byte (at offset 24: 16 device_id + 8 timestamp)
+        bytes[24] = 0xFF; // Invalid reason
+
+        assert!(DeviceRevocation::from_bytes(&bytes).is_err());
+    }
+
+    #[test]
+    fn test_device_revocation_debug() {
+        let signing_key = HybridSigningKeypair::generate().unwrap();
+        let revocation = DeviceRevocation::new(
+            [0x42u8; 16],
+            RevocationReason::DeviceLost,
+            5000,
+            &signing_key,
+        )
+        .unwrap();
+
+        let debug_str = format!("{:?}", revocation);
+        assert!(debug_str.contains("DeviceRevocation"));
+        assert!(debug_str.contains("revoked_at"));
+        assert!(debug_str.contains("5000"));
+        assert!(debug_str.contains("DeviceLost"));
+    }
+
+    #[test]
+    fn test_revocation_rekey_event_debug() {
+        let signing_key = HybridSigningKeypair::generate().unwrap();
+        let revocation = DeviceRevocation::new(
+            [0x42u8; 16],
+            RevocationReason::DeviceLost,
+            5000,
+            &signing_key,
+        )
+        .unwrap();
+
+        let event = RevocationRekeyEvent::from_revocation(&revocation);
+        let debug_str = format!("{:?}", event);
+        assert!(debug_str.contains("RevocationRekeyEvent"));
+    }
 }

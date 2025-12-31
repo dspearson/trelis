@@ -252,4 +252,217 @@ mod tests {
         assert_eq!(view.tree_depth(), 3);
         assert!(view.get_node(&NodeIndex::root()).is_none());
     }
+
+    #[test]
+    fn test_get_mut() {
+        let mut view = PartialTreeView::new(0, 2);
+        let node = TreeNode::new_blank(NodeIndex::new(1, 0));
+        view.insert(node);
+
+        // Test get_mut exists
+        let node_mut = view.get_mut(&NodeIndex::new(1, 0));
+        assert!(node_mut.is_some());
+
+        // Test get_mut returns None for non-existent
+        let missing = view.get_mut(&NodeIndex::new(1, 1));
+        assert!(missing.is_none());
+    }
+
+    #[test]
+    fn test_get_mut_modify() {
+        let mut view = PartialTreeView::new(0, 2);
+        let node = TreeNode::new_blank(NodeIndex::new(1, 0));
+        view.insert(node);
+
+        // Use get_mut to add an unmerged leaf
+        if let Some(n) = view.get_mut(&NodeIndex::new(1, 0)) {
+            n.state.add_unmerged_leaf([0x42u8; 32]);
+        }
+
+        // Verify the modification persisted
+        let retrieved = view.get(&NodeIndex::new(1, 0)).unwrap();
+        let leaves = retrieved.state.unmerged_leaves().unwrap();
+        assert_eq!(leaves.len(), 1);
+    }
+
+    #[test]
+    fn test_remove() {
+        let mut view = PartialTreeView::new(0, 2);
+        let node = TreeNode::new_blank(NodeIndex::new(1, 0));
+        view.insert(node);
+
+        assert!(view.contains(&NodeIndex::new(1, 0)));
+
+        let removed = view.remove(&NodeIndex::new(1, 0));
+        assert!(removed.is_some());
+        assert!(!view.contains(&NodeIndex::new(1, 0)));
+    }
+
+    #[test]
+    fn test_remove_nonexistent() {
+        let mut view = PartialTreeView::new(0, 2);
+
+        let removed = view.remove(&NodeIndex::new(1, 0));
+        assert!(removed.is_none());
+    }
+
+    #[test]
+    fn test_len() {
+        let mut view = PartialTreeView::new(0, 2);
+
+        assert_eq!(view.len(), 0);
+
+        view.insert(TreeNode::new_blank(NodeIndex::new(1, 0)));
+        assert_eq!(view.len(), 1);
+
+        view.insert(TreeNode::new_blank(NodeIndex::new(1, 1)));
+        assert_eq!(view.len(), 2);
+
+        view.remove(&NodeIndex::new(1, 0));
+        assert_eq!(view.len(), 1);
+    }
+
+    #[test]
+    fn test_is_empty() {
+        let mut view = PartialTreeView::new(0, 2);
+
+        assert!(view.is_empty());
+
+        view.insert(TreeNode::new_blank(NodeIndex::new(1, 0)));
+        assert!(!view.is_empty());
+
+        view.remove(&NodeIndex::new(1, 0));
+        assert!(view.is_empty());
+    }
+
+    #[test]
+    fn test_iter() {
+        let mut view = PartialTreeView::new(0, 2);
+
+        view.insert(TreeNode::new_blank(NodeIndex::new(1, 0)));
+        view.insert(TreeNode::new_blank(NodeIndex::new(1, 1)));
+        view.insert(TreeNode::new_blank(NodeIndex::new(0, 0)));
+
+        let nodes: Vec<_> = view.iter().collect();
+        assert_eq!(nodes.len(), 3);
+    }
+
+    #[test]
+    fn test_path_nodes() {
+        let mut view = PartialTreeView::new(0, 2);
+
+        // Our path: leaf (2,0) -> parent (1,0) -> root (0,0)
+        view.insert(TreeNode::new_blank(NodeIndex::new(2, 0))); // leaf
+        view.insert(TreeNode::new_blank(NodeIndex::new(1, 0))); // parent
+        // Skip root to test incomplete path
+
+        let path_nodes: Vec<_> = view.path_nodes().collect();
+        assert_eq!(path_nodes.len(), 3); // All 3 indices, but one is None
+
+        // First node (leaf) is present
+        assert!(path_nodes[0].is_some());
+        // Second node (parent) is present
+        assert!(path_nodes[1].is_some());
+        // Third node (root) is missing
+        assert!(path_nodes[2].is_none());
+    }
+
+    #[test]
+    fn test_set_member_count() {
+        let mut view = PartialTreeView::new(0, 2);
+
+        assert_eq!(view.member_count(), 0);
+
+        view.set_member_count(5);
+        assert_eq!(view.member_count(), 5);
+
+        view.set_member_count(10);
+        assert_eq!(view.member_count(), 10);
+    }
+
+    #[test]
+    fn test_add_unmerged_leaf() {
+        let mut view = PartialTreeView::new(0, 2);
+        let node = TreeNode::new_blank(NodeIndex::new(1, 0));
+        view.insert(node);
+
+        let user_id = [0x42u8; 32];
+        view.add_unmerged_leaf(&NodeIndex::new(1, 0), user_id);
+
+        let retrieved = view.get(&NodeIndex::new(1, 0)).unwrap();
+        let leaves = retrieved.state.unmerged_leaves().unwrap();
+        assert_eq!(leaves.len(), 1);
+        assert!(leaves.contains(&user_id));
+    }
+
+    #[test]
+    fn test_add_unmerged_leaf_nonexistent_node() {
+        let mut view = PartialTreeView::new(0, 2);
+
+        // Adding to non-existent node should be a no-op
+        let user_id = [0x42u8; 32];
+        view.add_unmerged_leaf(&NodeIndex::new(1, 0), user_id);
+
+        // Nothing should happen, no crash
+        assert!(view.is_empty());
+    }
+
+    #[test]
+    fn test_blank_node_operation() {
+        let mut view = PartialTreeView::new(0, 2);
+
+        // Insert a populated node (using blank for simplicity since both have state)
+        let node = TreeNode::new_blank(NodeIndex::new(1, 0));
+        view.insert(node);
+
+        // Blank the node
+        view.blank_node(&NodeIndex::new(1, 0));
+
+        let retrieved = view.get(&NodeIndex::new(1, 0)).unwrap();
+        assert!(retrieved.state.is_blank());
+    }
+
+    #[test]
+    fn test_blank_node_nonexistent() {
+        let mut view = PartialTreeView::new(0, 2);
+
+        // Blanking non-existent node should be a no-op
+        view.blank_node(&NodeIndex::new(1, 0));
+
+        // Nothing should happen, no crash
+        assert!(view.is_empty());
+    }
+
+    #[test]
+    fn test_path_is_complete() {
+        let mut view = PartialTreeView::new(0, 2);
+
+        // Initially incomplete (empty)
+        assert!(!view.path_is_complete());
+
+        // Add all path nodes: leaf (2,0) -> parent (1,0) -> root (0,0)
+        view.insert(TreeNode::new_blank(NodeIndex::new(2, 0)));
+        assert!(!view.path_is_complete()); // Still incomplete
+
+        view.insert(TreeNode::new_blank(NodeIndex::new(1, 0)));
+        assert!(!view.path_is_complete()); // Still incomplete
+
+        view.insert(TreeNode::new_blank(NodeIndex::new(0, 0)));
+        assert!(view.path_is_complete()); // Now complete
+    }
+
+    #[test]
+    fn test_path_is_complete_with_removal() {
+        let mut view = PartialTreeView::new(0, 2);
+
+        // Add all path nodes
+        view.insert(TreeNode::new_blank(NodeIndex::new(2, 0)));
+        view.insert(TreeNode::new_blank(NodeIndex::new(1, 0)));
+        view.insert(TreeNode::new_blank(NodeIndex::new(0, 0)));
+        assert!(view.path_is_complete());
+
+        // Remove one node
+        view.remove(&NodeIndex::new(1, 0));
+        assert!(!view.path_is_complete());
+    }
 }
