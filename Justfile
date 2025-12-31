@@ -53,6 +53,10 @@ build-cocoa:
 build-multidevice:
     cargo build -p trelis-multidevice
 
+# Build WebAssembly bindings
+build-wasm:
+    cargo build -p trelis-wasm --target wasm32-unknown-unknown
+
 # ============================================
 # Test Commands
 # ============================================
@@ -345,8 +349,9 @@ info:
     @echo "  trelis-wire        - Wire format serialisation"
     @echo "  trelis-x3dh-pq     - Post-quantum X3DH"
     @echo "  trelis-ratchet     - Double ratchet protocol"
-    @echo "  trelis-cocoa       - COCOA group messaging"
+    @echo "  trelis-cocoa       - CoCoA-SA group messaging"
     @echo "  trelis-multidevice - Multi-device support"
+    @echo "  trelis-wasm        - WebAssembly bindings"
     @echo ""
     @echo "Toolchain:"
     @echo -n "  Rust: " && rustc --version

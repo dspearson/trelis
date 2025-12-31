@@ -1,21 +1,30 @@
 # Trelis
 
-A Rust implementation of the Trelis hybrid post-quantum cryptographic protocol.
+An experimental Rust implementation of a hybrid post-quantum cryptographic protocol for end-to-end encrypted messaging.
+
+## Warning
+
+This software is unaudited and should not be used in production systems. The cryptographic constructions have not been formally verified. Use at your own risk.
 
 ## Overview
 
-Trelis is a hybrid cryptographic protocol designed for secure end-to-end encrypted messaging. It combines classical elliptic curve cryptography with post-quantum lattice-based algorithms to provide security against both current and future quantum computing threats.
+Trelis combines classical elliptic curve cryptography with post-quantum lattice-based algorithms. The intent is to provide security against both classical and potential future quantum computing attacks by requiring an attacker to break both cryptographic schemes.
 
 The protocol specification is available at: https://trelis.technoanimal.net/trelis.pdf
 
-## Design Goals
+## Crate Structure
 
-- **Hybrid Post-Quantum Security**: Pair classical algorithms (Ed448, X448) with post-quantum alternatives (ML-DSA-65, sntrup761) so that security is maintained even if one class is broken
-- **Forward Secrecy**: Session keys are ephemeral and regularly rotated via the Double Ratchet protocol
-- **Group Messaging**: Efficient group encryption using CoCoA-SA (Continuous Group Key Agreement with Server Assist)
-- **Multi-Device Support**: Seamless key synchronisation across user devices
-- **no_std Compatible**: Core cryptographic primitives work in embedded and WASM environments
-- **Memory Safety**: Pure Rust implementation with automatic zeroisation of secret material
+| Crate | Description |
+|-------|-------------|
+| `trelis-primitives` | Low-level cryptographic operations (AEAD, KDF, sntrup761) |
+| `trelis-hybrid` | Hybrid signature and KEM combining classical and PQ algorithms |
+| `trelis-wire` | Wire format encoding/decoding |
+| `trelis-x3dh-pq` | Post-quantum extended triple Diffie-Hellman key agreement |
+| `trelis-ratchet` | Per-message KEM ratchet for forward secrecy |
+| `trelis-cocoa` | CoCoA-SA group key agreement protocol |
+| `trelis-multidevice` | Multi-device key synchronisation and history sharing |
+| `trelis-wasm` | WebAssembly bindings |
+| `trelis-error` | Error types |
 
 ## Cryptographic Primitives
 
@@ -23,12 +32,58 @@ The protocol specification is available at: https://trelis.technoanimal.net/trel
 |---------|-----------|--------------|
 | Signatures | Ed448 (RFC 8032) | ML-DSA-65 (FIPS 204) |
 | Key Exchange | X448 (RFC 7748) | sntrup761 (NTRU Prime) |
-| AEAD | XChaCha20-Poly1305 | |
-| KDF | BLAKE3 | |
+| AEAD | XChaCha20-Poly1305 | - |
+| KDF | BLAKE3 | - |
+
+Hybrid operations combine both classical and post-quantum components. Security depends on the stronger of the two schemes remaining unbroken.
+
+## Features
+
+- Hybrid post-quantum key encapsulation and signatures
+- X3DH-PQ key agreement for session establishment
+- Per-message KEM ratchet providing forward secrecy
+- CoCoA-SA for group messaging with server-assisted delivery
+- Multi-device support with history synchronisation
+- `no_std` support for embedded and WASM environments
+- Automatic zeroisation of secret material
+
+## Building
+
+Requires Rust 2024 edition.
+
+```
+cargo build --release
+cargo test --workspace
+```
+
+For WASM builds:
+
+```
+cargo build --target wasm32-unknown-unknown -p trelis-wasm
+```
+
+### Development Environment
+
+A Nix flake is provided for reproducible development environments. With Nix installed:
+
+```
+nix develop
+```
+
+This automatically provides all required dependencies and tooling.
+
+## Limitations
+
+- No formal security proof
+- No side-channel analysis performed
+- sntrup761 uses either C FFI or pure Rust backend depending on target
+- Not suitable for production use without audit
 
 ## Licence
 
 ISC License. See [LICENCE](LICENCE) for details.
+
+Third-party dependency licences are listed in [3RD-PARTY-LICENCES.md](3RD-PARTY-LICENCES.md).
 
 ## References
 
@@ -37,3 +92,4 @@ ISC License. See [LICENCE](LICENCE) for details.
 - [RFC 7748 - Elliptic Curves for Security](https://tools.ietf.org/html/rfc7748)
 - [FIPS 204 - Module-Lattice-Based Digital Signature Standard](https://csrc.nist.gov/pubs/fips/204/final)
 - [NTRU Prime](https://ntruprime.cr.yp.to/)
+- [CoCoA: Concurrent Continuous Group Key Agreement](https://eprint.iacr.org/2022/251)

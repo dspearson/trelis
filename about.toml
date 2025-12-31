@@ -1,0 +1,25 @@
+# cargo-about configuration
+# Generate with: cargo about generate about.hbs -o 3RD-PARTY-LICENCES.md
+
+# Accepted licenses (SPDX identifiers) - in priority order
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "CC0-1.0",
+    "Unlicense",
+    "MPL-2.0",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "BSL-1.0",
+    "OpenSSL",
+    "CDLA-Permissive-2.0",
+]
+
+# Crate-specific overrides (must come last)
+[ring]
+accepted = ["ISC", "MIT", "OpenSSL"]
