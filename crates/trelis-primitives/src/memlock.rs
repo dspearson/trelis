@@ -76,7 +76,6 @@ extern crate std;
 
 use core::fmt;
 use core::marker::PhantomData;
-use core::mem;
 use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
 use std::alloc::{Layout, alloc, dealloc};
@@ -241,9 +240,14 @@ pub fn advise_secret(ptr: *const u8, len: usize) -> Result<()> {
     }
 }
 
+/// Advises the kernel that memory contains secrets (non-Linux Unix stub).
+///
+/// This is a no-op on non-Linux Unix platforms (macOS, FreeBSD, etc.)
+/// as they don't support `MADV_DONTDUMP`. The memory will still be
+/// protected by `mlock()`.
 #[cfg(all(unix, not(target_os = "linux")))]
 pub fn advise_secret(_ptr: *const u8, _len: usize) -> Result<()> {
-    Ok(()) // No-op on non-Linux Unix platforms (macOS, FreeBSD, etc.)
+    Ok(())
 }
 
 // ============================================================================
@@ -747,7 +751,7 @@ unsafe impl Sync for LockedVec {}
 /// if the limit cannot be determined.
 #[cfg(unix)]
 pub fn memlock_limit() -> Option<usize> {
-    let mut rlim: libc::rlimit = unsafe { mem::zeroed() };
+    let mut rlim: libc::rlimit = unsafe { core::mem::zeroed() };
 
     // SAFETY: getrlimit is safe with valid rlimit pointer
     let result = unsafe { libc::getrlimit(libc::RLIMIT_MEMLOCK, &mut rlim) };
@@ -763,6 +767,10 @@ pub fn memlock_limit() -> Option<usize> {
     }
 }
 
+/// Returns the memory locking limit (non-Unix stub).
+///
+/// Always returns `None` on non-Unix platforms as there's no standard
+/// way to query memory locking limits.
 #[cfg(not(unix))]
 pub fn memlock_limit() -> Option<usize> {
     None

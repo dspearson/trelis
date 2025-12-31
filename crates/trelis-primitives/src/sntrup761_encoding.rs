@@ -874,7 +874,13 @@ mod tests {
     }
 }
 
-#[cfg(all(test, feature = "std"))]
+// C FFI comparison tests - only on platforms with C implementation
+#[cfg(all(
+    test,
+    feature = "std",
+    not(target_os = "windows"),
+    not(target_arch = "wasm32")
+))]
 mod c_comparison_tests {
     use super::*;
     use crate::sntrup761::Sntrup761SecretKey;

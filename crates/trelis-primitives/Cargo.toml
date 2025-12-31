@@ -9,7 +9,10 @@ description = "Cryptographic primitives for the Trelis protocol"
 
 [features]
 default = ["std"]
-std = ["alloc", "trelis-error/std", "blake3/std", "chacha20poly1305/std", "getrandom/std", "pqcrypto-ntruprime", "pqcrypto-traits"]
+# std feature: enables standard library support
+# On Unix/Linux: uses C FFI sntrup761 (pqcrypto-ntruprime) for performance
+# On Windows: uses pure Rust sntrup761 (ntrulp) since pqcrypto C code doesn't compile with MSVC
+std = ["alloc", "trelis-error/std", "blake3/std", "chacha20poly1305/std", "getrandom/std"]
 alloc = ["trelis-error/alloc", "chacha20poly1305/alloc"]
 # WASM target support (browser environment)
 # Uses ntrulp (pure Rust) with custom encoding to match standard wire format
@@ -34,14 +37,21 @@ subtle.workspace = true
 rand_core.workspace = true
 getrandom.workspace = true
 
-# Post-quantum KEM - C FFI (requires std, native builds only)
-pqcrypto-ntruprime = { workspace = true, optional = true }
-pqcrypto-traits = { workspace = true, optional = true }
 # Post-quantum KEM - Pure Rust (WASM builds, with custom encoding layer)
 ntrulp = { workspace = true, optional = true }
 # Memory locking (optional, for mlock feature)
 libc = { workspace = true, optional = true }
 windows-sys = { workspace = true, optional = true }
+
+# Post-quantum KEM - C FFI (native Unix/Linux only)
+# Excluded on Windows (MSVC issues) and WASM (no C FFI)
+[target.'cfg(all(not(target_os = "windows"), not(target_arch = "wasm32")))'.dependencies]
+pqcrypto-ntruprime = { workspace = true }
+pqcrypto-traits = { workspace = true }
+
+# On Windows and WASM, use pure Rust sntrup761 instead of C FFI
+[target.'cfg(any(target_os = "windows", target_arch = "wasm32"))'.dependencies]
+ntrulp = { workspace = true }
 
 [dev-dependencies]
 hex.workspace = true

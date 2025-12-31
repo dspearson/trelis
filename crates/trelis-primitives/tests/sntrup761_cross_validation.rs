@@ -29,7 +29,13 @@
 //!
 //! Run with: cargo test --features "std,wasm" --test sntrup761_cross_validation
 
-#![cfg(all(feature = "std", feature = "wasm"))]
+// Only run on platforms with both C FFI and Rust implementations (native Unix/Linux)
+#![cfg(all(
+    feature = "std",
+    feature = "wasm",
+    not(target_os = "windows"),
+    not(target_arch = "wasm32")
+))]
 
 use rayon::prelude::*;
 use trelis_primitives::sntrup761 as c_impl;
@@ -595,12 +601,10 @@ fn test_c_public_key_coefficient_distribution() {
     let mut zero = 0;
 
     for &c in &coeffs {
-        if c > 0 {
-            positive += 1;
-        } else if c < 0 {
-            negative += 1;
-        } else {
-            zero += 1;
+        match c.cmp(&0) {
+            std::cmp::Ordering::Greater => positive += 1,
+            std::cmp::Ordering::Less => negative += 1,
+            std::cmp::Ordering::Equal => zero += 1,
         }
     }
 
@@ -625,10 +629,10 @@ fn test_rust_public_key_coefficient_distribution() {
     let mut negative = 0;
 
     for &c in &coeffs {
-        if c > 0 {
-            positive += 1;
-        } else if c < 0 {
-            negative += 1;
+        match c.cmp(&0) {
+            std::cmp::Ordering::Greater => positive += 1,
+            std::cmp::Ordering::Less => negative += 1,
+            std::cmp::Ordering::Equal => {}
         }
     }
 

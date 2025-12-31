@@ -103,16 +103,22 @@ pub mod x448;
 pub mod memlock;
 
 // sntrup761 implementations (backend-specific modules)
-/// C FFI sntrup761 KEM using pqcrypto-ntruprime (requires std).
-#[cfg(feature = "std")]
+//
+// Backend selection:
+// - Native Unix/Linux: C FFI backend (pqcrypto-ntruprime) for performance
+// - Windows: Pure Rust backend (ntrulp) since C code doesn't compile with MSVC
+// - WASM: Pure Rust backend (ntrulp)
+
+/// C FFI sntrup761 KEM using pqcrypto-ntruprime (native Unix/Linux only).
+#[cfg(all(not(target_os = "windows"), not(target_arch = "wasm32")))]
 pub mod sntrup761;
 /// Wire format encoding for sntrup761 (standard encoding, shared by both backends).
 pub mod sntrup761_encoding;
 /// Optimised polynomial arithmetic for sntrup761 (Karatsuba, NTT).
-#[cfg(feature = "wasm")]
+#[cfg(any(feature = "wasm", target_os = "windows", target_arch = "wasm32"))]
 pub mod sntrup761_poly;
-/// Pure Rust sntrup761 KEM for WASM builds (uses ntrulp with standard wire encoding).
-#[cfg(feature = "wasm")]
+/// Pure Rust sntrup761 KEM (WASM builds and Windows).
+#[cfg(any(feature = "wasm", target_os = "windows", target_arch = "wasm32"))]
 pub mod sntrup761_wasm;
 
 // Re-export key types for convenience
@@ -154,32 +160,38 @@ pub use memlock::{
 // ============================================================================
 //
 // This provides a single set of `Sntrup761*` types that automatically select
-// the appropriate backend based on enabled features:
+// the appropriate backend based on target platform:
 //
-// - When `std` is enabled (with or without `wasm`): use C FFI backend
-// - When only `wasm` is enabled: use pure Rust backend
+// - Native Unix/Linux: C FFI backend (pqcrypto-ntruprime)
+// - Windows: Pure Rust backend (ntrulp) - C code doesn't compile with MSVC
+// - WASM: Pure Rust backend (ntrulp)
 //
 // This allows dependent crates (like trelis-hybrid) to use `Sntrup761*` types
 // without caring about the underlying implementation.
 
-/// sntrup761 types using the C FFI backend (when `std` is enabled).
-#[cfg(feature = "std")]
+/// sntrup761 types using the C FFI backend (native Unix/Linux).
+#[cfg(all(not(target_os = "windows"), not(target_arch = "wasm32")))]
 pub use sntrup761::{
     Sntrup761Ciphertext, Sntrup761PublicKey, Sntrup761SecretKey, Sntrup761SharedSecret,
 };
 
-/// sntrup761 types using the pure Rust backend (when only `wasm` is enabled).
-#[cfg(all(feature = "wasm", not(feature = "std")))]
+/// sntrup761 types using the pure Rust backend (Windows and WASM).
+#[cfg(any(target_os = "windows", target_arch = "wasm32"))]
 pub use sntrup761_wasm::{
     Sntrup761Ciphertext, Sntrup761PublicKey, Sntrup761SecretKey, Sntrup761SharedSecret,
 };
 
-// Additional exports for cross-validation testing (both backends available)
-#[cfg(all(feature = "std", feature = "wasm"))]
+// Additional exports for cross-validation testing (both backends available on native Unix/Linux)
+#[cfg(all(
+    feature = "std",
+    feature = "wasm",
+    not(target_os = "windows"),
+    not(target_arch = "wasm32")
+))]
 pub mod sntrup761_pure_rust {
     //! Pure Rust sntrup761 types for cross-validation testing.
     //!
-    //! Only available when both `std` and `wasm` features are enabled.
+    //! Only available when both `std` and `wasm` features are enabled on native Unix/Linux.
     //! This module re-exports the pure Rust implementation with prefixed names
     //! to allow comparing outputs between C FFI and pure Rust backends.
     pub use crate::sntrup761_wasm::{
