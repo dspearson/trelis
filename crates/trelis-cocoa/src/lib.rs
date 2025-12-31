@@ -8,6 +8,25 @@
 //! - Per-message forward secrecy: Through epoch key schedule
 //! - Server-mediated delivery: O(log² n) personalised packets
 //!
+//! # Deviations from Original CoCoA
+//!
+//! This implementation is based on the CoCoA paper but includes significant
+//! modifications. We name it **CoCoA-SA** (Server-Assisted) to distinguish
+//! it from the original academic protocol:
+//!
+//! | Aspect | Original CoCoA | CoCoA-SA (Trelis) |
+//! |--------|----------------|-------------------|
+//! | **Delivery Model** | Peer-to-peer broadcast | Server-mediated relay |
+//! | **KEM Primitives** | Classical (e.g., X25519) | Hybrid PQ (X448 + sntrup761) |
+//! | **Key Schedule** | Paper-specified hash | BLAKE3 with domain separation |
+//! | **Context Strings** | Paper-specified | `cocoa-sa-v1-*` namespace |
+//! | **Signatures** | Classical | Hybrid PQ (Ed448 + ML-DSA-65) |
+//! | **Wire Format** | Not specified | Trelis wire format with TLV |
+//!
+//! The core tree structure and CGKA operations (Init, Add, Remove, Update)
+//! follow the CoCoA paper's algorithms, but all cryptographic instantiations
+//! have been replaced with Trelis's hybrid post-quantum primitives.
+//!
 //! # Architecture
 //!
 //! The implementation is split into modules:

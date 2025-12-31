@@ -1100,25 +1100,25 @@ mod cocoa_operations {
             .context_strings
             .get("H1")
             .expect("H1 context not found");
-        assert_eq!(h1.context, "cocoa-v1-seed-derive");
+        assert_eq!(h1.context, "cocoa-sa-v1-seed-derive");
 
         let h2 = file
             .context_strings
             .get("H2")
             .expect("H2 context not found");
-        assert_eq!(h2.context, "cocoa-v1-keygen");
+        assert_eq!(h2.context, "cocoa-sa-v1-keygen");
 
         let h3 = file
             .context_strings
             .get("H3")
             .expect("H3 context not found");
-        assert_eq!(h3.context, "cocoa-v1-tree-label");
+        assert_eq!(h3.context, "cocoa-sa-v1-tree-label");
 
         let h5 = file
             .context_strings
             .get("H5")
             .expect("H5 context not found");
-        assert_eq!(h5.context, "cocoa-v1-epoch-secret");
+        assert_eq!(h5.context, "cocoa-sa-v1-epoch-secret");
 
         println!("✓ Verified CoCoA context strings");
     }
@@ -1164,13 +1164,13 @@ mod cocoa_operations {
             .context_strings
             .get("message_key")
             .expect("message_key context not found");
-        assert_eq!(message_key.context, "cocoa-v1-message-key");
+        assert_eq!(message_key.context, "cocoa-sa-v1-message-key");
 
         let message_nonce = file
             .context_strings
             .get("message_nonce")
             .expect("message_nonce context not found");
-        assert_eq!(message_nonce.context, "cocoa-v1-message-nonce");
+        assert_eq!(message_nonce.context, "cocoa-sa-v1-message-nonce");
 
         println!("✓ Verified CoCoA message key contexts");
     }

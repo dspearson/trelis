@@ -12,47 +12,47 @@ use trelis_hybrid::HybridKemPublicKey;
 use crate::UserId;
 
 /// Context string for H1 (seed derivation).
-pub const H1_CONTEXT: &str = "cocoa-v1-seed-derive";
+pub const H1_CONTEXT: &str = "cocoa-sa-v1-seed-derive";
 
 /// Context string prefix for H2 (keypair generation).
-/// The full context is `cocoa-v1-keygen-{key_type}` where key_type is "x448" or "sntrup".
-pub const H2_CONTEXT_PREFIX: &str = "cocoa-v1-keygen-";
+/// The full context is `cocoa-sa-v1-keygen-{key_type}` where key_type is "x448" or "sntrup".
+pub const H2_CONTEXT_PREFIX: &str = "cocoa-sa-v1-keygen-";
 
 /// H2 context for X448 key generation.
-pub const H2_CONTEXT_X448: &str = "cocoa-v1-keygen-x448";
+pub const H2_CONTEXT_X448: &str = "cocoa-sa-v1-keygen-x448";
 
 /// H2 context for sntrup761 key generation.
-pub const H2_CONTEXT_SNTRUP: &str = "cocoa-v1-keygen-sntrup";
+pub const H2_CONTEXT_SNTRUP: &str = "cocoa-sa-v1-keygen-sntrup";
 
 /// Context string for H3 (tree labels).
-pub const H3_CONTEXT: &str = "cocoa-v1-tree-label";
+pub const H3_CONTEXT: &str = "cocoa-sa-v1-tree-label";
 
 /// Context string for H4 (parent hash).
-pub const H4_CONTEXT: &str = "cocoa-v1-parent-hash";
+pub const H4_CONTEXT: &str = "cocoa-sa-v1-parent-hash";
 
 /// Context string for H5 (epoch secret).
-pub const H5_CONTEXT: &str = "cocoa-v1-epoch-secret";
+pub const H5_CONTEXT: &str = "cocoa-sa-v1-epoch-secret";
 
 /// Context for round hash computation.
-pub const ROUND_HASH_CONTEXT: &str = "cocoa-v1-round-hash";
+pub const ROUND_HASH_CONTEXT: &str = "cocoa-sa-v1-round-hash";
 
 /// Context for transcript hash chaining.
-pub const TRANSCRIPT_HASH_CONTEXT: &str = "cocoa-v1-transcript-hash";
+pub const TRANSCRIPT_HASH_CONTEXT: &str = "cocoa-sa-v1-transcript-hash";
 
 /// Context for app secret derivation.
-pub const APP_SECRET_CONTEXT: &str = "cocoa-v1-app-secret";
+pub const APP_SECRET_CONTEXT: &str = "cocoa-sa-v1-app-secret";
 
 /// Context for confirmation key derivation.
-pub const CONF_KEY_CONTEXT: &str = "cocoa-v1-conf-key";
+pub const CONF_KEY_CONTEXT: &str = "cocoa-sa-v1-conf-key";
 
 /// Context for init secret derivation.
-pub const INIT_SECRET_CONTEXT: &str = "cocoa-v1-init-secret";
+pub const INIT_SECRET_CONTEXT: &str = "cocoa-sa-v1-init-secret";
 
 /// Context for message key derivation.
-pub const MESSAGE_KEY_CONTEXT: &str = "cocoa-v1-message-key";
+pub const MESSAGE_KEY_CONTEXT: &str = "cocoa-sa-v1-message-key";
 
 /// Context for message nonce derivation.
-pub const MESSAGE_NONCE_CONTEXT: &str = "cocoa-v1-message-nonce";
+pub const MESSAGE_NONCE_CONTEXT: &str = "cocoa-sa-v1-message-nonce";
 
 /// H1: Seed chain advancement (leaf → root).
 ///
@@ -65,7 +65,7 @@ pub fn h1_seed_derive(delta: &[u8; 32]) -> [u8; 32] {
 /// H2: Deterministic keypair seed generation.
 ///
 /// Generates seed material for keypair creation.
-/// The context string is `cocoa-v1-keygen-{key_type}` per the spec.
+/// The context string is `cocoa-sa-v1-keygen-{key_type}` per the spec.
 ///
 /// # Arguments
 ///
@@ -75,7 +75,7 @@ pub fn h1_seed_derive(delta: &[u8; 32]) -> [u8; 32] {
 #[must_use]
 pub fn h2_keygen_seed(seed: &[u8; 32], key_type: &str) -> [u8; 32] {
     use alloc::format;
-    let context = format!("cocoa-v1-keygen-{}", key_type);
+    let context = format!("cocoa-sa-v1-keygen-{}", key_type);
     blake3::derive_key(&context, seed)
 }
 
@@ -303,8 +303,8 @@ mod tests {
     #[test]
     fn test_h2_context_strings() {
         // Verify context strings match the spec
-        assert_eq!(H2_CONTEXT_X448, "cocoa-v1-keygen-x448");
-        assert_eq!(H2_CONTEXT_SNTRUP, "cocoa-v1-keygen-sntrup");
+        assert_eq!(H2_CONTEXT_X448, "cocoa-sa-v1-keygen-x448");
+        assert_eq!(H2_CONTEXT_SNTRUP, "cocoa-sa-v1-keygen-sntrup");
     }
 
     #[test]
