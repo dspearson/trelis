@@ -1,7 +1,31 @@
 //! Path and co-path computation for binary ratchet tree.
 //!
-//! - Path: nodes from a leaf to the root
-//! - Co-path: siblings of nodes in the path
+//! In MLS/CoCoA terminology:
+//!
+//! - **Path**: Nodes from a leaf to the root, representing the "spine" of the
+//!   tree that gets updated when a member sends an update
+//! - **Co-path**: Siblings of path nodes, representing the nodes that need to
+//!   receive encrypted path secrets
+//! - **Direct path**: Path excluding the leaf itself (internal nodes only)
+//!
+//! # Tree Structure
+//!
+//! For a tree with depth 3 (8 leaves):
+//!
+//! ```text
+//!                  (0,0) root
+//!                /       \
+//!           (1,0)         (1,1)
+//!          /    \        /    \
+//!       (2,0)  (2,1)  (2,2)  (2,3)
+//!       /  \   /  \   /  \   /  \
+//!      L0  L1 L2  L3 L4  L5 L6  L7
+//! ```
+//!
+//! For leaf L5 (position 5 at depth 3):
+//! - **Path**: L5 → (2,2) → (1,1) → (0,0)
+//! - **Co-path**: L4, (2,3), (1,0)
+//! - **Direct path**: (2,2) → (1,1) → (0,0)
 
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
@@ -10,7 +34,20 @@ use super::NodeIndex;
 
 /// Returns the path from a leaf to the root (inclusive of both).
 ///
-/// The path is ordered from leaf to root.
+/// The path is ordered from leaf to root. This represents all nodes that
+/// hold secrets derived from this leaf's key material.
+///
+/// # Arguments
+///
+/// * `leaf` - The starting leaf node
+///
+/// # Returns
+///
+/// A vector of node indices from leaf to root.
+///
+/// # Example
+///
+/// For leaf at (3, 5), returns: [(3,5), (2,2), (1,1), (0,0)]
 #[cfg(feature = "alloc")]
 #[must_use]
 pub fn path_to_root(leaf: NodeIndex) -> Vec<NodeIndex> {
@@ -28,7 +65,22 @@ pub fn path_to_root(leaf: NodeIndex) -> Vec<NodeIndex> {
 
 /// Returns the co-path (siblings of path nodes, excluding root's sibling).
 ///
-/// The co-path is ordered from leaf's sibling up.
+/// The co-path represents the nodes that need to receive encrypted path
+/// secrets during an update operation. Each node in the co-path can decrypt
+/// the secret for their ancestor in the sender's path.
+///
+/// # Arguments
+///
+/// * `leaf` - The starting leaf node
+///
+/// # Returns
+///
+/// A vector of sibling node indices, ordered from leaf's sibling upward.
+/// Does not include a sibling for the root (root has no sibling).
+///
+/// # Example
+///
+/// For leaf at (3, 5), returns: [(3,4), (2,3), (1,0)]
 #[cfg(feature = "alloc")]
 #[must_use]
 pub fn copath(leaf: NodeIndex) -> Vec<NodeIndex> {
@@ -86,6 +138,7 @@ pub fn leaves_in_subtree(node: NodeIndex, tree_depth: u32) -> Vec<NodeIndex> {
 
 /// Calculates the lowest common ancestor of two nodes.
 #[must_use]
+#[allow(clippy::expect_used)] // Algorithm guarantees we find ancestor before reaching root
 pub fn lowest_common_ancestor(a: NodeIndex, b: NodeIndex) -> NodeIndex {
     let mut node_a = a;
     let mut node_b = b;

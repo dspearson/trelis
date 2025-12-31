@@ -18,5 +18,10 @@ trelis-ratchet = { workspace = true, features = ["std"] }
 trelis-cocoa = { workspace = true, features = ["std"] }
 trelis-multidevice = { workspace = true, features = ["std"] }
 
+[dev-dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+hex.workspace = true
+
 [lints]
 workspace = true

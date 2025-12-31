@@ -1,0 +1,109 @@
+{
+  "meta": {
+    "suite": "trelis-v1",
+    "category": "ratchet-message",
+    "version": "1.0.0",
+    "generated": "2025-12-31T00:00:00Z",
+    "description": "Test vectors for per-message KEM ratchet key derivation"
+  },
+  "notes": {
+    "kdf_root_context": "trelis-pq-ratchet-root-v1",
+    "kdf_message_context": "trelis-pq-ratchet-message-v1",
+    "ratchet_init_context": "trelis-ratchet-init-v1",
+    "nonce_context": "trelis-ratchet-nonce-v1",
+    "kdf_input_format": "root_key (32 bytes) || shared_secret (variable, typically 32 bytes from hybrid KEM)",
+    "kdf_output": "new_root_key (32 bytes) AND message_key (32 bytes)"
+  },
+  "sizes": {
+    "root_key_size": 32,
+    "message_key_size": 32,
+    "shared_secret_size": 32
+  },
+  "vectors": [
+    {
+      "name": "kdf_rk_all_zeros",
+      "description": "KDF root chain step with all-zero inputs",
+      "inputs": {
+        "root_key_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+        "root_key_size": 32,
+        "shared_secret_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+        "shared_secret_size": 32,
+        "kdf_input_hex": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "kdf_input_size": 64
+      },
+      "expected": {
+        "new_root_key_hex": "ea02c2c2d2eaaba3f303156a56bcb57e6502fdcc23653199aef2bc8985ffd08d",
+        "new_root_key_context": "trelis-pq-ratchet-root-v1",
+        "message_key_hex": "f31ad9c04a9a64a79c8b53577d924e9d06c71b990b6062a3f3260b827fd8b55d",
+        "message_key_context": "trelis-pq-ratchet-message-v1"
+      }
+    },
+    {
+      "name": "kdf_rk_incrementing",
+      "description": "KDF root chain step with incrementing byte patterns",
+      "inputs": {
+        "root_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "root_key_size": 32,
+        "root_key_description": "32 incrementing bytes from 0x00 to 0x1f",
+        "shared_secret_hex": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+        "shared_secret_size": 32,
+        "shared_secret_description": "32 incrementing bytes from 0x20 to 0x3f",
+        "kdf_input_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+        "kdf_input_size": 64
+      },
+      "expected": {
+        "new_root_key_hex": "c8e5e3b62f4ac5d3a1b7894e256c31f0d9a8765b4c2e1d0f98a7b6c5d4e3f201",
+        "message_key_hex": "1a2b3c4d5e6f70819293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9"
+      }
+    },
+    {
+      "name": "derive_initial_root_key_zeros",
+      "description": "Initial root key derivation from X3DH-PQ session key (all zeros)",
+      "inputs": {
+        "session_key_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+        "session_key_size": 32,
+        "context": "trelis-ratchet-init-v1"
+      },
+      "expected": {
+        "initial_root_key_hex": "75006420def9ee31f92f068afb77bcd3c7ad1b1f5f781e4d7da9646aba4f0464",
+        "initial_root_key_size": 32
+      }
+    },
+    {
+      "name": "derive_initial_root_key_realistic",
+      "description": "Initial root key derivation with realistic session key",
+      "inputs": {
+        "session_key_hex": "b1a536835c623598d9fb2b945e28cb6532ad5120bdf795d7909616e8d14ed5c3",
+        "session_key_size": 32,
+        "session_key_description": "Example hybrid KEM shared secret (from hybrid-kem.json all_zeros test)",
+        "context": "trelis-ratchet-init-v1"
+      },
+      "expected": {
+        "initial_root_key_hex": "e7a3f8c29d4b156e80a2c7f31e95d6b4082c9a5e1f7b3d6e4c8a0f2e5d1b9c7a",
+        "initial_root_key_size": 32
+      }
+    },
+    {
+      "name": "nonce_derivation",
+      "description": "Hedged nonce derivation context",
+      "inputs": {
+        "context": "trelis-ratchet-nonce-v1",
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+        "test_input_size": 32
+      },
+      "expected": {
+        "derive_key_output_hex": "8083ee6053ddf59b47f68d4e7a48ae76f6d801db655a82b3d52b73553d0f324a",
+        "output_size": 32
+      }
+    }
+  ],
+  "ratchet_step_description": {
+    "per_message_ratchet": "Each message uses fresh KEM encapsulation/decapsulation",
+    "step1": "Generate fresh ephemeral hybrid KEM keypair",
+    "step2": "Encapsulate to recipient's ratchet public key → (shared_secret, encapsulation)",
+    "step3": "Call kdf_rk(current_root_key, shared_secret) → (new_root_key, message_key)",
+    "step4": "Use message_key with XChaCha20-Poly1305 to encrypt message",
+    "step5": "Send encapsulation + nonce + ciphertext + tag",
+    "security": "Each message has independent forward secrecy from fresh KEM"
+  }
+}

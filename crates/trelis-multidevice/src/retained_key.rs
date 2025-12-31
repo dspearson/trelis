@@ -43,12 +43,7 @@ impl RetainedKey {
 
     /// Creates a new retained key.
     #[must_use]
-    pub fn new(
-        message_id: [u8; 32],
-        message_key: [u8; 32],
-        sequence: u64,
-        timestamp: u64,
-    ) -> Self {
+    pub fn new(message_id: [u8; 32], message_key: [u8; 32], sequence: u64, timestamp: u64) -> Self {
         Self {
             message_id,
             message_key,
@@ -78,6 +73,7 @@ impl RetainedKey {
     ///
     /// Returns `None` if the input is not exactly 80 bytes.
     #[must_use]
+    #[allow(clippy::expect_used)] // Slices guaranteed correct size after length check
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
         if bytes.len() != Self::SERIALISED_SIZE {
             return None;
@@ -89,16 +85,10 @@ impl RetainedKey {
         message_id.copy_from_slice(&bytes[0..32]);
         message_key.copy_from_slice(&bytes[32..64]);
 
-        let sequence = u64::from_le_bytes(
-            bytes[64..72]
-                .try_into()
-                .expect("slice is exactly 8 bytes"),
-        );
-        let timestamp = u64::from_le_bytes(
-            bytes[72..80]
-                .try_into()
-                .expect("slice is exactly 8 bytes"),
-        );
+        let sequence =
+            u64::from_le_bytes(bytes[64..72].try_into().expect("slice is exactly 8 bytes"));
+        let timestamp =
+            u64::from_le_bytes(bytes[72..80].try_into().expect("slice is exactly 8 bytes"));
 
         Some(Self {
             message_id,
@@ -127,6 +117,7 @@ fn format_redacted() -> &'static str {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

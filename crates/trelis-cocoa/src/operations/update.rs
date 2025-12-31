@@ -8,9 +8,9 @@ use alloc::vec::Vec;
 use trelis_error::Result;
 use trelis_hybrid::HybridSignature;
 
+use crate::GroupId;
 use crate::key_schedule::{h3_round_hash, h3_transcript_hash};
 use crate::session::CocoaSession;
-use crate::GroupId;
 
 use super::add::PathUpdate;
 
@@ -66,10 +66,7 @@ pub fn create_update(session: &mut CocoaSession) -> Result<UpdateCommit> {
     let new_transcript = h3_transcript_hash(session.transcript_hash(), &round_hash);
 
     // Compute confirmation tag
-    let conf_tag = session
-        .tree()
-        .our_leaf()
-        .to_bytes(); // Placeholder - would include full commit content
+    let conf_tag = session.tree().our_leaf().to_bytes(); // Placeholder - would include full commit content
 
     let commit = UpdateCommit {
         group_id: *session.group_id(),

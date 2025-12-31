@@ -22,7 +22,13 @@ trelis-error.workspace = true
 zeroize.workspace = true
 subtle.workspace = true
 blake3.workspace = true
+fips204.workspace = true
 
 [dev-dependencies]
 hex.workspace = true
 proptest.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "hybrid_benchmark"
+harness = false

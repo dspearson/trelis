@@ -116,8 +116,7 @@ pub fn process_remove(session: &mut CocoaSession, commit: &RemoveCommit) -> Resu
     // verify_commit_signature(&commit)?;
 
     // Blank the removed member's path
-    let leaf_index =
-        NodeIndex::leaf(session.tree().tree_depth(), commit.removed_leaf_position);
+    let leaf_index = NodeIndex::leaf(session.tree().tree_depth(), commit.removed_leaf_position);
     session.tree_mut().blank_node(&leaf_index);
 
     // Process path updates
@@ -145,7 +144,9 @@ fn create_placeholder_signature() -> Result<HybridSignature> {
 mod tests {
     use super::*;
     use crate::operations::add::add_member;
-    use trelis_hybrid::{HybridIdentityKeypair, HybridKemKeypair, HybridOneTimeKeyPair, HybridPreKeyBundle};
+    use trelis_hybrid::{
+        HybridIdentityKeypair, HybridKemKeypair, HybridOneTimeKeyPair, HybridPreKeyBundle,
+    };
 
     /// Helper to create a test pre-key bundle.
     fn create_test_bundle(identity: &HybridIdentityKeypair) -> HybridPreKeyBundle {

@@ -19,6 +19,10 @@ console_error_panic_hook = ["dep:console_error_panic_hook"]
 trelis-error = { workspace = true }
 trelis-primitives = { workspace = true, features = ["wasm"] }
 trelis-hybrid = { workspace = true, features = ["wasm"] }
+trelis-x3dh-pq = { workspace = true, features = ["wasm"] }
+trelis-ratchet = { workspace = true, features = ["wasm"] }
+trelis-cocoa = { workspace = true, features = ["wasm"] }
+trelis-multidevice = { workspace = true, features = ["wasm"] }
 wasm-bindgen.workspace = true
 js-sys = "0.3"
 console_error_panic_hook = { version = "0.1", optional = true }

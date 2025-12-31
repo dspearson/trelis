@@ -213,14 +213,17 @@ impl Eq for Tag {}
 /// - Empty plaintext is valid and produces a 16-byte output (tag only).
 #[cfg(feature = "alloc")]
 pub fn encrypt(key: &AeadKey, nonce: &Nonce, plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>> {
-    let cipher = XChaCha20Poly1305::new_from_slice(&key.0)
-        .map_err(|_| CryptoError::InvalidKeyLength {
+    let cipher =
+        XChaCha20Poly1305::new_from_slice(&key.0).map_err(|_| CryptoError::InvalidKeyLength {
             expected: KEY_SIZE,
             actual: key.0.len(),
         })?;
 
     let xnonce = XNonce::from_slice(&nonce.0);
-    let payload = Payload { msg: plaintext, aad };
+    let payload = Payload {
+        msg: plaintext,
+        aad,
+    };
 
     cipher
         .encrypt(xnonce, payload)
@@ -256,14 +259,17 @@ pub fn decrypt(key: &AeadKey, nonce: &Nonce, ciphertext: &[u8], aad: &[u8]) -> R
         return Err(CryptoError::InvalidCiphertext);
     }
 
-    let cipher = XChaCha20Poly1305::new_from_slice(&key.0)
-        .map_err(|_| CryptoError::InvalidKeyLength {
+    let cipher =
+        XChaCha20Poly1305::new_from_slice(&key.0).map_err(|_| CryptoError::InvalidKeyLength {
             expected: KEY_SIZE,
             actual: key.0.len(),
         })?;
 
     let xnonce = XNonce::from_slice(&nonce.0);
-    let payload = Payload { msg: ciphertext, aad };
+    let payload = Payload {
+        msg: ciphertext,
+        aad,
+    };
 
     cipher
         .decrypt(xnonce, payload)
@@ -451,7 +457,10 @@ mod tests {
         let short_slice = [0x42u8; KEY_SIZE - 1];
         assert!(matches!(
             AeadKey::try_from_slice(&short_slice),
-            Err(CryptoError::InvalidKeyLength { expected: 32, actual: 31 })
+            Err(CryptoError::InvalidKeyLength {
+                expected: 32,
+                actual: 31
+            })
         ));
     }
 
@@ -463,7 +472,10 @@ mod tests {
         let short_slice = [0x00u8; NONCE_SIZE - 1];
         assert!(matches!(
             Nonce::try_from_slice(&short_slice),
-            Err(CryptoError::InvalidNonceLength { expected: 24, actual: 23 })
+            Err(CryptoError::InvalidNonceLength {
+                expected: 24,
+                actual: 23
+            })
         ));
     }
 

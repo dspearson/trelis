@@ -1,6 +1,6 @@
 //! Session state serialisation for persistence and device migration.
 //!
-//! This module provides binary serialisation of `DoubleRatchet` state
+//! This module provides binary serialisation of `KemRatchet` state
 //! for secure storage. The serialised data MUST be encrypted before
 //! persisting to disk.
 
@@ -23,13 +23,40 @@ pub const FLAG_HAS_SKIPPED: u16 = 0x0002;
 pub const SKIPPED_KEY_ENTRY_SIZE: usize = 80;
 
 /// Serialised state header.
+///
+/// The header is the first 8 bytes of a serialised ratchet state file.
+/// It contains magic bytes for file type identification, a version number
+/// for forward compatibility, and flags indicating which optional sections
+/// are present.
+///
+/// # Wire Format (8 bytes)
+///
+/// ```text
+/// +----------+----------+----------+
+/// | magic    | version  | flags    |
+/// | 4 bytes  | 2 bytes  | 2 bytes  |
+/// +----------+----------+----------+
+/// ```
+///
+/// # Flags
+///
+/// - `FLAG_HAS_PEER` (0x0001): Peer public keys are present in the state
+/// - `FLAG_HAS_SKIPPED` (0x0002): Skipped key entries are present
+///
+/// # Example
+///
+/// ```ignore
+/// let header = StateHeader::new(FLAG_HAS_PEER | FLAG_HAS_SKIPPED);
+/// let bytes = header.to_bytes();
+/// assert_eq!(&bytes[..4], b"TRLS");
+/// ```
 #[derive(Clone, Debug)]
 pub struct StateHeader {
     /// Magic bytes (must be "TRLS").
     pub magic: [u8; 4],
-    /// Serialisation version.
+    /// Serialisation version (currently 1).
     pub version: u16,
-    /// Flags bitfield.
+    /// Flags bitfield indicating which optional sections are present.
     pub flags: u16,
 }
 

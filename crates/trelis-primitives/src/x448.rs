@@ -303,7 +303,10 @@ mod tests {
         let result = X448Public::from_bytes(&[0u8; 50]);
         assert!(matches!(
             result,
-            Err(CryptoError::InvalidKeyLength { expected: 56, actual: 50 })
+            Err(CryptoError::InvalidKeyLength {
+                expected: 56,
+                actual: 50
+            })
         ));
     }
 
@@ -351,28 +354,33 @@ mod tests {
         // From RFC 7748 Section 6.2
         let alice_private = hex::decode(
             "9a8f4925d1519f5775cf46b04b5800d4ee9ee8bae8bc5565d498c28d\
-             d9c9baf574a9419744897391006382a6f127ab1d9ac2d8c0a598726b"
-        ).unwrap();
+             d9c9baf574a9419744897391006382a6f127ab1d9ac2d8c0a598726b",
+        )
+        .unwrap();
 
         let alice_public_expected = hex::decode(
             "9b08f7cc31b7e3e67d22d5aea121074a273bd2b83de09c63faa73d2c\
-             22c5d9bbc836647241d953d40c5b12da88120d53177f80e532c41fa0"
-        ).unwrap();
+             22c5d9bbc836647241d953d40c5b12da88120d53177f80e532c41fa0",
+        )
+        .unwrap();
 
         let bob_private = hex::decode(
             "1c306a7ac2a0e2e0990b294470cba339e6453772b075811d8fad0d1d\
-             6927c120bb5ee8972b0d3e21374c9c921b09d1b0366f10b65173992d"
-        ).unwrap();
+             6927c120bb5ee8972b0d3e21374c9c921b09d1b0366f10b65173992d",
+        )
+        .unwrap();
 
         let bob_public_expected = hex::decode(
             "3eb7a829b0cd20f5bcfc0b599b6feccf6da4627107bdb0d4f345b430\
-             27d8b972fc3e34fb4232a13ca706dcb57aec3dae07bdc1c67bf33609"
-        ).unwrap();
+             27d8b972fc3e34fb4232a13ca706dcb57aec3dae07bdc1c67bf33609",
+        )
+        .unwrap();
 
         let shared_expected = hex::decode(
             "07fff4181ac6cc95ec1c16a94a0f74d12da232ce40a77552281d282b\
-             b60c0b56fd2464c335543936521c24403085d59a449a5037514a879d"
-        ).unwrap();
+             b60c0b56fd2464c335543936521c24403085d59a449a5037514a879d",
+        )
+        .unwrap();
 
         // Create keys from test vectors using from_bytes (which applies clamping)
         let mut alice_bytes = [0u8; 56];
@@ -387,14 +395,23 @@ mod tests {
         let alice_public = alice_secret.public_key();
         let bob_public = bob_secret.public_key();
 
-        assert_eq!(alice_public.as_bytes().as_slice(), alice_public_expected.as_slice());
-        assert_eq!(bob_public.as_bytes().as_slice(), bob_public_expected.as_slice());
+        assert_eq!(
+            alice_public.as_bytes().as_slice(),
+            alice_public_expected.as_slice()
+        );
+        assert_eq!(
+            bob_public.as_bytes().as_slice(),
+            bob_public_expected.as_slice()
+        );
 
         // Verify shared secret
         let alice_shared = alice_secret.diffie_hellman(&bob_public).unwrap();
         let bob_shared = bob_secret.diffie_hellman(&alice_public).unwrap();
 
-        assert_eq!(alice_shared.as_bytes().as_slice(), shared_expected.as_slice());
+        assert_eq!(
+            alice_shared.as_bytes().as_slice(),
+            shared_expected.as_slice()
+        );
         assert_eq!(bob_shared.as_bytes().as_slice(), shared_expected.as_slice());
     }
 }

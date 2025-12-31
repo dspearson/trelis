@@ -54,6 +54,15 @@ pub const SNTRUP_CT_SIZE: usize = 1039;
 /// Size of hybrid encapsulation in bytes.
 pub const ENCAPSULATION_SIZE: usize = X448_EPH_SIZE + SNTRUP_CT_SIZE;
 
+/// Size of X448 secret key in bytes.
+pub const X448_SK_SIZE: usize = 56;
+
+/// Size of sntrup761 secret key in bytes.
+pub const SNTRUP_SK_SIZE: usize = 1763;
+
+/// Size of hybrid KEM secret key in bytes.
+pub const SECRET_KEY_SIZE: usize = X448_SK_SIZE + SNTRUP_SK_SIZE;
+
 /// Hybrid KEM keypair (X448 + sntrup761).
 ///
 /// This keypair contains both classical and post-quantum KEM keys.
@@ -96,6 +105,55 @@ impl HybridKemKeypair {
         &self.public_key
     }
 
+    /// Serialises the secret key to bytes.
+    ///
+    /// Format: X448 secret (56 bytes) || sntrup761 secret (1,763 bytes)
+    ///
+    /// # Security
+    ///
+    /// The returned bytes contain secret key material and should be
+    /// handled securely (encrypted storage, zeroization after use).
+    #[must_use]
+    pub fn to_bytes(&self) -> [u8; SECRET_KEY_SIZE] {
+        let mut bytes = [0u8; SECRET_KEY_SIZE];
+        bytes[..X448_SK_SIZE].copy_from_slice(self.x448_secret.as_bytes());
+        bytes[X448_SK_SIZE..].copy_from_slice(self.sntrup_secret.as_bytes());
+        bytes
+    }
+
+    /// Deserialises a keypair from secret key bytes.
+    ///
+    /// The public key is derived from the secret key components.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidKeyLength` if the slice is not exactly 1,819 bytes.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() != SECRET_KEY_SIZE {
+            return Err(CryptoError::InvalidKeyLength {
+                expected: SECRET_KEY_SIZE,
+                actual: bytes.len(),
+            });
+        }
+
+        let mut x448_bytes = [0u8; X448_SK_SIZE];
+        x448_bytes.copy_from_slice(&bytes[..X448_SK_SIZE]);
+        let x448_secret = X448Secret::from_bytes(x448_bytes);
+
+        let sntrup_secret = Sntrup761SecretKey::from_bytes(&bytes[X448_SK_SIZE..])?;
+
+        let public_key = HybridKemPublicKey {
+            x448: x448_secret.public_key(),
+            sntrup: sntrup_secret.public_key(),
+        };
+
+        Ok(Self {
+            public_key,
+            x448_secret,
+            sntrup_secret,
+        })
+    }
+
     /// Decapsulates a hybrid encapsulation to recover the shared secret.
     ///
     /// # Arguments
@@ -111,10 +169,14 @@ impl HybridKemKeypair {
     /// Returns `DecapsulationFailed` if decapsulation fails.
     pub fn decapsulate(&self, encapsulation: &HybridEncapsulation) -> Result<HybridSharedSecret> {
         // X448 DH with ephemeral public key
-        let x448_ss = self.x448_secret.diffie_hellman(&encapsulation.x448_ephemeral)?;
+        let x448_ss = self
+            .x448_secret
+            .diffie_hellman(&encapsulation.x448_ephemeral)?;
 
         // sntrup761 decapsulation
-        let sntrup_ss = self.sntrup_secret.decapsulate(&encapsulation.sntrup_ciphertext)?;
+        let sntrup_ss = self
+            .sntrup_secret
+            .decapsulate(&encapsulation.sntrup_ciphertext)?;
 
         // Combine shared secrets
         Ok(HybridSharedSecret::combine(
@@ -146,7 +208,10 @@ impl HybridKemKeypair {
 
     /// Performs X448 DH with the secret key (for X3DH-PQ).
     #[cfg(feature = "expose-internals")]
-    pub fn x448_dh(&self, their_public: &X448Public) -> Result<trelis_primitives::X448SharedSecret> {
+    pub fn x448_dh(
+        &self,
+        their_public: &X448Public,
+    ) -> Result<trelis_primitives::X448SharedSecret> {
         self.x448_secret.diffie_hellman(their_public)
     }
 
@@ -230,7 +295,12 @@ impl HybridKemPublicKey {
     ///
     /// Returns (shared_secret, ciphertext).
     #[cfg(feature = "expose-internals")]
-    pub fn sntrup_encapsulate(&self) -> (trelis_primitives::Sntrup761SharedSecret, Sntrup761Ciphertext) {
+    pub fn sntrup_encapsulate(
+        &self,
+    ) -> (
+        trelis_primitives::Sntrup761SharedSecret,
+        Sntrup761Ciphertext,
+    ) {
         self.sntrup.encapsulate()
     }
 
@@ -256,8 +326,7 @@ impl HybridKemPublicKey {
         let (sntrup_ss, sntrup_ciphertext) = self.sntrup.encapsulate();
 
         // Combine shared secrets
-        let shared_secret =
-            HybridSharedSecret::combine(x448_ss.as_bytes(), sntrup_ss.as_bytes());
+        let shared_secret = HybridSharedSecret::combine(x448_ss.as_bytes(), sntrup_ss.as_bytes());
 
         let encapsulation = HybridEncapsulation {
             x448_ephemeral,

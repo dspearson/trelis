@@ -15,7 +15,14 @@ use crate::UserId;
 pub const H1_CONTEXT: &str = "cocoa-v1-seed-derive";
 
 /// Context string prefix for H2 (keypair generation).
-pub const H2_CONTEXT: &str = "cocoa-v1-keygen";
+/// The full context is `cocoa-v1-keygen-{key_type}` where key_type is "x448" or "sntrup".
+pub const H2_CONTEXT_PREFIX: &str = "cocoa-v1-keygen-";
+
+/// H2 context for X448 key generation.
+pub const H2_CONTEXT_X448: &str = "cocoa-v1-keygen-x448";
+
+/// H2 context for sntrup761 key generation.
+pub const H2_CONTEXT_SNTRUP: &str = "cocoa-v1-keygen-sntrup";
 
 /// Context string for H3 (tree labels).
 pub const H3_CONTEXT: &str = "cocoa-v1-tree-label";
@@ -58,13 +65,34 @@ pub fn h1_seed_derive(delta: &[u8; 32]) -> [u8; 32] {
 /// H2: Deterministic keypair seed generation.
 ///
 /// Generates seed material for keypair creation.
+/// The context string is `cocoa-v1-keygen-{key_type}` per the spec.
+///
+/// # Arguments
+///
+/// * `seed` - The 32-byte seed to derive from
+/// * `key_type` - Either "x448" or "sntrup" per the spec
+#[cfg(feature = "alloc")]
 #[must_use]
 pub fn h2_keygen_seed(seed: &[u8; 32], key_type: &str) -> [u8; 32] {
-    let mut hasher = blake3::Hasher::new_derive_key(H2_CONTEXT);
-    hasher.update(key_type.as_bytes());
-    hasher.update(b":");
-    hasher.update(seed);
-    *hasher.finalize().as_bytes()
+    use alloc::format;
+    let context = format!("cocoa-v1-keygen-{}", key_type);
+    blake3::derive_key(&context, seed)
+}
+
+/// H2: Deterministic X448 keypair seed generation.
+///
+/// Convenience function for X448 key derivation.
+#[must_use]
+pub fn h2_keygen_x448(seed: &[u8; 32]) -> [u8; 32] {
+    blake3::derive_key(H2_CONTEXT_X448, seed)
+}
+
+/// H2: Deterministic sntrup761 keypair seed generation.
+///
+/// Convenience function for sntrup761 key derivation.
+#[must_use]
+pub fn h2_keygen_sntrup(seed: &[u8; 32]) -> [u8; 32] {
+    blake3::derive_key(H2_CONTEXT_SNTRUP, seed)
 }
 
 /// H3: Tree label computation.
@@ -257,9 +285,26 @@ mod tests {
     #[test]
     fn test_h2_key_type_matters() {
         let seed = [0x42u8; 32];
-        let kem_seed = h2_keygen_seed(&seed, "kem");
-        let sig_seed = h2_keygen_seed(&seed, "sig");
-        assert_ne!(kem_seed, sig_seed);
+        // Use spec-compliant key types: "x448" and "sntrup"
+        let x448_seed = h2_keygen_seed(&seed, "x448");
+        let sntrup_seed = h2_keygen_seed(&seed, "sntrup");
+        assert_ne!(x448_seed, sntrup_seed);
+    }
+
+    #[test]
+    fn test_h2_convenience_functions() {
+        let seed = [0x42u8; 32];
+
+        // Convenience functions should match h2_keygen_seed with the same key type
+        assert_eq!(h2_keygen_x448(&seed), h2_keygen_seed(&seed, "x448"));
+        assert_eq!(h2_keygen_sntrup(&seed), h2_keygen_seed(&seed, "sntrup"));
+    }
+
+    #[test]
+    fn test_h2_context_strings() {
+        // Verify context strings match the spec
+        assert_eq!(H2_CONTEXT_X448, "cocoa-v1-keygen-x448");
+        assert_eq!(H2_CONTEXT_SNTRUP, "cocoa-v1-keygen-sntrup");
     }
 
     #[test]
@@ -354,7 +399,8 @@ mod tests {
         // Verify context strings are non-empty and unique
         let contexts = [
             H1_CONTEXT,
-            H2_CONTEXT,
+            H2_CONTEXT_X448,
+            H2_CONTEXT_SNTRUP,
             H3_CONTEXT,
             H4_CONTEXT,
             H5_CONTEXT,

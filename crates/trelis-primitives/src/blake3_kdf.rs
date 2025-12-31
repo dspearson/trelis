@@ -6,16 +6,45 @@
 //! # Domain Separation Contexts
 //!
 //! All contexts are immutable `&'static str` values that MUST NOT be changed
-//! after protocol deployment:
+//! after protocol deployment. Per Spec Section 14, Table 14.1:
 //!
+//! ## Core Protocol Contexts
 //! - `"trelis-hybrid-kem-v1"` - Hybrid KEM shared secret combination
 //! - `"trelis-session-v1"` - X3DH-PQ session key derivation
-//! - `"trelis-pq-ratchet-root-v1"` - Double ratchet root key derivation
-//! - `"trelis-pq-ratchet-message-v1"` - Double ratchet message key derivation
+//! - `"trelis-pq-ratchet-root-v1"` - KEM ratchet root key derivation
+//! - `"trelis-pq-ratchet-message-v1"` - KEM ratchet message key derivation
 //! - `"trelis-ratchet-nonce-v1"` - Hedged nonce derivation
 //! - `"trelis-safety-number-v1"` - Safety number fingerprint
+//!
+//! ## Signature Contexts
 //! - `"trelis-sig-prekey-bundle-v1"` - Pre-key bundle signature prehash
+//! - `"trelis-sig-ratchet-message-v1"` - Per-message ratchet signatures
+//! - `"trelis-sig-cocoa-update-v1"` - CoCoA tree update signatures
+//! - `"trelis-sig-safety-number-v1"` - Safety number attestation
+//! - `"trelis-sig-device-attest-v1"` - Device key attestation
+//!
+//! ## Device Key Contexts
+//! - `"trelis-device-seed-v1"` - Device seed from hardware entropy
+//! - `"trelis-device-identity-key-v1"` - Device identity key derivation
+//! - `"trelis-device-signing-key-v1"` - Device signing key derivation
 //! - `"trelis-bundle-wrap-v1"` - Device key wrap
+//!
+//! ## Recovery Contexts
+//! - `"trelis-recovery-ed448-v1"` - Recovery keypair Ed448 component
+//! - `"trelis-recovery-mldsa-v1"` - Recovery keypair ML-DSA-65 component
+//! - `"trelis-recovery-x448-v1"` - Recovery keypair X448 component
+//! - `"trelis-recovery-sntrup-v1"` - Recovery keypair sntrup761 component
+//! - `"trelis-recovery-key-attest-v1"` - Recovery key attestation
+//! - `"trelis-recovery-notice-v1"` - Recovery notice signatures
+//! - `"trelis-recovery-escrow-v1"` - Recovery key escrow
+//!
+//! ## Other Contexts
+//! - `"trelis-compromise-notice-v1"` - Compromise notice signature
+//! - `"trelis-mldsa-hedge-v1"` - Hedged ML-DSA-65 signing
+//! - `"trelis-attachment-key-v1"` - Attachment encryption keys
+//! - `"trelis-history-sync-v1"` - History sync threads
+//! - `"trelis-safety-number-sync-v1"` - Safety number sync
+//! - `"trelis-warrant-auth-v1"` - Lawful intercept warrant auth
 //!
 //! # Examples
 //!
@@ -36,6 +65,165 @@ use zeroize::Zeroize;
 
 /// Output size for BLAKE3 operations (32 bytes = 256 bits).
 pub const OUTPUT_SIZE: usize = 32;
+
+// ============================================================================
+// Domain Separation Context Constants
+// ============================================================================
+//
+// These context strings provide cryptographic domain separation for all
+// key derivation operations. They MUST NOT be changed after protocol deployment.
+
+/// Context for hybrid KEM shared secret combination.
+pub const HYBRID_KEM_CONTEXT: &str = "trelis-hybrid-kem-v1";
+
+/// Context for X3DH-PQ session key derivation.
+pub const SESSION_CONTEXT: &str = "trelis-session-v1";
+
+/// Context for double ratchet root key derivation.
+pub const RATCHET_ROOT_CONTEXT: &str = "trelis-pq-ratchet-root-v1";
+
+/// Context for double ratchet message key derivation.
+pub const RATCHET_MESSAGE_CONTEXT: &str = "trelis-pq-ratchet-message-v1";
+
+/// Context for hedged nonce derivation.
+pub const RATCHET_NONCE_CONTEXT: &str = "trelis-ratchet-nonce-v1";
+
+/// Context for safety number fingerprint.
+pub const SAFETY_NUMBER_CONTEXT: &str = "trelis-safety-number-v1";
+
+/// Context for pre-key bundle signature prehash.
+pub const PREKEY_BUNDLE_SIG_CONTEXT: &str = "trelis-sig-prekey-bundle-v1";
+
+/// Context for device key wrap.
+pub const BUNDLE_WRAP_CONTEXT: &str = "trelis-bundle-wrap-v1";
+
+/// Context for recovery keypair Ed448 component derivation.
+///
+/// Used when deriving the classical (Ed448) portion of a recovery identity
+/// keypair from a recovery seed.
+pub const RECOVERY_ED448_CONTEXT: &str = "trelis-recovery-ed448-v1";
+
+/// Context for recovery keypair ML-DSA-65 component derivation.
+///
+/// Used when deriving the post-quantum (ML-DSA-65) portion of a recovery
+/// identity keypair from a recovery seed.
+pub const RECOVERY_MLDSA_CONTEXT: &str = "trelis-recovery-mldsa-v1";
+
+/// Context for compromise notice signatures.
+///
+/// Used as the domain separator when signing a `CompromiseNotice` message
+/// to announce that a key has been compromised.
+pub const COMPROMISE_NOTICE_CONTEXT: &str = "trelis-compromise-notice-v1";
+
+// ============================================================================
+// Signature Context Constants (Spec Section 14, Table 14.1)
+// ============================================================================
+
+/// Context for per-message ratchet signatures.
+///
+/// Used when signing individual ratchet messages for authentication.
+pub const SIG_RATCHET_MESSAGE_CONTEXT: &str = "trelis-sig-ratchet-message-v1";
+
+/// Context for CoCoA tree update signatures.
+///
+/// Used when signing CoCoA group key agreement update operations.
+pub const SIG_COCOA_UPDATE_CONTEXT: &str = "trelis-sig-cocoa-update-v1";
+
+/// Context for safety number attestation signatures.
+///
+/// Used when signing safety number verification attestations.
+pub const SIG_SAFETY_NUMBER_CONTEXT: &str = "trelis-sig-safety-number-v1";
+
+/// Context for device key attestation signatures.
+///
+/// Used when a device signs an attestation about its keys.
+pub const SIG_DEVICE_ATTEST_CONTEXT: &str = "trelis-sig-device-attest-v1";
+
+// ============================================================================
+// Device Key Derivation Contexts (Spec Section 14.3)
+// ============================================================================
+
+/// Context for device seed derivation from hardware entropy.
+///
+/// Used to derive a device-specific seed from hardware random sources.
+pub const DEVICE_SEED_CONTEXT: &str = "trelis-device-seed-v1";
+
+/// Context for device identity key derivation.
+///
+/// Used to derive the device's identity key from the device seed.
+pub const DEVICE_IDENTITY_KEY_CONTEXT: &str = "trelis-device-identity-key-v1";
+
+/// Context for device signing key derivation.
+///
+/// Used to derive the device's signing key from the device seed.
+pub const DEVICE_SIGNING_KEY_CONTEXT: &str = "trelis-device-signing-key-v1";
+
+// ============================================================================
+// Additional Recovery Contexts (Spec Appendix C)
+// ============================================================================
+
+/// Context for recovery key attestation.
+///
+/// Used when attesting to the validity of a recovery key.
+pub const RECOVERY_KEY_ATTEST_CONTEXT: &str = "trelis-recovery-key-attest-v1";
+
+/// Context for recovery notice signatures.
+///
+/// Used when signing recovery notice messages.
+pub const RECOVERY_NOTICE_CONTEXT: &str = "trelis-recovery-notice-v1";
+
+/// Context for recovery keypair X448 component derivation.
+///
+/// Used when deriving the X448 KEM portion of recovery keys.
+pub const RECOVERY_X448_CONTEXT: &str = "trelis-recovery-x448-v1";
+
+/// Context for recovery keypair sntrup761 component derivation.
+///
+/// Used when deriving the sntrup761 KEM portion of recovery keys.
+pub const RECOVERY_SNTRUP_CONTEXT: &str = "trelis-recovery-sntrup-v1";
+
+/// Context for recovery key escrow.
+///
+/// Used when escrowing recovery keys with trusted parties.
+pub const RECOVERY_ESCROW_CONTEXT: &str = "trelis-recovery-escrow-v1";
+
+// ============================================================================
+// Hedged Cryptography Contexts (Spec Section 5.3)
+// ============================================================================
+
+/// Context for hedged ML-DSA-65 signing.
+///
+/// Used to combine fresh entropy with message hash for defence against
+/// RNG compromise when generating ML-DSA-65 signatures.
+pub const MLDSA_HEDGE_CONTEXT: &str = "trelis-mldsa-hedge-v1";
+
+// ============================================================================
+// Attachment and Sync Contexts (Spec Table 14.1)
+// ============================================================================
+
+/// Context for attachment encryption key derivation.
+///
+/// Used to derive keys for encrypting message attachments.
+pub const ATTACHMENT_KEY_CONTEXT: &str = "trelis-attachment-key-v1";
+
+/// Context for history sync threads.
+///
+/// Used in multi-device message history synchronisation.
+pub const HISTORY_SYNC_CONTEXT: &str = "trelis-history-sync-v1";
+
+/// Context for safety number sync.
+///
+/// Used when synchronising safety number verifications across devices.
+pub const SAFETY_NUMBER_SYNC_CONTEXT: &str = "trelis-safety-number-sync-v1";
+
+// ============================================================================
+// Lawful Intercept Context (Spec Section 22)
+// ============================================================================
+
+/// Context for warrant authorisation signatures.
+///
+/// Used for cryptographic authorisation of lawful intercept warrants.
+pub const WARRANT_AUTH_CONTEXT: &str = "trelis-warrant-auth-v1";
 
 /// Derives a key using BLAKE3 with domain separation.
 ///

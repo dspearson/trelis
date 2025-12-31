@@ -27,6 +27,11 @@ subtle.workspace = true
 
 [dev-dependencies]
 hex.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "cocoa_benchmark"
+harness = false
 
 [lints]
 workspace = true

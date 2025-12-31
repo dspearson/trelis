@@ -175,9 +175,52 @@ impl CocoaSession {
         self.tree.member_count()
     }
 
+    /// Returns the current epoch's init_secret for serialization.
+    ///
+    /// This is needed to properly serialize and restore session state.
+    #[must_use]
+    pub fn init_secret(&self) -> &[u8; 32] {
+        self.epoch.init_secret()
+    }
+
+    /// Returns the current message counter for serialization.
+    #[must_use]
+    pub fn message_counter(&self) -> u64 {
+        self.epoch.message_counter()
+    }
+
+    /// Sets the message counter (for deserialization).
+    pub fn set_message_counter(&mut self, counter: u64) {
+        // We need to advance the internal counter to match
+        // This is a workaround since we can't directly set it
+        while self.epoch.message_counter() < counter {
+            let _ = self.epoch.next_message_key();
+        }
+    }
+
     /// Encrypts a message for the group.
     ///
-    /// Uses the current epoch's message key.
+    /// Uses the current epoch's message key derived from the epoch secret.
+    /// Each call advances the message counter, generating a unique key and
+    /// nonce for each message.
+    ///
+    /// # Arguments
+    ///
+    /// * `plaintext` - The message content to encrypt
+    ///
+    /// # Returns
+    ///
+    /// An [`EncryptedMessage`] containing the epoch, counter, and ciphertext.
+    ///
+    /// # Security
+    ///
+    /// - Each message uses a unique (key, nonce) pair derived from counter
+    /// - AAD binds ciphertext to group_id, epoch, and counter
+    /// - Forward secrecy: past messages cannot be decrypted after epoch advance
+    ///
+    /// # Errors
+    ///
+    /// Returns `EncryptionFailed` if AEAD encryption fails.
     pub fn encrypt(&mut self, plaintext: &[u8]) -> Result<EncryptedMessage> {
         let message_key = self.epoch.next_message_key();
 
@@ -200,6 +243,23 @@ impl CocoaSession {
     }
 
     /// Decrypts a message from the group.
+    ///
+    /// Verifies the epoch matches and derives the message key from the counter.
+    /// Unlike encrypt, this does not advance state - it's idempotent for the
+    /// same message.
+    ///
+    /// # Arguments
+    ///
+    /// * `message` - The encrypted message containing epoch, counter, and ciphertext
+    ///
+    /// # Returns
+    ///
+    /// The decrypted plaintext as a byte vector.
+    ///
+    /// # Errors
+    ///
+    /// - `EpochMismatch` if message epoch doesn't match session epoch
+    /// - `DecryptionFailed` if AEAD verification fails (tampered or wrong key)
     pub fn decrypt(&self, message: &EncryptedMessage) -> Result<Vec<u8>> {
         // Verify epoch matches
         if message.epoch != self.epoch.number() {

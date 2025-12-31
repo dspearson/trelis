@@ -197,10 +197,7 @@ mod tests {
 
         assert!(enc.write_u64(0x0102030405060708).is_some());
         assert_eq!(enc.position(), 8);
-        assert_eq!(
-            &buf[..8],
-            &[0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01]
-        );
+        assert_eq!(&buf[..8], &[0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01]);
     }
 
     #[test]
@@ -247,7 +244,7 @@ mod tests {
 #[cfg(test)]
 mod proptests {
     use super::*;
-    use crate::decode::{decode_u16, decode_u32, decode_u64, Decoder};
+    use crate::decode::{Decoder, decode_u16, decode_u32, decode_u64};
     use proptest::prelude::*;
 
     proptest! {

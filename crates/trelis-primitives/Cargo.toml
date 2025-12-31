@@ -13,9 +13,14 @@ std = ["alloc", "trelis-error/std", "blake3/std", "chacha20poly1305/std", "getra
 alloc = ["trelis-error/alloc", "chacha20poly1305/alloc"]
 # WASM target support (browser environment)
 # Uses ntrulp (pure Rust) with custom encoding to match standard wire format
-wasm = ["alloc", "getrandom/js", "ntrulp"]
+# Enables BLAKE3 WASM SIMD for faster hashing in browsers with SIMD support
+wasm = ["alloc", "getrandom/js", "ntrulp", "blake3/wasm32_simd"]
 # Expose internal functions for testing
 expose-internals = []
+# Memory locking to prevent secrets from being swapped to disk
+# Provides LockedBox<T> and mlock/munlock functions
+# Unix: mlock(2), Windows: VirtualLock
+mlock = ["std", "libc", "windows-sys"]
 
 [dependencies]
 trelis-error.workspace = true
@@ -34,11 +39,15 @@ pqcrypto-ntruprime = { workspace = true, optional = true }
 pqcrypto-traits = { workspace = true, optional = true }
 # Post-quantum KEM - Pure Rust (WASM builds, with custom encoding layer)
 ntrulp = { workspace = true, optional = true }
+# Memory locking (optional, for mlock feature)
+libc = { workspace = true, optional = true }
+windows-sys = { workspace = true, optional = true }
 
 [dev-dependencies]
 hex.workspace = true
 proptest.workspace = true
 criterion.workspace = true
+rayon.workspace = true
 
 [[bench]]
 name = "sntrup761_benchmark"

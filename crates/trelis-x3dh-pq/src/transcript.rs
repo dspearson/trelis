@@ -140,6 +140,25 @@ impl Transcript {
 }
 
 /// Hashes an identity signing public key for transcript binding.
+///
+/// This hash serves two security purposes:
+///
+/// 1. **Unknown Key Share (UKS) Prevention**: By including both Alice's and
+///    Bob's identity hashes in the transcript, we prevent an attacker from
+///    re-using a legitimate handshake between Alice and Bob to establish
+///    a session where one party believes they're talking to someone else.
+///
+/// 2. **Compact Representation**: The full hybrid signing public key is 2,009
+///    bytes. Hashing reduces this to 32 bytes for the transcript while
+///    maintaining cryptographic binding.
+///
+/// # Arguments
+///
+/// * `identity` - The hybrid signing public key to hash
+///
+/// # Returns
+///
+/// A 32-byte BLAKE3 hash of the serialised public key.
 fn hash_identity(identity: &HybridSigningPublicKey) -> [u8; HASH_SIZE] {
     let bytes = identity.to_bytes();
     *blake3::hash(&bytes).as_bytes()
@@ -147,8 +166,22 @@ fn hash_identity(identity: &HybridSigningPublicKey) -> [u8; HASH_SIZE] {
 
 /// Hashes the bundle signing data for transcript binding.
 ///
-/// This includes all bundle fields that are signed, ensuring that
-/// timestamps and OTK are bound into the session key.
+/// By including the bundle hash in the transcript, we bind the session keys to:
+///
+/// - **The specific one-time key**: Prevents replay attacks with different OTKs
+/// - **Timestamps**: `created_at` and `expires_at` are part of signed data
+/// - **Key IDs**: Helps detect bundle substitution attacks
+///
+/// This ensures that both parties derive the same session keys only when
+/// using the exact same bundle, preventing various transcript manipulation attacks.
+///
+/// # Arguments
+///
+/// * `bundle` - The signed pre-key bundle to hash
+///
+/// # Returns
+///
+/// A 32-byte BLAKE3 hash of the bundle's signing data.
 fn hash_bundle(bundle: &SignedPreKeyBundle) -> [u8; HASH_SIZE] {
     let signing_data = bundle.signing_data();
     *blake3::hash(&signing_data).as_bytes()

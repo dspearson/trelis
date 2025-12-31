@@ -9,11 +9,38 @@
 //! - Otherwise (blank internal): Res(v) = Res(left) ∪ Res(right)
 
 #[cfg(feature = "alloc")]
+use alloc::collections::BTreeSet;
+#[cfg(feature = "alloc")]
+use alloc::vec;
+#[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
 use super::{NodeIndex, TreeNode};
 
 /// Result of resolution computation.
+///
+/// A resolution is the minimal set of non-blank nodes that can represent
+/// a subtree for encryption purposes. When encrypting to a subtree, we
+/// encrypt to each node in the resolution.
+///
+/// # Why Resolution Matters
+///
+/// In a group where some members have left (blank nodes), we need to find
+/// the actual recipients for encrypted data. The resolution gives us the
+/// minimal cover of non-blank nodes.
+///
+/// # Example
+///
+/// ```text
+///       (blank)
+///       /     \
+///    Alice   (blank)
+///            /    \
+///          Bob   Carol
+/// ```
+///
+/// Resolution of root = {Alice, Bob, Carol}
+/// (We skip the blank internal node and include its non-blank descendants)
 #[cfg(feature = "alloc")]
 #[derive(Debug, Clone)]
 pub struct Resolution {
@@ -36,10 +63,25 @@ impl Resolution {
     }
 
     /// Merges two resolutions (union).
+    ///
+    /// Uses a BTreeSet for O(log n) deduplication instead of O(n) linear search.
     #[must_use]
     pub fn union(mut self, other: Self) -> Self {
+        if other.nodes.is_empty() {
+            return self;
+        }
+        if self.nodes.is_empty() {
+            return other;
+        }
+
+        // Build a set from existing nodes for O(log n) lookup
+        let existing: BTreeSet<_> = self.nodes.iter().copied().collect();
+
+        // Reserve capacity for potential additions
+        self.nodes.reserve(other.nodes.len());
+
         for node in other.nodes {
-            if !self.nodes.contains(&node) {
+            if !existing.contains(&node) {
                 self.nodes.push(node);
             }
         }
@@ -79,6 +121,20 @@ pub trait NodeLookup {
 /// - If v is not blank: Res(v) = {v}
 /// - If v is a blank leaf: Res(v) = {}
 /// - Otherwise (blank internal): Res(v) = Res(left) ∪ Res(right)
+///
+/// # Arguments
+///
+/// * `lookup` - A type implementing [`NodeLookup`] for tree traversal
+/// * `index` - The node to compute resolution for
+///
+/// # Returns
+///
+/// A [`Resolution`] containing the minimal set of non-blank descendants.
+///
+/// # Complexity
+///
+/// O(n) where n is the number of nodes in the subtree, as we may need
+/// to visit all descendants of blank internal nodes.
 #[cfg(feature = "alloc")]
 pub fn resolve<T: NodeLookup>(lookup: &T, index: NodeIndex) -> Resolution {
     match lookup.get_node(&index) {
@@ -121,7 +177,23 @@ pub fn resolve_set<T: NodeLookup>(lookup: &T, indices: &[NodeIndex]) -> Resoluti
 /// Per CoCoA paper (p. 20):
 /// L_j = Res(w_j) ∪ Unmerged(Res(w_j))
 ///
-/// where w_j is the sibling parent of v_j in the updater's path.
+/// where w_j is the sibling (co-path node) of v_j in the updater's path.
+///
+/// # Arguments
+///
+/// * `lookup` - A type implementing [`NodeLookup`] for tree traversal
+/// * `path_node` - A node in the updater's direct path
+/// * `unmerged_fn` - Function to compute unmerged leaves for a node
+///
+/// # Returns
+///
+/// A [`Resolution`] containing all nodes that need to receive the encrypted
+/// path secret for this level of the tree.
+///
+/// # Usage
+///
+/// When a member sends an update, they encrypt new path secrets to each Lj
+/// set. Members in each Lj can decrypt and update their view of the tree.
 #[cfg(feature = "alloc")]
 pub fn compute_lj<T: NodeLookup>(
     lookup: &T,
@@ -134,12 +206,9 @@ pub fn compute_lj<T: NodeLookup>(
         None => return Resolution::empty(), // Root has no sibling
     };
 
-    // Compute resolution of sibling subtree
-    let base_resolution = resolve(lookup, sibling);
-
-    // In full implementation, would add unmerged leaves here
-    // For now, return base resolution
-    base_resolution
+    // Compute resolution of sibling subtree.
+    // In full implementation, would add unmerged leaves here.
+    resolve(lookup, sibling)
 }
 
 #[cfg(test)]
@@ -149,6 +218,8 @@ mod tests {
     // Simple test lookup that marks even positions as populated
     struct TestLookup {
         depth: u32,
+        // Reserved for future tests with blank nodes
+        #[allow(dead_code)]
         blank_positions: Vec<(u32, u32)>,
     }
 
@@ -160,6 +231,8 @@ mod tests {
             }
         }
 
+        // Reserved for future tests with blank nodes
+        #[allow(dead_code)]
         fn with_blank(mut self, depth: u32, position: u32) -> Self {
             self.blank_positions.push((depth, position));
             self

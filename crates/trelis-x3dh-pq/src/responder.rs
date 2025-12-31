@@ -10,11 +10,45 @@ use trelis_primitives::X448Public;
 use crate::bundle::SignedPreKeyBundle;
 use crate::initiator::InitialMessage;
 use crate::session_keys::SessionKeys;
-use crate::transcript::{Transcript, DH_SIZE, PQ_SS_SIZE};
+use crate::transcript::{DH_SIZE, PQ_SS_SIZE, Transcript};
 
 /// X3DH-PQ responder (Bob).
 ///
-/// Receives the initiator's message and derives matching session keys.
+/// The responder receives an initial message from the initiator and uses
+/// their private keys (identity and one-time) to derive the same session keys.
+///
+/// # Protocol Role
+///
+/// 1. Receives [`InitialMessage`] from initiator
+/// 2. Uses private keys to compute matching DH and decapsulate PQ ciphertext
+/// 3. Returns [`SessionKeys`] with send/receive directions swapped
+///
+/// # Security
+///
+/// The responder MUST:
+/// - Keep the one-time key private until the initial message is received
+/// - Delete the one-time key after deriving session keys (one-time use)
+/// - Verify the initiator's identity through the transcript binding
+///
+/// # Example
+///
+/// ```ignore
+/// // Receive initial message from network
+/// let initial_msg = InitialMessage::from_bytes(&network_data)?;
+///
+/// // Derive session keys using our private keys
+/// let session_keys = Responder::establish(
+///     &our_identity,
+///     &our_otk,         // Must match the OTK in our published bundle
+///     &their_identity_signing,
+///     &their_identity_kem_x448,
+///     &our_published_bundle,
+///     &initial_msg,
+/// )?;
+///
+/// // Initialise ratchet as responder (send/recv are already swapped)
+/// let ratchet = KemRatchet::respond(session_keys);
+/// ```
 pub struct Responder;
 
 impl Responder {
@@ -41,7 +75,7 @@ impl Responder {
     /// # Errors
     ///
     /// - `DecapsulationFailed` if sntrup761 decapsulation fails
-    #[cfg(feature = "std")]
+    #[cfg(any(feature = "std", feature = "wasm"))]
     pub fn establish(
         our_identity: &HybridIdentityKeypair,
         our_otk: &HybridKemKeypair,

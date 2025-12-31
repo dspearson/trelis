@@ -1,3 +1,15 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::needless_borrow,
+    clippy::needless_range_loop,
+    clippy::manual_clamp,
+    clippy::manual_range_contains,
+    clippy::useless_asref,
+    clippy::clone_on_copy,
+    clippy::cast_possible_truncation,
+    clippy::unnecessary_cast
+)]
 //! Cross-validation tests for sntrup761 implementations.
 //!
 //! These tests verify that:
@@ -19,10 +31,11 @@
 
 #![cfg(all(feature = "std", feature = "wasm"))]
 
+use rayon::prelude::*;
 use trelis_primitives::sntrup761 as c_impl;
 use trelis_primitives::sntrup761_encoding::{
-    rounded_decode, rounded_encode, rq_decode, rq_encode, small_decode, small_encode,
-    P, Q, Q12, ROUNDED_BYTES, RQ_BYTES, SMALL_BYTES,
+    P, Q, Q12, ROUNDED_BYTES, RQ_BYTES, SMALL_BYTES, rounded_decode, rounded_encode, rq_decode,
+    rq_encode, small_decode, small_encode,
 };
 use trelis_primitives::sntrup761_wasm as rust_impl;
 
@@ -44,9 +57,12 @@ fn test_small_encode_decode_roundtrip_all_patterns() {
         let decoded = small_decode(&encoded);
 
         assert_eq!(
-            coeffs, decoded,
+            coeffs,
+            decoded,
             "Small roundtrip failed for pattern {}: {:?} -> {:?}",
-            pattern, &coeffs[..3], &decoded[..3]
+            pattern,
+            &coeffs[..3],
+            &decoded[..3]
         );
     }
 }
@@ -156,7 +172,9 @@ fn test_rounded_encode_decode_zero() {
         assert!(
             (orig - dec).abs() <= 3,
             "Rounded zero mismatch at {}: expected ~{}, got {}",
-            i, orig, dec
+            i,
+            orig,
+            dec
         );
     }
 }
@@ -202,7 +220,10 @@ fn test_c_generated_public_key_rust_decode_reencode() {
         assert!(
             c >= -Q12 && c <= Q12,
             "C public key coefficient {} out of range: {} (valid: [{}, {}])",
-            i, c, -Q12, Q12
+            i,
+            c,
+            -Q12,
+            Q12
         );
     }
 
@@ -235,11 +256,7 @@ fn test_c_generated_secret_key_components() {
 
     // Verify f coefficients are in {-1, 0, 1}
     for (i, &c) in f_coeffs.iter().enumerate() {
-        assert!(
-            c >= -1 && c <= 1,
-            "f coefficient {} out of range: {}",
-            i, c
-        );
+        assert!(c >= -1 && c <= 1, "f coefficient {} out of range: {}", i, c);
     }
 
     // Verify ginv coefficients are in {-1, 0, 1}
@@ -247,7 +264,8 @@ fn test_c_generated_secret_key_components() {
         assert!(
             c >= -1 && c <= 1,
             "ginv coefficient {} out of range: {}",
-            i, c
+            i,
+            c
         );
     }
 
@@ -284,7 +302,8 @@ fn test_c_ciphertext_rust_decode_reencode() {
         assert!(
             c >= -2400 && c <= 2400,
             "Ciphertext coefficient {} out of range: {}",
-            i, c
+            i,
+            c
         );
     }
 
@@ -316,7 +335,8 @@ fn test_rust_key_used_with_c_encapsulation() {
         .expect("Failed to create Rust ciphertext from C bytes");
 
     // Decapsulate with Rust implementation
-    let rust_ss = rust_sk.decapsulate(&rust_ct)
+    let rust_ss = rust_sk
+        .decapsulate(&rust_ct)
         .expect("Rust decapsulation failed");
 
     // Shared secrets should match
@@ -345,8 +365,7 @@ fn test_c_key_used_with_rust_encapsulation() {
         .expect("Failed to create C ciphertext from Rust bytes");
 
     // Decapsulate with C implementation
-    let c_ss = c_sk.decapsulate(&c_ct)
-        .expect("C decapsulation failed");
+    let c_ss = c_sk.decapsulate(&c_ct).expect("C decapsulation failed");
 
     // Shared secrets should match
     assert_eq!(
@@ -488,11 +507,7 @@ fn test_single_nonzero_coefficient() {
         let encoded = rq_encode(&coeffs);
         let decoded = rq_decode(&encoded);
 
-        assert_eq!(
-            coeffs, decoded,
-            "Single nonzero at position {} failed",
-            pos
-        );
+        assert_eq!(coeffs, decoded, "Single nonzero at position {} failed", pos);
     }
 }
 
@@ -529,11 +544,7 @@ fn test_many_c_keys_rust_roundtrip() {
         let coeffs = rq_decode(c_pk.as_bytes());
         let reencoded = rq_encode(&coeffs);
 
-        assert_eq!(
-            c_pk.as_bytes(),
-            &reencoded,
-            "Public key roundtrip mismatch"
-        );
+        assert_eq!(c_pk.as_bytes(), &reencoded, "Public key roundtrip mismatch");
     }
 }
 
@@ -598,7 +609,9 @@ fn test_c_public_key_coefficient_distribution() {
     assert!(
         positive > 100 && negative > 100,
         "Unexpected coefficient distribution: +{}, -{}, 0:{}",
-        positive, negative, zero
+        positive,
+        negative,
+        zero
     );
 }
 
@@ -670,34 +683,31 @@ mod proptest_tests {
 
     /// Strategy for generating small polynomials
     fn small_poly_strategy() -> impl Strategy<Value = [i8; P]> {
-        proptest::collection::vec(small_coeff_strategy(), P..=P)
-            .prop_map(|v| {
-                let mut arr = [0i8; P];
-                arr.copy_from_slice(&v);
-                arr
-            })
+        proptest::collection::vec(small_coeff_strategy(), P..=P).prop_map(|v| {
+            let mut arr = [0i8; P];
+            arr.copy_from_slice(&v);
+            arr
+        })
     }
 
     /// Strategy for generating Rq polynomials
     fn rq_poly_strategy() -> impl Strategy<Value = [i16; P]> {
-        proptest::collection::vec(rq_coeff_strategy(), P..=P)
-            .prop_map(|v| {
-                let mut arr = [0i16; P];
-                arr.copy_from_slice(&v);
-                arr
-            })
+        proptest::collection::vec(rq_coeff_strategy(), P..=P).prop_map(|v| {
+            let mut arr = [0i16; P];
+            arr.copy_from_slice(&v);
+            arr
+        })
     }
 
     /// Strategy for generating rounded polynomials (multiples of 3)
     fn rounded_poly_strategy() -> impl Strategy<Value = [i16; P]> {
-        proptest::collection::vec(-765i16..=765i16, P..=P)
-            .prop_map(|v| {
-                let mut arr = [0i16; P];
-                for (i, &x) in v.iter().enumerate() {
-                    arr[i] = x * 3; // Ensure multiple of 3
-                }
-                arr
-            })
+        proptest::collection::vec(-765i16..=765i16, P..=P).prop_map(|v| {
+            let mut arr = [0i16; P];
+            for (i, &x) in v.iter().enumerate() {
+                arr[i] = x * 3; // Ensure multiple of 3
+            }
+            arr
+        })
     }
 
     proptest! {
@@ -827,7 +837,7 @@ mod proptest_tests {
 
 #[test]
 fn stress_test_1000_c_rust_roundtrips() {
-    for i in 0..1000 {
+    (0..1000).into_par_iter().for_each(|i| {
         let c_sk = c_impl::Sntrup761SecretKey::generate();
         let c_pk = c_sk.public_key();
 
@@ -835,18 +845,13 @@ fn stress_test_1000_c_rust_roundtrips() {
         let coeffs = rq_decode(c_pk.as_bytes());
         let reencoded = rq_encode(&coeffs);
 
-        assert_eq!(
-            c_pk.as_bytes(),
-            &reencoded,
-            "C key roundtrip {} failed",
-            i
-        );
-    }
+        assert_eq!(c_pk.as_bytes(), &reencoded, "C key roundtrip {} failed", i);
+    });
 }
 
 #[test]
 fn stress_test_500_cross_kem_c_key_rust_encap() {
-    for i in 0..500 {
+    (0..500).into_par_iter().for_each(|i| {
         let c_sk = c_impl::Sntrup761SecretKey::generate();
         let c_pk = c_sk.public_key();
 
@@ -864,12 +869,12 @@ fn stress_test_500_cross_kem_c_key_rust_encap() {
             "Cross-KEM iteration {} failed (C key, Rust encap)",
             i
         );
-    }
+    });
 }
 
 #[test]
 fn stress_test_500_cross_kem_rust_key_c_encap() {
-    for i in 0..500 {
+    (0..500).into_par_iter().for_each(|i| {
         let rust_sk = rust_impl::Sntrup761SecretKey::generate();
         let rust_pk = rust_sk.public_key();
 
@@ -879,7 +884,9 @@ fn stress_test_500_cross_kem_rust_key_c_encap() {
 
         let rust_ct = rust_impl::Sntrup761Ciphertext::from_bytes(c_ct.as_bytes())
             .expect("Failed to parse C ciphertext");
-        let rust_ss = rust_sk.decapsulate(&rust_ct).expect("Rust decapsulation failed");
+        let rust_ss = rust_sk
+            .decapsulate(&rust_ct)
+            .expect("Rust decapsulation failed");
 
         assert_eq!(
             c_ss.as_bytes(),
@@ -887,12 +894,12 @@ fn stress_test_500_cross_kem_rust_key_c_encap() {
             "Cross-KEM iteration {} failed (Rust key, C encap)",
             i
         );
-    }
+    });
 }
 
 #[test]
 fn stress_test_1000_rust_only_kem() {
-    for i in 0..1000 {
+    (0..1000).into_par_iter().for_each(|i| {
         let sk = rust_impl::Sntrup761SecretKey::generate();
         let pk = sk.public_key();
 
@@ -905,12 +912,12 @@ fn stress_test_1000_rust_only_kem() {
             "Rust-only KEM iteration {} failed",
             i
         );
-    }
+    });
 }
 
 #[test]
 fn stress_test_1000_c_only_kem() {
-    for i in 0..1000 {
+    (0..1000).into_par_iter().for_each(|i| {
         let sk = c_impl::Sntrup761SecretKey::generate();
         let pk = sk.public_key();
 
@@ -923,12 +930,12 @@ fn stress_test_1000_c_only_kem() {
             "C-only KEM iteration {} failed",
             i
         );
-    }
+    });
 }
 
 #[test]
 fn stress_test_secret_key_serialisation() {
-    for i in 0..200 {
+    (0..200).into_par_iter().for_each(|i| {
         // Generate with C, use with Rust
         let c_sk = c_impl::Sntrup761SecretKey::generate();
         let rust_sk = rust_impl::Sntrup761SecretKey::from_bytes(c_sk.as_bytes())
@@ -954,5 +961,5 @@ fn stress_test_secret_key_serialisation() {
             "KEM failed with deserialised key at iteration {}",
             i
         );
-    }
+    });
 }

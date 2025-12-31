@@ -4,7 +4,7 @@
 //! or blank (after member removal).
 
 #[cfg(feature = "alloc")]
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec::Vec};
 
 use trelis_hybrid::{HybridKemPublicKey, HybridSignature};
 
@@ -22,46 +22,50 @@ pub struct UpdateOrigin {
     pub timestamp: u64,
 }
 
+/// Data for a populated node (boxed to reduce enum size).
+#[derive(Debug, Clone)]
+pub struct PopulatedNodeData {
+    /// Hybrid public key at this node (PK_v).
+    pub public_key: HybridKemPublicKey,
+    /// Predecessor public key - key before last update (PK_pr).
+    /// Used for verifying updates from users who haven't yet
+    /// processed the most recent commit at this node.
+    pub predecessor_key: Option<HybridKemPublicKey>,
+    /// Parent hash for tree integrity (h_v = (h_1, h_2)).
+    /// Two-component structure per CoCoA paper Section 3.4:
+    /// - h_1: sibling subtree commitment
+    /// - h_2: predecessor/children commitment
+    pub parent_hash: ([u8; 32], [u8; 32]),
+    /// Identity of the user who last updated this node (ID_v).
+    pub last_updater_id: UserId,
+    /// Signature over update message (sigma_v).
+    pub update_signature: HybridSignature,
+    /// Transcript hash at time of last update (H_trans,v).
+    pub transcript_hash: [u8; 32],
+    /// Confirmation tag for this node's update (confTag_v).
+    pub confirmation_tag: [u8; 32],
+    /// Origin information - metadata about update source.
+    pub origin: UpdateOrigin,
+}
+
 /// State of a node in the ratchet tree.
 #[derive(Debug, Clone)]
+#[cfg(feature = "alloc")]
 pub enum NodeState {
-    /// Active node with key material.
-    Populated {
-        /// Hybrid public key at this node (PK_v).
-        public_key: HybridKemPublicKey,
-        /// Predecessor public key - key before last update (PK_pr).
-        /// Used for verifying updates from users who haven't yet
-        /// processed the most recent commit at this node.
-        predecessor_key: Option<HybridKemPublicKey>,
-        /// Parent hash for tree integrity (h_v = (h_1, h_2)).
-        /// Two-component structure per CoCoA paper Section 3.4:
-        /// - h_1: sibling subtree commitment
-        /// - h_2: predecessor/children commitment
-        parent_hash: ([u8; 32], [u8; 32]),
-        /// Identity of the user who last updated this node (ID_v).
-        last_updater_id: UserId,
-        /// Signature over update message (sigma_v).
-        update_signature: HybridSignature,
-        /// Transcript hash at time of last update (H_trans,v).
-        transcript_hash: [u8; 32],
-        /// Confirmation tag for this node's update (confTag_v).
-        confirmation_tag: [u8; 32],
-        /// Origin information - metadata about update source.
-        origin: UpdateOrigin,
-    },
+    /// Active node with key material (boxed due to large size).
+    Populated(Box<PopulatedNodeData>),
 
     /// Blank node (member removed or position never filled).
     Blank {
         /// Unmerged leaves - leaves that haven't processed through this node.
         /// Critical for correct resolution computation.
-        #[cfg(feature = "alloc")]
         unmerged_leaves: Vec<UserId>,
     },
 }
 
+#[cfg(feature = "alloc")]
 impl NodeState {
     /// Creates a new blank node state.
-    #[cfg(feature = "alloc")]
     #[must_use]
     pub fn blank() -> Self {
         Self::Blank {
@@ -78,14 +82,14 @@ impl NodeState {
     /// Returns true if this node is populated.
     #[must_use]
     pub fn is_populated(&self) -> bool {
-        matches!(self, Self::Populated { .. })
+        matches!(self, Self::Populated(_))
     }
 
     /// Returns the public key if populated.
     #[must_use]
     pub fn public_key(&self) -> Option<&HybridKemPublicKey> {
         match self {
-            Self::Populated { public_key, .. } => Some(public_key),
+            Self::Populated(data) => Some(&data.public_key),
             Self::Blank { .. } => None,
         }
     }
@@ -94,9 +98,7 @@ impl NodeState {
     #[must_use]
     pub fn predecessor_key(&self) -> Option<&HybridKemPublicKey> {
         match self {
-            Self::Populated {
-                predecessor_key, ..
-            } => predecessor_key.as_ref(),
+            Self::Populated(data) => data.predecessor_key.as_ref(),
             Self::Blank { .. } => None,
         }
     }
@@ -105,7 +107,7 @@ impl NodeState {
     #[must_use]
     pub fn parent_hash(&self) -> Option<&([u8; 32], [u8; 32])> {
         match self {
-            Self::Populated { parent_hash, .. } => Some(parent_hash),
+            Self::Populated(data) => Some(&data.parent_hash),
             Self::Blank { .. } => None,
         }
     }
@@ -114,25 +116,21 @@ impl NodeState {
     #[must_use]
     pub fn last_updater_id(&self) -> Option<&UserId> {
         match self {
-            Self::Populated {
-                last_updater_id, ..
-            } => Some(last_updater_id),
+            Self::Populated(data) => Some(&data.last_updater_id),
             Self::Blank { .. } => None,
         }
     }
 
     /// Returns the unmerged leaves for blank nodes.
-    #[cfg(feature = "alloc")]
     #[must_use]
     pub fn unmerged_leaves(&self) -> Option<&[UserId]> {
         match self {
             Self::Blank { unmerged_leaves } => Some(unmerged_leaves),
-            Self::Populated { .. } => None,
+            Self::Populated(_) => None,
         }
     }
 
     /// Adds an unmerged leaf to a blank node.
-    #[cfg(feature = "alloc")]
     pub fn add_unmerged_leaf(&mut self, user_id: UserId) {
         if let Self::Blank { unmerged_leaves } = self {
             if !unmerged_leaves.contains(&user_id) {
@@ -151,6 +149,7 @@ pub struct TreeNode {
     pub state: NodeState,
 }
 
+#[cfg(feature = "alloc")]
 impl TreeNode {
     /// Creates a new populated tree node.
     #[allow(clippy::too_many_arguments)]
@@ -167,7 +166,7 @@ impl TreeNode {
     ) -> Self {
         Self {
             index,
-            state: NodeState::Populated {
+            state: NodeState::Populated(Box::new(PopulatedNodeData {
                 public_key,
                 predecessor_key,
                 parent_hash,
@@ -176,12 +175,11 @@ impl TreeNode {
                 transcript_hash,
                 confirmation_tag,
                 origin,
-            },
+            })),
         }
     }
 
     /// Creates a new blank tree node.
-    #[cfg(feature = "alloc")]
     #[must_use]
     pub fn new_blank(index: NodeIndex) -> Self {
         Self {

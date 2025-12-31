@@ -48,6 +48,15 @@ pub const MLDSA_SIG_SIZE: usize = 3309;
 /// Size of hybrid signature in bytes.
 pub const SIGNATURE_SIZE: usize = ED448_SIG_SIZE + MLDSA_SIG_SIZE;
 
+/// Size of Ed448 secret key seed in bytes.
+pub const ED448_SK_SIZE: usize = 57;
+
+/// Size of ML-DSA-65 secret key in bytes.
+pub const MLDSA_SK_SIZE: usize = 4032;
+
+/// Size of hybrid signing secret key in bytes.
+pub const SECRET_KEY_SIZE: usize = ED448_SK_SIZE + MLDSA_SK_SIZE;
+
 /// Hybrid signing keypair (Ed448 + ML-DSA-65).
 ///
 /// This keypair contains both classical and post-quantum signing keys.
@@ -84,10 +93,87 @@ impl HybridSigningKeypair {
         })
     }
 
+    /// Creates a hybrid signing keypair from individual components.
+    ///
+    /// This is used for deterministic key derivation (e.g., recovery keys).
+    ///
+    /// # Arguments
+    ///
+    /// * `ed448_secret` - The Ed448 signing key
+    /// * `mldsa_secret` - The ML-DSA-65 signing key
+    ///
+    /// # Returns
+    ///
+    /// A hybrid keypair combining both components.
+    pub fn from_components(
+        ed448_secret: Ed448SigningKey,
+        mldsa_secret: MlDsa65SigningKey,
+    ) -> Result<Self> {
+        let public_key = HybridSigningPublicKey {
+            ed448: ed448_secret.verifying_key(),
+            mldsa: mldsa_secret.verifying_key(),
+        };
+
+        Ok(Self {
+            public_key,
+            ed448_secret,
+            mldsa_secret,
+        })
+    }
+
     /// Returns the public key.
     #[must_use]
     pub fn public_key(&self) -> &HybridSigningPublicKey {
         &self.public_key
+    }
+
+    /// Serialises the secret key to bytes.
+    ///
+    /// Format: Ed448 seed (57 bytes) || ML-DSA-65 secret (4,032 bytes)
+    ///
+    /// # Security
+    ///
+    /// The returned bytes contain secret key material and should be
+    /// handled securely (encrypted storage, zeroization after use).
+    #[must_use]
+    pub fn to_bytes(&self) -> [u8; SECRET_KEY_SIZE] {
+        let mut bytes = [0u8; SECRET_KEY_SIZE];
+        bytes[..ED448_SK_SIZE].copy_from_slice(self.ed448_secret.seed());
+        bytes[ED448_SK_SIZE..].copy_from_slice(self.mldsa_secret.as_bytes());
+        bytes
+    }
+
+    /// Deserialises a keypair from secret key bytes.
+    ///
+    /// The public key is derived from the secret key components.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidKeyLength` if the slice is not exactly 4,089 bytes.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() != SECRET_KEY_SIZE {
+            return Err(CryptoError::InvalidKeyLength {
+                expected: SECRET_KEY_SIZE,
+                actual: bytes.len(),
+            });
+        }
+
+        let mut ed448_seed = [0u8; ED448_SK_SIZE];
+        ed448_seed.copy_from_slice(&bytes[..ED448_SK_SIZE]);
+        let ed448_secret = Ed448SigningKey::from_seed(ed448_seed);
+
+        let mldsa_secret = MlDsa65SigningKey::from_bytes(&bytes[ED448_SK_SIZE..])?;
+
+        let public_key = HybridSigningPublicKey {
+            ed448: ed448_secret.verifying_key(),
+            mldsa: mldsa_secret.verifying_key(),
+        };
+
+        Ok(Self {
+            public_key,
+            ed448_secret,
+            mldsa_secret,
+        })
     }
 
     /// Signs a message with both Ed448 and ML-DSA-65.
@@ -402,14 +488,18 @@ mod tests {
         let signature = keypair.sign_with_context(message, context).unwrap();
 
         // Correct context succeeds
-        assert!(keypair
-            .public_key()
-            .verify_with_context(message, context, &signature));
+        assert!(
+            keypair
+                .public_key()
+                .verify_with_context(message, context, &signature)
+        );
 
         // Wrong context fails
-        assert!(!keypair
-            .public_key()
-            .verify_with_context(message, b"wrong", &signature));
+        assert!(
+            !keypair
+                .public_key()
+                .verify_with_context(message, b"wrong", &signature)
+        );
 
         // No context fails
         assert!(!keypair.public_key().verify(message, &signature));

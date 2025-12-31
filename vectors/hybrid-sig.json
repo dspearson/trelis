@@ -1,0 +1,90 @@
+{
+  "meta": {
+    "suite": "trelis-v1",
+    "category": "hybrid-sig",
+    "version": "1.0.0",
+    "generated": "2025-12-31T00:00:00Z",
+    "description": "Test vectors for hybrid signature scheme (Ed448 + ML-DSA-65)"
+  },
+  "notes": {
+    "signing_description": "Hybrid signatures concatenate Ed448 (114 bytes) followed by ML-DSA-65 (3,309 bytes)",
+    "public_key_format": "Ed448 public key (57 bytes) || ML-DSA-65 public key (1,952 bytes)",
+    "signature_format": "Ed448 signature (114 bytes) || ML-DSA-65 signature (3,309 bytes)",
+    "verification": "BOTH signatures must verify for hybrid verification to succeed",
+    "context_strings": "Optional context strings use Ed448 and ML-DSA-65 native context mechanisms"
+  },
+  "sizes": {
+    "ed448_public_key": 57,
+    "ed448_signature": 114,
+    "mldsa65_public_key": 1952,
+    "mldsa65_signature": 3309,
+    "hybrid_public_key": 2009,
+    "hybrid_signature": 3423
+  },
+  "context_support": {
+    "description": "Both Ed448 and ML-DSA-65 support context strings for domain separation",
+    "max_context_length": 255,
+    "context_usage": "sign_with_context(message, context) and verify_with_context(message, context, signature)"
+  },
+  "vectors": [
+    {
+      "name": "hybrid_sig_size_verification",
+      "description": "Verify combined sizes match spec (Ed448 + ML-DSA-65)",
+      "inputs": {
+        "ed448_pk_size": 57,
+        "mldsa65_pk_size": 1952,
+        "ed448_sig_size": 114,
+        "mldsa65_sig_size": 3309
+      },
+      "expected": {
+        "hybrid_pk_size": 2009,
+        "hybrid_sig_size": 3423,
+        "calculation_pk": "57 + 1952 = 2009",
+        "calculation_sig": "114 + 3309 = 3423"
+      }
+    },
+    {
+      "name": "signature_context_strings",
+      "description": "Domain separation context strings for signature operations",
+      "contexts": [
+        {
+          "name": "PreKeyBundle",
+          "context_string": "trelis-sig-prekey-bundle-v1",
+          "usage": "Signing pre-key bundles"
+        },
+        {
+          "name": "RatchetMessage",
+          "context_string": "trelis-sig-ratchet-message-v1",
+          "usage": "Per-message ratchet authentication"
+        },
+        {
+          "name": "CocoaUpdate",
+          "context_string": "trelis-sig-cocoa-update-v1",
+          "usage": "CoCoA group update signatures"
+        },
+        {
+          "name": "SafetyNumber",
+          "context_string": "trelis-sig-safety-number-v1",
+          "usage": "Safety number certification"
+        },
+        {
+          "name": "DeviceAttestation",
+          "context_string": "trelis-sig-device-attest-v1",
+          "usage": "Device attestation signatures"
+        }
+      ]
+    },
+    {
+      "name": "hybrid_sig_serialisation_order",
+      "description": "Wire format serialisation order for hybrid signatures",
+      "public_key_order": [
+        {"offset": 0, "size": 57, "field": "Ed448 public key", "description": "Classical signing key (57 bytes)"},
+        {"offset": 57, "size": 1952, "field": "ML-DSA-65 public key", "description": "Post-quantum signing key (1,952 bytes)"}
+      ],
+      "signature_order": [
+        {"offset": 0, "size": 114, "field": "Ed448 signature", "description": "Classical signature (114 bytes)"},
+        {"offset": 114, "size": 3309, "field": "ML-DSA-65 signature", "description": "Post-quantum signature (3,309 bytes)"}
+      ]
+    }
+  ]
+}

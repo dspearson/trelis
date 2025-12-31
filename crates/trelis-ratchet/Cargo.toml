@@ -5,7 +5,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Hybrid PQ Double Ratchet for the Trelis protocol"
+description = "Hybrid PQ Per-Message KEM Ratchet for the Trelis protocol"
 
 [features]
 default = ["std"]
@@ -24,3 +24,8 @@ zeroize.workspace = true
 
 [dev-dependencies]
 hex.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "ratchet_benchmark"
+harness = false

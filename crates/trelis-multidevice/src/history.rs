@@ -9,8 +9,8 @@ use alloc::vec::Vec;
 use trelis_error::{CryptoError, Result};
 use trelis_hybrid::{HybridSignature, HybridSigningKeypair, HybridSigningPublicKey};
 
-use crate::retained_key::RetainedKey;
 use crate::ThreadId;
+use crate::retained_key::RetainedKey;
 
 /// Context string for history key share signatures.
 const HISTORY_KEY_SHARE_CONTEXT: &str = "trelis-v1-history-key-share";
@@ -182,8 +182,9 @@ impl HistoryKeyShareMessage {
         // Keys
         let mut keys = Vec::with_capacity(key_count);
         for _ in 0..key_count {
-            let key = RetainedKey::from_bytes(&bytes[offset..offset + RetainedKey::SERIALISED_SIZE])
-                .ok_or(CryptoError::MalformedMessage)?;
+            let key =
+                RetainedKey::from_bytes(&bytes[offset..offset + RetainedKey::SERIALISED_SIZE])
+                    .ok_or(CryptoError::MalformedMessage)?;
             keys.push(key);
             offset += RetainedKey::SERIALISED_SIZE;
         }
@@ -197,8 +198,8 @@ impl HistoryKeyShareMessage {
         offset += 8;
 
         // Signature (remaining bytes)
-        let signature =
-            HybridSignature::from_bytes(&bytes[offset..]).map_err(|_| CryptoError::MalformedMessage)?;
+        let signature = HybridSignature::from_bytes(&bytes[offset..])
+            .map_err(|_| CryptoError::MalformedMessage)?;
 
         Ok(Self {
             thread_id,
@@ -236,6 +237,7 @@ impl HistoryKeyShare {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::needless_borrow)]
 mod tests {
     use super::*;
 
@@ -257,8 +259,7 @@ mod tests {
         let signing_key = HybridSigningKeypair::generate().unwrap();
         let keys = create_test_keys(5);
 
-        let msg =
-            HistoryKeyShareMessage::new([0x42u8; 32], keys, &signing_key, 5000).unwrap();
+        let msg = HistoryKeyShareMessage::new([0x42u8; 32], keys, &signing_key, 5000).unwrap();
 
         assert_eq!(msg.thread_id, [0x42u8; 32]);
         assert_eq!(msg.key_count(), 5);
@@ -271,8 +272,7 @@ mod tests {
         let signing_key = HybridSigningKeypair::generate().unwrap();
         let keys = create_test_keys(3);
 
-        let msg =
-            HistoryKeyShareMessage::new([0x42u8; 32], keys, &signing_key, 5000).unwrap();
+        let msg = HistoryKeyShareMessage::new([0x42u8; 32], keys, &signing_key, 5000).unwrap();
 
         // Verify with correct key
         assert!(msg.verify(&signing_key.public_key()).is_ok());
@@ -288,8 +288,7 @@ mod tests {
         let signing_key = HybridSigningKeypair::generate().unwrap();
         let keys = create_test_keys(10);
 
-        let msg =
-            HistoryKeyShareMessage::new([0x42u8; 32], keys, &signing_key, 5000).unwrap();
+        let msg = HistoryKeyShareMessage::new([0x42u8; 32], keys, &signing_key, 5000).unwrap();
 
         let bytes = msg.to_bytes();
         let recovered = HistoryKeyShareMessage::from_bytes(&bytes).unwrap();
@@ -308,8 +307,7 @@ mod tests {
         let signing_key = HybridSigningKeypair::generate().unwrap();
         let keys = Vec::new();
 
-        let msg =
-            HistoryKeyShareMessage::new([0x42u8; 32], keys, &signing_key, 5000).unwrap();
+        let msg = HistoryKeyShareMessage::new([0x42u8; 32], keys, &signing_key, 5000).unwrap();
 
         assert_eq!(msg.key_count(), 0);
 
@@ -324,8 +322,7 @@ mod tests {
         let signing_key = HybridSigningKeypair::generate().unwrap();
         let keys = create_test_keys(7);
 
-        let msg =
-            HistoryKeyShareMessage::new([0x42u8; 32], keys, &signing_key, 5000).unwrap();
+        let msg = HistoryKeyShareMessage::new([0x42u8; 32], keys, &signing_key, 5000).unwrap();
 
         let summary = HistoryKeyShare::from_message(&msg);
 

@@ -1,4 +1,4 @@
-//! Message header and AAD construction for Double Ratchet messages.
+//! Message header and AAD construction for KEM Ratchet messages.
 //!
 //! The header contains all the information needed to decrypt a message,
 //! including the sender's new public key and the hybrid encapsulation.
@@ -273,12 +273,8 @@ mod tests {
         let keypair = HybridKemKeypair::generate().unwrap();
         let (_, encap) = keypair.public_key().encapsulate().unwrap();
 
-        let header = MessageHeader::new(
-            0x1234567890ABCDEF,
-            keypair.public_key().clone(),
-            encap,
-            42,
-        );
+        let header =
+            MessageHeader::new(0x1234567890ABCDEF, keypair.public_key().clone(), encap, 42);
 
         let bytes = header.to_bytes();
         assert_eq!(bytes.len(), HEADER_SIZE);

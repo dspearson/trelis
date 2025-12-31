@@ -1,4 +1,4 @@
-//! Key derivation functions for the Double Ratchet.
+//! Key derivation functions for the KEM Ratchet.
 //!
 //! The KDF uses BLAKE3's derive_key function with domain-separated
 //! context strings to derive new root keys and message keys.
@@ -23,11 +23,33 @@ pub const MESSAGE_KEY_SIZE: usize = 32;
 /// Root key KDF output.
 ///
 /// Contains both the new root key and the message key derived from
-/// mixing the current root key with the shared secret.
+/// mixing the current root key with the shared secret from hybrid KEM.
+///
+/// # Security
+///
+/// This structure holds sensitive key material and implements [`Zeroize`]
+/// to securely clear memory on drop. The message key should be used
+/// immediately for encryption/decryption and then zeroized.
+///
+/// # Key Derivation
+///
+/// The KDF uses BLAKE3 with domain-separated contexts:
+/// - **Root key**: Derived with `trelis-pq-ratchet-root-v1`
+/// - **Message key**: Derived with `trelis-pq-ratchet-message-v1`
+///
+/// Both keys are derived from `root_key || shared_secret`, ensuring
+/// that knowledge of one key doesn't compromise the other.
 pub struct KdfOutput {
     /// The new root key for the next ratchet step.
+    ///
+    /// This replaces the current root key after a successful ratchet operation.
+    /// It provides forward secrecy: old messages cannot be decrypted even if
+    /// this new key is compromised.
     pub new_root_key: [u8; ROOT_KEY_SIZE],
     /// The message key for encrypting/decrypting the current message.
+    ///
+    /// Used with XChaCha20-Poly1305 for authenticated encryption. Must be
+    /// zeroized immediately after use to limit exposure.
     pub message_key: [u8; MESSAGE_KEY_SIZE],
 }
 
@@ -44,9 +66,14 @@ impl Drop for KdfOutput {
     }
 }
 
+/// Maximum stack buffer size for KDF input (root_key + shared_secret).
+/// 256 bytes covers 32-byte root key + up to 224-byte shared secret,
+/// which is more than sufficient for hybrid KEM (typically ~88 bytes).
+const KDF_MAX_STACK_INPUT: usize = 256;
+
 /// Derives new root key and message key from current root key and shared secret.
 ///
-/// This is the core KDF function for the Double Ratchet. It takes:
+/// This is the core KDF function for the KEM Ratchet. It takes:
 /// - The current root key (32 bytes)
 /// - A shared secret from hybrid KEM (combined X448 and sntrup761)
 ///
@@ -64,23 +91,43 @@ impl Drop for KdfOutput {
 /// A tuple of (new_root_key, message_key), both 32 bytes.
 #[cfg(feature = "alloc")]
 pub fn kdf_rk(root_key: &[u8; 32], shared_secret: &[u8]) -> KdfOutput {
-    // Concatenate root_key || shared_secret
-    let mut input = Vec::with_capacity(root_key.len() + shared_secret.len());
-    input.extend_from_slice(root_key);
-    input.extend_from_slice(shared_secret);
+    let total_len = root_key.len() + shared_secret.len();
 
-    // Derive new root key
-    let new_root_key = blake3::derive_key(KDF_ROOT, &input);
+    // Use stack buffer for typical cases, heap fallback for unusually large inputs
+    if total_len <= KDF_MAX_STACK_INPUT {
+        // Stack-allocated path (no heap allocation)
+        let mut input = [0u8; KDF_MAX_STACK_INPUT];
+        input[..32].copy_from_slice(root_key);
+        input[32..total_len].copy_from_slice(shared_secret);
 
-    // Derive message key
-    let message_key = blake3::derive_key(KDF_MESSAGE, &input);
+        let input_slice = &input[..total_len];
 
-    // Zeroize input material
-    input.zeroize();
+        // Derive keys
+        let new_root_key = blake3::derive_key(KDF_ROOT, input_slice);
+        let message_key = blake3::derive_key(KDF_MESSAGE, input_slice);
 
-    KdfOutput {
-        new_root_key,
-        message_key,
+        // Zeroize input material
+        input.zeroize();
+
+        KdfOutput {
+            new_root_key,
+            message_key,
+        }
+    } else {
+        // Heap fallback for unusually large shared secrets
+        let mut input = Vec::with_capacity(total_len);
+        input.extend_from_slice(root_key);
+        input.extend_from_slice(shared_secret);
+
+        let new_root_key = blake3::derive_key(KDF_ROOT, &input);
+        let message_key = blake3::derive_key(KDF_MESSAGE, &input);
+
+        input.zeroize();
+
+        KdfOutput {
+            new_root_key,
+            message_key,
+        }
     }
 }
 

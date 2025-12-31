@@ -23,8 +23,8 @@ pub mod encode;
 pub mod header;
 
 pub use constants::*;
-pub use decode::{Decoder, DecoderError};
-pub use encode::Encoder;
+pub use decode::{Decoder, DecoderError, decode_u16, decode_u32, decode_u64};
+pub use encode::{Encoder, encode_u16, encode_u32, encode_u64};
 pub use header::{CipherSuite, Header, ProtocolVersion};
 
 pub use trelis_error::{CryptoError, Result};

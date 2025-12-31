@@ -7,7 +7,7 @@
 use trelis_error::Result;
 use zeroize::Zeroize;
 
-#[cfg(feature = "std")]
+#[cfg(any(feature = "std", feature = "wasm"))]
 use trelis_primitives::random::generate_bytes;
 
 /// Context string for hedged nonce derivation.
@@ -38,7 +38,7 @@ pub const RANDOM_COMPONENT_SIZE: usize = 16;
 ///
 /// As long as either (a) the RNG produces fresh values OR (b) the message
 /// counter advances, nonces will not repeat. This is the "hedging" property.
-#[cfg(feature = "std")]
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub fn derive_hedged_nonce(counter: u64, message_key: &[u8; 32]) -> Result<[u8; NONCE_SIZE]> {
     // Generate random component
     let random_component: [u8; RANDOM_COMPONENT_SIZE] = generate_bytes()?;

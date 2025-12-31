@@ -117,11 +117,11 @@ impl SafetyNumber {
             (b_digest, a_digest)
         };
 
-        // Combine with thread ID
-        let mut input = Vec::with_capacity(96);
-        input.extend_from_slice(first.as_bytes());
-        input.extend_from_slice(second.as_bytes());
-        input.extend_from_slice(thread_id);
+        // Combine with thread ID using stack buffer (96 bytes: 32 + 32 + 32)
+        let mut input = [0u8; 96];
+        input[..32].copy_from_slice(first.as_bytes());
+        input[32..64].copy_from_slice(second.as_bytes());
+        input[64..].copy_from_slice(thread_id);
 
         // DISTINCT context for sync-enabled threads
         let fingerprint = blake3::derive_key(SAFETY_NUMBER_SYNC_CONTEXT, &input);
@@ -172,28 +172,21 @@ impl SafetyNumber {
         // We use 30 bytes (240 bits) and convert to 60 decimal digits
         let digits = Self::bytes_to_decimal(&self.fingerprint[..30], 60);
 
-        // Format as 12 groups of 5 digits
-        let groups: Vec<&str> = digits
-            .as_bytes()
-            .chunks(5)
-            .map(|chunk| core::str::from_utf8(chunk).unwrap_or("00000"))
-            .collect();
-
-        // Display in 2 rows of 6 groups
+        // Format directly as 12 groups of 5 digits (avoids Vec allocation)
         format!(
             "{} {} {} {} {} {}\n{} {} {} {} {} {}",
-            groups[0],
-            groups[1],
-            groups[2],
-            groups[3],
-            groups[4],
-            groups[5],
-            groups[6],
-            groups[7],
-            groups[8],
-            groups[9],
-            groups[10],
-            groups[11]
+            &digits[0..5],
+            &digits[5..10],
+            &digits[10..15],
+            &digits[15..20],
+            &digits[20..25],
+            &digits[25..30],
+            &digits[30..35],
+            &digits[35..40],
+            &digits[40..45],
+            &digits[45..50],
+            &digits[50..55],
+            &digits[55..60],
         )
     }
 
@@ -262,19 +255,20 @@ impl SafetyNumber {
 impl core::fmt::Debug for SafetyNumber {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         // Simple hex display without external dependencies
-        write!(f, "SafetyNumber({:02x}{:02x}{:02x}{:02x}...)",
-            self.fingerprint[0], self.fingerprint[1],
-            self.fingerprint[2], self.fingerprint[3])
+        write!(
+            f,
+            "SafetyNumber({:02x}{:02x}{:02x}{:02x}...)",
+            self.fingerprint[0], self.fingerprint[1], self.fingerprint[2], self.fingerprint[3]
+        )
     }
 }
 
 /// Base64-URL encode without padding.
 #[cfg(feature = "alloc")]
 fn base64_url_encode(data: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
-    let mut result = String::with_capacity((data.len() * 4 + 2) / 3);
+    let mut result = String::with_capacity((data.len() * 4).div_ceil(3));
     let mut i = 0;
 
     while i + 3 <= data.len() {
@@ -360,7 +354,11 @@ mod tests {
         let sn1 = SafetyNumber::new(alice.public_key(), bob.public_key());
         let sn2 = SafetyNumber::new(bob.public_key(), alice.public_key());
 
-        assert_eq!(sn1.fingerprint(), sn2.fingerprint(), "Order should not matter");
+        assert_eq!(
+            sn1.fingerprint(),
+            sn2.fingerprint(),
+            "Order should not matter"
+        );
     }
 
     #[test]
@@ -387,7 +385,11 @@ mod tests {
         let sn1 = SafetyNumber::new(alice.public_key(), bob.public_key());
         let sn2 = SafetyNumber::new(alice.public_key(), bob.public_key());
 
-        assert_eq!(sn1.fingerprint(), sn2.fingerprint(), "Same keys should produce same safety number");
+        assert_eq!(
+            sn1.fingerprint(),
+            sn2.fingerprint(),
+            "Same keys should produce same safety number"
+        );
     }
 
     #[test]
@@ -420,7 +422,11 @@ mod tests {
 
         // Should decode back to same safety number
         let decoded = SafetyNumber::from_qr_string(&qr).expect("Should decode");
-        assert_eq!(sn.fingerprint(), decoded.fingerprint(), "Should roundtrip correctly");
+        assert_eq!(
+            sn.fingerprint(),
+            decoded.fingerprint(),
+            "Should roundtrip correctly"
+        );
     }
 
     #[test]
@@ -430,7 +436,8 @@ mod tests {
         let thread_id = [0x42u8; 32];
 
         let standard = SafetyNumber::new(alice.public_key(), bob.public_key());
-        let sync = SafetyNumber::new_with_history_sync(alice.public_key(), bob.public_key(), &thread_id);
+        let sync =
+            SafetyNumber::new_with_history_sync(alice.public_key(), bob.public_key(), &thread_id);
 
         assert_ne!(
             standard.fingerprint(),
@@ -445,10 +452,16 @@ mod tests {
         let bob = HybridIdentityKeypair::generate().unwrap();
         let thread_id = [0x42u8; 32];
 
-        let sn1 = SafetyNumber::new_with_history_sync(alice.public_key(), bob.public_key(), &thread_id);
-        let sn2 = SafetyNumber::new_with_history_sync(bob.public_key(), alice.public_key(), &thread_id);
+        let sn1 =
+            SafetyNumber::new_with_history_sync(alice.public_key(), bob.public_key(), &thread_id);
+        let sn2 =
+            SafetyNumber::new_with_history_sync(bob.public_key(), alice.public_key(), &thread_id);
 
-        assert_eq!(sn1.fingerprint(), sn2.fingerprint(), "Order should not matter for sync numbers");
+        assert_eq!(
+            sn1.fingerprint(),
+            sn2.fingerprint(),
+            "Order should not matter for sync numbers"
+        );
     }
 
     #[test]
@@ -458,8 +471,10 @@ mod tests {
         let thread_id_1 = [0x01u8; 32];
         let thread_id_2 = [0x02u8; 32];
 
-        let sn1 = SafetyNumber::new_with_history_sync(alice.public_key(), bob.public_key(), &thread_id_1);
-        let sn2 = SafetyNumber::new_with_history_sync(alice.public_key(), bob.public_key(), &thread_id_2);
+        let sn1 =
+            SafetyNumber::new_with_history_sync(alice.public_key(), bob.public_key(), &thread_id_1);
+        let sn2 =
+            SafetyNumber::new_with_history_sync(alice.public_key(), bob.public_key(), &thread_id_2);
 
         assert_ne!(
             sn1.fingerprint(),

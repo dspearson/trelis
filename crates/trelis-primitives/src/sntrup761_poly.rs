@@ -6,7 +6,7 @@
 //!
 //! # Ring Structure
 //!
-//! sntrup761 operates in the ring Z_q[x]/(x^p - x - 1) where:
+//! sntrup761 operates in the ring Z_q\[x\]/(x^p - x - 1) where:
 //! - p = 761 (polynomial degree)
 //! - q = 4591 (coefficient modulus for Rq)
 //!
@@ -201,7 +201,11 @@ fn mod_mul(a: u64, b: u64) -> u64 {
 #[inline(always)]
 fn mod_add(a: u64, b: u64) -> u64 {
     let sum = a + b;
-    if sum >= NTT_PRIME { sum - NTT_PRIME } else { sum }
+    if sum >= NTT_PRIME {
+        sum - NTT_PRIME
+    } else {
+        sum
+    }
 }
 
 /// Modular subtraction: (a - b) mod NTT_PRIME
@@ -372,12 +376,10 @@ fn reduce_mod_q(x: i32) -> i16 {
 /// Reduce coefficient modulo 3 to range {-1, 0, 1}.
 #[inline(always)]
 fn reduce_mod_3(x: i32) -> i8 {
-    let r = ((x % 3) + 3) % 3;
-    match r {
+    match x.rem_euclid(3) {
         0 => 0,
         1 => 1,
-        2 => -1,
-        _ => unreachable!(),
+        _ => -1,
     }
 }
 

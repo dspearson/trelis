@@ -123,6 +123,7 @@ impl core::fmt::Debug for HybridSharedSecret {
 }
 
 #[cfg(test)]
+#[allow(clippy::clone_on_copy)]
 mod tests {
     use super::*;
 

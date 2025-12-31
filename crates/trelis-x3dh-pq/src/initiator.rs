@@ -10,7 +10,7 @@ use trelis_wire::constants::{SNTRUP761_CT_SIZE, X448_PK_SIZE};
 
 use crate::bundle::SignedPreKeyBundle;
 use crate::session_keys::SessionKeys;
-use crate::transcript::{Transcript, DH_SIZE, PQ_SS_SIZE};
+use crate::transcript::{DH_SIZE, PQ_SS_SIZE, Transcript};
 
 /// Initial message sent from Alice to Bob.
 ///
@@ -76,6 +76,27 @@ impl InitialMessage {
 }
 
 /// Result of initiator session establishment.
+///
+/// Contains both the derived session keys and the initial message that must
+/// be sent to the responder to complete the handshake.
+///
+/// # Usage
+///
+/// After calling [`Initiator::establish()`], you should:
+/// 1. Send [`initial_message()`](Self::initial_message) to the responder
+/// 2. Use [`session_keys()`](Self::session_keys) to initialise the Double Ratchet
+///
+/// # Example
+///
+/// ```ignore
+/// let result = Initiator::establish(&our_identity, &their_bundle, timestamp)?;
+///
+/// // Send initial message over the network
+/// network.send(result.initial_message().to_bytes());
+///
+/// // Initialise ratchet with session keys
+/// let ratchet = KemRatchet::initiate(result.into_session_keys());
+/// ```
 pub struct InitiatorResult {
     /// Session keys for the Double Ratchet.
     session_keys: SessionKeys,
@@ -135,7 +156,7 @@ impl Initiator {
     /// - `BundleTimestampInFuture` if bundle was created in the future
     /// - `BundleExpired` if bundle has expired
     /// - `RngFailure` if random number generation fails
-    #[cfg(feature = "std")]
+    #[cfg(any(feature = "std", feature = "wasm"))]
     pub fn establish(
         our_identity: &HybridIdentityKeypair,
         their_bundle: &SignedPreKeyBundle,
@@ -151,7 +172,9 @@ impl Initiator {
         let ephemeral = HybridKemKeypair::generate()?;
 
         // Step 4: DH1 - our identity KEM.X448 ↔ their OTK.X448
-        let dh1 = our_identity.kem().x448_dh(their_bundle.one_time_key().x448())?;
+        let dh1 = our_identity
+            .kem()
+            .x448_dh(their_bundle.one_time_key().x448())?;
 
         // Step 5: DH2 - our ephemeral.X448 ↔ their identity KEM.X448
         let dh2 = ephemeral.x448_dh(their_bundle.identity_kem().x448())?;

@@ -201,8 +201,8 @@ impl DeviceRevocation {
         offset += 1;
 
         // Signature
-        let signature =
-            HybridSignature::from_bytes(&bytes[offset..]).map_err(|_| CryptoError::MalformedMessage)?;
+        let signature = HybridSignature::from_bytes(&bytes[offset..])
+            .map_err(|_| CryptoError::MalformedMessage)?;
 
         Ok(Self {
             device_id,
@@ -224,7 +224,74 @@ impl core::fmt::Debug for DeviceRevocation {
     }
 }
 
+/// Event indicating that a device revocation should trigger a CoCoA rekey.
+///
+/// When a device is revoked, all active CoCoA sessions involving that device
+/// must be updated to exclude it from future epochs. This struct provides
+/// the information needed for that update.
+///
+/// # Workflow
+///
+/// 1. User creates `DeviceRevocation` certificate
+/// 2. Certificate is published and verified by other devices
+/// 3. Each device extracts `RevocationRekeyEvent` from the certificate
+/// 4. Each active CoCoA session calls `remove_member` with the revoked device's position
+/// 5. Epoch advances, excluding the revoked device from future keys
+///
+/// # Example
+///
+/// ```ignore
+/// use trelis_multidevice::{DeviceRevocation, RevocationRekeyEvent};
+///
+/// // Process a verified revocation certificate
+/// let rekey_event = RevocationRekeyEvent::from_revocation(&revocation);
+///
+/// // For each active session involving this device
+/// for session in active_sessions_with_device(&rekey_event.device_id) {
+///     let position = session.find_device_position(&rekey_event.device_id)?;
+///     trelis_cocoa::operations::remove_member(session, rekey_event.device_id, position)?;
+/// }
+/// ```
+#[derive(Debug, Clone)]
+pub struct RevocationRekeyEvent {
+    /// Device ID that was revoked.
+    pub device_id: crate::DeviceId,
+
+    /// Reason for revocation (affects priority of rekey).
+    pub reason: RevocationReason,
+
+    /// When the revocation occurred.
+    pub revoked_at: u64,
+}
+
+impl RevocationRekeyEvent {
+    /// Creates a rekey event from a verified revocation certificate.
+    ///
+    /// # Note
+    ///
+    /// The caller MUST verify the revocation certificate before calling this.
+    /// This function does not verify signatures.
+    #[must_use]
+    pub fn from_revocation(revocation: &DeviceRevocation) -> Self {
+        Self {
+            device_id: revocation.device_id,
+            reason: revocation.reason,
+            revoked_at: revocation.revoked_at,
+        }
+    }
+
+    /// Returns true if this revocation requires immediate rekey.
+    ///
+    /// Compromised devices require immediate rekey to limit exposure.
+    /// Other reasons can be batched with normal updates.
+    #[must_use]
+    pub fn requires_immediate_rekey(&self) -> bool {
+        matches!(self.reason, RevocationReason::DeviceCompromised)
+    }
+}
+
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::needless_borrow)]
 mod tests {
     use super::*;
 

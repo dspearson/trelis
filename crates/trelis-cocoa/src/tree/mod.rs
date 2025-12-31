@@ -13,6 +13,8 @@ mod view;
 
 pub use index::NodeIndex;
 pub use node::{NodeState, TreeNode, UpdateOrigin};
-pub use path::{copath, direct_path, leaves_in_subtree, lowest_common_ancestor, nodes_at_depth, path_to_root};
-pub use resolution::{compute_lj, resolve, resolve_set, NodeLookup, Resolution};
+pub use path::{
+    copath, direct_path, leaves_in_subtree, lowest_common_ancestor, nodes_at_depth, path_to_root,
+};
+pub use resolution::{NodeLookup, Resolution, compute_lj, resolve, resolve_set};
 pub use view::PartialTreeView;

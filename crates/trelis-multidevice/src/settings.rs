@@ -8,8 +8,8 @@ use alloc::vec::Vec;
 
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use crate::retained_key::RetainedKey;
 use crate::ThreadId;
+use crate::retained_key::RetainedKey;
 
 /// Per-thread configuration for history synchronisation.
 #[derive(Debug, Clone)]

@@ -35,7 +35,7 @@
 //! assert!(verifying_key.verify(message, &signature).is_ok());
 //! ```
 
-use ed448_goldilocks_plus::{ScalarBytes, SigningKey, VerifyingKey, Signature};
+use ed448_goldilocks_plus::{ScalarBytes, Signature, SigningKey, VerifyingKey};
 use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -133,7 +133,8 @@ impl Ed448SigningKey {
     /// Returns `InvalidSignature` if the context string is invalid.
     pub fn sign_with_context(&self, message: &[u8], context: &[u8]) -> Result<Ed448Signature> {
         let sk = self.inner_signing_key();
-        let sig = sk.sign_ctx(context, message)
+        let sig = sk
+            .sign_ctx(context, message)
             .map_err(|_| CryptoError::InvalidSignature)?;
         Ok(Ed448Signature { inner: sig })
     }
@@ -192,7 +193,8 @@ impl Ed448VerifyingKey {
     ///
     /// Returns `SignatureVerificationFailed` if the signature is invalid.
     pub fn verify(&self, message: &[u8], signature: &Ed448Signature) -> Result<()> {
-        self.inner.verify_raw(&signature.inner, message)
+        self.inner
+            .verify_raw(&signature.inner, message)
             .map_err(|_| CryptoError::SignatureVerificationFailed)
     }
 
@@ -213,7 +215,8 @@ impl Ed448VerifyingKey {
         context: &[u8],
         signature: &Ed448Signature,
     ) -> Result<()> {
-        self.inner.verify_ctx(&signature.inner, context, message)
+        self.inner
+            .verify_ctx(&signature.inner, context, message)
             .map_err(|_| CryptoError::SignatureVerificationFailed)
     }
 }
@@ -254,8 +257,7 @@ impl Ed448Signature {
         }
         let mut sig_bytes = [0u8; SIGNATURE_SIZE];
         sig_bytes.copy_from_slice(bytes);
-        let inner = Signature::from_bytes(&sig_bytes)
-            .map_err(|_| CryptoError::InvalidSignature)?;
+        let inner = Signature::from_bytes(&sig_bytes).map_err(|_| CryptoError::InvalidSignature)?;
         Ok(Self { inner })
     }
 
@@ -404,7 +406,11 @@ mod tests {
         let signature = signing_key.sign_with_context(message, context).unwrap();
 
         // Verify with same context should succeed
-        assert!(verifying_key.verify_with_context(message, context, &signature).is_ok());
+        assert!(
+            verifying_key
+                .verify_with_context(message, context, &signature)
+                .is_ok()
+        );
 
         // Verify with wrong context should fail
         assert!(matches!(
@@ -452,7 +458,10 @@ mod tests {
         let result = Ed448VerifyingKey::from_bytes(&[0u8; 50]);
         assert!(matches!(
             result,
-            Err(CryptoError::InvalidKeyLength { expected: 57, actual: 50 })
+            Err(CryptoError::InvalidKeyLength {
+                expected: 57,
+                actual: 50
+            })
         ));
     }
 }

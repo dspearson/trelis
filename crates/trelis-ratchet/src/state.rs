@@ -1,11 +1,11 @@
-//! Per-Message Ratchet state machine.
+//! Per-Message KEM Ratchet state machine.
 //!
 //! The state machine maintains the current keypair, root key, and counters.
 //! It transitions between states based on message send/receive operations.
 //!
-//! Note: Unlike Signal's double ratchet, this implementation does not store
-//! skipped message keys. Per-message KEM with ordered delivery eliminates
-//! the need for out-of-order message handling.
+//! Note: This is a single KEM ratchet (NOT Signal's double ratchet). It does
+//! not store skipped message keys. Per-message KEM with ordered delivery
+//! eliminates the need for out-of-order message handling.
 
 #[cfg(feature = "alloc")]
 use alloc::collections::VecDeque;
@@ -14,15 +14,21 @@ use trelis_error::{CryptoError, Result};
 use trelis_hybrid::{HybridKemKeypair, HybridKemPublicKey};
 use zeroize::Zeroize;
 
-use crate::kdf::{derive_initial_root_key, ROOT_KEY_SIZE};
+use crate::kdf::{ROOT_KEY_SIZE, derive_initial_root_key};
 use crate::{MAX_PREVIOUS_KEYPAIRS, SESSION_EXHAUSTION_THRESHOLD};
 
 /// Key ID derived from a public key (8-byte fingerprint).
 pub type KeyId = u64;
 
 /// Derives a key ID from a hybrid public key.
+///
+/// Uses incremental hashing to avoid creating a 1,214-byte temporary buffer.
 pub fn derive_key_id(public_key: &HybridKemPublicKey) -> KeyId {
-    let hash = blake3::hash(&public_key.to_bytes());
+    // Use incremental hashing to avoid 1,214-byte stack allocation
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(public_key.x448().as_bytes());
+    hasher.update(public_key.sntrup().as_bytes());
+    let hash = hasher.finalize();
     u64::from_le_bytes(hash.as_bytes()[..8].try_into().unwrap())
 }
 
@@ -42,13 +48,18 @@ pub enum RatchetStatus {
     Compromised,
 }
 
-/// Per-Message Ratchet state machine.
+/// Per-Message KEM Ratchet state machine.
 ///
-/// Note: The type is named `DoubleRatchet` for backward compatibility,
-/// but this is actually a single per-message KEM ratchet (not Signal's
-/// double ratchet design).
+/// This is a single KEM-based ratchet that generates fresh hybrid keypairs
+/// (X448 + sntrup761) for every message. Unlike Signal's double ratchet
+/// (which uses DH ratchet + symmetric chain), this provides per-message
+/// forward secrecy at the cost of ~2.3 KB overhead per message.
+///
+/// Note: As of Trelis v1.1, the unified CoCoA architecture is preferred
+/// for all message encryption. This ratchet is retained for the legacy
+/// pairwise protocol and test vectors.
 #[cfg(feature = "alloc")]
-pub struct DoubleRatchet {
+pub struct KemRatchet {
     /// Our current hybrid keypair.
     our_keypair: HybridKemKeypair,
     /// Key ID for our current keypair.
@@ -72,8 +83,8 @@ pub struct DoubleRatchet {
 }
 
 #[cfg(feature = "alloc")]
-impl DoubleRatchet {
-    /// Initialises a new Double Ratchet as the session initiator (Alice).
+impl KemRatchet {
+    /// Initialises a new KEM Ratchet as the session initiator (Alice).
     ///
     /// The initiator knows Bob's public key from the pre-key bundle.
     ///
@@ -86,7 +97,7 @@ impl DoubleRatchet {
     /// # Errors
     ///
     /// Returns `RngFailure` if keypair generation fails.
-    #[cfg(feature = "std")]
+    #[cfg(any(feature = "std", feature = "wasm"))]
     pub fn init_initiator(
         session_key: &[u8; 32],
         their_public_key: HybridKemPublicKey,
@@ -110,7 +121,7 @@ impl DoubleRatchet {
         })
     }
 
-    /// Initialises a new Double Ratchet as the session responder (Bob).
+    /// Initialises a new KEM Ratchet as the session responder (Bob).
     ///
     /// The responder doesn't know Alice's ratchet public key until
     /// the first message arrives.
@@ -300,7 +311,7 @@ impl DoubleRatchet {
 }
 
 #[cfg(feature = "alloc")]
-impl Zeroize for DoubleRatchet {
+impl Zeroize for KemRatchet {
     fn zeroize(&mut self) {
         self.root_key.zeroize();
         // Note: keypairs should implement Zeroize as well
@@ -308,7 +319,7 @@ impl Zeroize for DoubleRatchet {
 }
 
 #[cfg(feature = "alloc")]
-impl Drop for DoubleRatchet {
+impl Drop for KemRatchet {
     fn drop(&mut self) {
         self.zeroize();
     }
@@ -333,12 +344,9 @@ mod tests {
         let session_key = [0x42u8; 32];
         let their_keypair = HybridKemKeypair::generate().unwrap();
 
-        let state = DoubleRatchet::init_initiator(
-            &session_key,
-            their_keypair.public_key().clone(),
-            1000,
-        )
-        .unwrap();
+        let state =
+            KemRatchet::init_initiator(&session_key, their_keypair.public_key().clone(), 1000)
+                .unwrap();
 
         assert_eq!(state.status(), RatchetStatus::Active);
         assert_eq!(state.send_count(), 0);
@@ -351,7 +359,7 @@ mod tests {
         let session_key = [0x42u8; 32];
         let our_keypair = HybridKemKeypair::generate().unwrap();
 
-        let state = DoubleRatchet::init_responder(&session_key, our_keypair, 1000);
+        let state = KemRatchet::init_responder(&session_key, our_keypair, 1000);
 
         assert_eq!(state.status(), RatchetStatus::Active);
         assert_eq!(state.send_count(), 0);
@@ -364,12 +372,9 @@ mod tests {
         let session_key = [0x42u8; 32];
         let their_keypair = HybridKemKeypair::generate().unwrap();
 
-        let state = DoubleRatchet::init_initiator(
-            &session_key,
-            their_keypair.public_key().clone(),
-            1000,
-        )
-        .unwrap();
+        let state =
+            KemRatchet::init_initiator(&session_key, their_keypair.public_key().clone(), 1000)
+                .unwrap();
 
         assert!(state.validate_can_send().is_ok());
     }
@@ -379,7 +384,7 @@ mod tests {
         let session_key = [0x42u8; 32];
         let our_keypair = HybridKemKeypair::generate().unwrap();
 
-        let state = DoubleRatchet::init_responder(&session_key, our_keypair, 1000);
+        let state = KemRatchet::init_responder(&session_key, our_keypair, 1000);
 
         // Responder can't send until they receive first message
         assert!(matches!(
@@ -393,12 +398,9 @@ mod tests {
         let session_key = [0x42u8; 32];
         let their_keypair = HybridKemKeypair::generate().unwrap();
 
-        let mut state = DoubleRatchet::init_initiator(
-            &session_key,
-            their_keypair.public_key().clone(),
-            1000,
-        )
-        .unwrap();
+        let mut state =
+            KemRatchet::init_initiator(&session_key, their_keypair.public_key().clone(), 1000)
+                .unwrap();
 
         let original_key_id = state.our_key_id();
 
@@ -415,12 +417,9 @@ mod tests {
         let session_key = [0x42u8; 32];
         let their_keypair = HybridKemKeypair::generate().unwrap();
 
-        let mut state = DoubleRatchet::init_initiator(
-            &session_key,
-            their_keypair.public_key().clone(),
-            1000,
-        )
-        .unwrap();
+        let mut state =
+            KemRatchet::init_initiator(&session_key, their_keypair.public_key().clone(), 1000)
+                .unwrap();
 
         let first_key_id = state.our_key_id();
 
@@ -439,12 +438,9 @@ mod tests {
         let session_key = [0x42u8; 32];
         let their_keypair = HybridKemKeypair::generate().unwrap();
 
-        let mut state = DoubleRatchet::init_initiator(
-            &session_key,
-            their_keypair.public_key().clone(),
-            1000,
-        )
-        .unwrap();
+        let mut state =
+            KemRatchet::init_initiator(&session_key, their_keypair.public_key().clone(), 1000)
+                .unwrap();
 
         state.mark_compromised();
         assert_eq!(state.status(), RatchetStatus::Compromised);

@@ -11,7 +11,7 @@ mod init;
 mod remove;
 mod update;
 
-pub use add::{add_member, process_add, AddCommit, EncryptedSeed, PathUpdate};
-pub use init::{create_group, process_welcome, Welcome};
-pub use remove::{process_remove, remove_member, RemoveCommit};
-pub use update::{create_update, process_update, UpdateCommit};
+pub use add::{AddCommit, EncryptedSeed, PathUpdate, add_member, process_add};
+pub use init::{Welcome, create_group, process_welcome};
+pub use remove::{RemoveCommit, process_remove, remove_member};
+pub use update::{UpdateCommit, create_update, process_update};

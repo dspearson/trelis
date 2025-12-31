@@ -132,7 +132,7 @@ impl NodeIndex {
         }
 
         // Find depth: depth d starts at index 2^d - 1
-        let depth = (64 - (linear + 1).leading_zeros() - 1) as u32;
+        let depth = 64 - (linear + 1).leading_zeros() - 1;
         let nodes_before = (1u64 << depth) - 1;
         let position = (linear - nodes_before) as u32;
 

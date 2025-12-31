@@ -40,6 +40,15 @@ pub const KEM_PK_SIZE: usize = crate::kem::PUBLIC_KEY_SIZE;
 /// Size of hybrid identity public key in bytes.
 pub const PUBLIC_KEY_SIZE: usize = SIGNING_PK_SIZE + KEM_PK_SIZE;
 
+/// Size of hybrid signing secret key in bytes.
+pub const SIGNING_SK_SIZE: usize = crate::signature::SECRET_KEY_SIZE;
+
+/// Size of hybrid KEM secret key in bytes.
+pub const KEM_SK_SIZE: usize = crate::kem::SECRET_KEY_SIZE;
+
+/// Size of hybrid identity secret key in bytes.
+pub const SECRET_KEY_SIZE: usize = SIGNING_SK_SIZE + KEM_SK_SIZE;
+
 /// Complete hybrid identity keypair (signing + KEM).
 ///
 /// This is the primary identity type in the Trelis protocol. It contains
@@ -92,6 +101,52 @@ impl HybridIdentityKeypair {
     #[must_use]
     pub fn kem(&self) -> &HybridKemKeypair {
         &self.kem
+    }
+
+    /// Serialises the secret key to bytes.
+    ///
+    /// Format: Signing secret (4,089 bytes) || KEM secret (1,819 bytes)
+    ///
+    /// # Security
+    ///
+    /// The returned bytes contain secret key material and should be
+    /// handled securely (encrypted storage, zeroization after use).
+    #[must_use]
+    pub fn to_bytes(&self) -> [u8; SECRET_KEY_SIZE] {
+        let mut bytes = [0u8; SECRET_KEY_SIZE];
+        bytes[..SIGNING_SK_SIZE].copy_from_slice(&self.signing.to_bytes());
+        bytes[SIGNING_SK_SIZE..].copy_from_slice(&self.kem.to_bytes());
+        bytes
+    }
+
+    /// Deserialises a keypair from secret key bytes.
+    ///
+    /// The public key is derived from the secret key components.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidKeyLength` if the slice is not exactly 5,908 bytes.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() != SECRET_KEY_SIZE {
+            return Err(CryptoError::InvalidKeyLength {
+                expected: SECRET_KEY_SIZE,
+                actual: bytes.len(),
+            });
+        }
+
+        let signing = HybridSigningKeypair::from_bytes(&bytes[..SIGNING_SK_SIZE])?;
+        let kem = HybridKemKeypair::from_bytes(&bytes[SIGNING_SK_SIZE..])?;
+
+        let public_key = HybridIdentityPublicKey {
+            signing: signing.public_key().clone(),
+            kem: kem.public_key().clone(),
+        };
+
+        Ok(Self {
+            public_key,
+            signing,
+            kem,
+        })
     }
 
     /// Signs a message with the identity's signing key.
@@ -231,7 +286,8 @@ impl HybridIdentityPublicKey {
         context: &[u8],
         signature: &HybridSignature,
     ) -> bool {
-        self.signing.verify_with_context(message, context, signature)
+        self.signing
+            .verify_with_context(message, context, signature)
     }
 }
 

@@ -39,14 +39,20 @@
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+mod approval;
+mod device_key_wrap;
 mod history;
 mod retained_key;
 mod revocation;
 mod settings;
 
+pub use approval::{DeviceApprovalCertificate, FINGERPRINT_SIZE, device_fingerprint};
+pub use device_key_wrap::{
+    DEVICE_KEY_WRAP_SIZE, DeviceKeyWrap, KEY_ID_SIZE, WRAP_CONTEXT, WrapContext, WrapPurpose,
+};
 pub use history::{HistoryKeyShare, HistoryKeyShareMessage};
 pub use retained_key::RetainedKey;
-pub use revocation::{DeviceRevocation, RevocationReason};
+pub use revocation::{DeviceRevocation, RevocationReason, RevocationRekeyEvent};
 pub use settings::{ThreadKeyStore, ThreadSettings};
 
 /// Thread identifier type.

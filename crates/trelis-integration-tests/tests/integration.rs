@@ -1,10 +1,12 @@
 //! Integration tests for the full Trelis protocol flow.
 //!
-//! Tests the complete X3DH-PQ → Double Ratchet → Message Exchange flow.
+//! Tests the complete X3DH-PQ → KEM Ratchet → Message Exchange flow.
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::needless_borrow)]
 
 use trelis_error::Result;
 use trelis_hybrid::{HybridIdentityKeypair, HybridKemKeypair, HybridSigningKeypair};
-use trelis_ratchet::{receive_message, send_message, DoubleRatchet};
+use trelis_ratchet::{KemRatchet, receive_message, send_message};
 use trelis_x3dh_pq::{Initiator, PreKeyBundle, Responder};
 
 /// Complete session establishment and message exchange between Alice and Bob.
@@ -141,7 +143,7 @@ fn test_expired_bundle_rejection() -> Result<()> {
     Ok(())
 }
 
-/// Test Double Ratchet initialisation from session keys.
+/// Test KEM Ratchet initialisation from session keys.
 #[test]
 fn test_ratchet_from_session_keys() -> Result<()> {
     // Establish session first
@@ -171,18 +173,18 @@ fn test_ratchet_from_session_keys() -> Result<()> {
         alice_result.initial_message(),
     )?;
 
-    // Initialise Double Ratchet for both parties
+    // Initialise KEM Ratchet for both parties
     // Bob creates a new keypair for the ratchet
     let bob_ratchet_keypair = HybridKemKeypair::generate()?;
 
-    let mut alice_ratchet = DoubleRatchet::init_initiator(
+    let mut alice_ratchet = KemRatchet::init_initiator(
         alice_result.session_keys().root_key(),
         bob_ratchet_keypair.public_key().clone(),
         1500,
     )?;
 
     let mut bob_ratchet =
-        DoubleRatchet::init_responder(bob_keys.root_key(), bob_ratchet_keypair, 1500);
+        KemRatchet::init_responder(bob_keys.root_key(), bob_ratchet_keypair, 1500);
 
     // Alice sends a message
     let plaintext = b"Hello, Bob!";
@@ -231,13 +233,13 @@ fn test_multi_message_exchange() -> Result<()> {
     // Create ratchets
     let bob_ratchet_keypair = HybridKemKeypair::generate()?;
 
-    let mut alice = DoubleRatchet::init_initiator(
+    let mut alice = KemRatchet::init_initiator(
         alice_result.session_keys().root_key(),
         bob_ratchet_keypair.public_key().clone(),
         1500,
     )?;
 
-    let mut bob = DoubleRatchet::init_responder(bob_keys.root_key(), bob_ratchet_keypair, 1500);
+    let mut bob = KemRatchet::init_responder(bob_keys.root_key(), bob_ratchet_keypair, 1500);
 
     // Alice sends multiple messages
     for i in 0..3 {
@@ -286,13 +288,13 @@ fn test_tampered_message_rejection() -> Result<()> {
 
     let bob_ratchet_keypair = HybridKemKeypair::generate()?;
 
-    let mut alice = DoubleRatchet::init_initiator(
+    let mut alice = KemRatchet::init_initiator(
         alice_result.session_keys().root_key(),
         bob_ratchet_keypair.public_key().clone(),
         1500,
     )?;
 
-    let mut bob = DoubleRatchet::init_responder(bob_keys.root_key(), bob_ratchet_keypair, 1500);
+    let mut bob = KemRatchet::init_responder(bob_keys.root_key(), bob_ratchet_keypair, 1500);
 
     // Alice sends a message
     let send_result = send_message(&mut alice, b"Secret message", 1501)?;

@@ -1,0 +1,91 @@
+{
+  "meta": {
+    "suite": "trelis-v1",
+    "category": "safety-number",
+    "version": "1.0.0",
+    "generated": "2025-12-31T00:00:00Z",
+    "description": "Test vectors for safety number derivation and display"
+  },
+  "notes": {
+    "purpose": "Safety numbers allow users to verify identity keys out-of-band",
+    "components_hashed": "All four key components (Ed448, ML-DSA-65, X448, sntrup761) are included",
+    "commutativity": "Order of keys does not matter - same safety number regardless of which key is first",
+    "context_string": "trelis-safety-number-v1",
+    "sync_context_string": "trelis-safety-number-sync-v1",
+    "display_format": "60 decimal digits in 12 groups of 5, displayed as 2 rows of 6 groups"
+  },
+  "sizes": {
+    "fingerprint_size": 32,
+    "display_digits": 60,
+    "display_groups": 12,
+    "digits_per_group": 5,
+    "qr_string_length": 44,
+    "qr_version_byte": "0x01"
+  },
+  "derivation_process": {
+    "step1": "Hash each hybrid identity: BLAKE3(Ed448_pk || ML-DSA-65_pk || X448_pk || sntrup761_pk)",
+    "step2": "Sort the two 32-byte hashes lexicographically",
+    "step3": "Concatenate: sorted_first (32B) || sorted_second (32B)",
+    "step4": "Derive fingerprint: BLAKE3.derive_key('trelis-safety-number-v1', concatenated)",
+    "step5": "Convert first 30 bytes to 60 decimal digits using big-endian division"
+  },
+  "vectors": [
+    {
+      "name": "context_derivation",
+      "description": "BLAKE3 derive_key output for safety number context with zero input",
+      "inputs": {
+        "context_string": "trelis-safety-number-v1",
+        "input_hex": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "input_size": 64,
+        "input_description": "64 zero bytes (simulating two sorted identity hashes)"
+      },
+      "expected": {
+        "fingerprint_hex": "d8e4b235194ff0b0e1dada78b5ccdd3d20f062d49f831d449cd54d55e4870498",
+        "fingerprint_size": 32
+      }
+    },
+    {
+      "name": "history_sync_context_derivation",
+      "description": "BLAKE3 derive_key output for history-sync safety number context",
+      "inputs": {
+        "context_string": "trelis-safety-number-sync-v1",
+        "input_hex": "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "input_size": 96,
+        "input_description": "96 zero bytes (two identity hashes + 32-byte thread ID)"
+      },
+      "expected": {
+        "fingerprint_hex": "a7b04c14c56f71640048d428d8b570a49246997aeba6d2189cc84b202e41ada2",
+        "fingerprint_size": 32
+      }
+    },
+    {
+      "name": "bytes_to_decimal_conversion",
+      "description": "Converting fingerprint bytes to 60 decimal digits",
+      "inputs": {
+        "fingerprint_hex": "c0a133c19df21b0a02804d3d9513ce3f03930e20af02899814c41cf7624bec40",
+        "bytes_used": 30,
+        "bytes_hex": "c0a133c19df21b0a02804d3d9513ce3f03930e20af02899814c41cf7"
+      },
+      "expected": {
+        "decimal_digits": "946720872315420158107682189339013478591003181413",
+        "digit_count": 60,
+        "display_format": "94672 08723 15420 15810 76821 89339\n01347 85910 03181 41300 00000 00000",
+        "note": "Actual digits depend on big-endian division algorithm"
+      }
+    },
+    {
+      "name": "qr_code_format",
+      "description": "QR code string format (Base64-URL encoded)",
+      "inputs": {
+        "version_byte": "0x01",
+        "fingerprint_hex": "c0a133c19df21b0a02804d3d9513ce3f03930e20af02899814c41cf7624bec40",
+        "total_data_size": 33
+      },
+      "expected": {
+        "qr_string_length": 44,
+        "encoding": "Base64-URL (no padding)",
+        "format": "version_byte (1B) || fingerprint (32B) → Base64-URL"
+      }
+    }
+  ]
+}

@@ -1,20 +1,27 @@
-//! Hybrid PQ Per-Message Ratchet for the Trelis protocol.
+//! Hybrid PQ Per-Message KEM Ratchet for the Trelis protocol.
 //!
-//! This crate implements a per-message post-quantum ratchet,
+//! This crate implements a per-message post-quantum KEM ratchet,
 //! generating fresh hybrid keypairs for every message to provide
 //! strong forward secrecy guarantees.
 //!
-//! # Design Choice: Per-Message PQ KEM
+//! # Design Choice: Per-Message PQ KEM (NOT Double Ratchet)
 //!
-//! Unlike Signal's double ratchet (which uses DH ratchet + symmetric chain),
-//! Trelis uses a single ratchet that generates a fresh hybrid keypair
-//! (X448 + sntrup761) for every outbound message. This provides:
+//! This is a **single KEM ratchet** (NOT Signal's double ratchet).
+//! Trelis generates a fresh hybrid keypair (X448 + sntrup761) for
+//! every outbound message. This provides:
 //!
 //! - Per-message forward secrecy (not per role-switch)
 //! - Key exposure window of 1 message (not N messages)
 //! - Quantum protection for every message
 //!
 //! At the cost of ~2.3 KB overhead per message.
+//!
+//! # Deprecation Note
+//!
+//! As of Trelis v1.1, the unified CoCoA architecture is preferred for
+//! all message encryption (2-party and N-party). This ratchet is retained
+//! for the legacy pairwise protocol and test vectors. See the spec's
+//! appendix "Design Comparison: Why CoCoA Over Pairwise Ratchets".
 //!
 //! # Transport Requirements
 //!
@@ -24,6 +31,15 @@
 //! encapsulation. Out-of-order messages are rejected.
 
 #![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::needless_borrow,
+        clippy::assertions_on_constants
+    )
+)]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -36,13 +52,20 @@ pub mod send;
 pub mod serialise;
 pub mod state;
 
-pub use header::{MessageHeader, RatchetMessage, AAD_SIZE, HEADER_SIZE};
-pub use kdf::{kdf_rk, KDF_MESSAGE, KDF_ROOT};
-pub use nonce::{derive_hedged_nonce, NONCE_CONTEXT, NONCE_SIZE};
+pub use header::{AAD_SIZE, HEADER_SIZE, MessageHeader, RatchetMessage};
+pub use kdf::{KDF_MESSAGE, KDF_ROOT, kdf_rk};
+pub use nonce::{NONCE_CONTEXT, NONCE_SIZE, derive_hedged_nonce};
 pub use receive::receive_message;
-pub use send::{send_message, SendResult};
+pub use send::{SendResult, send_message};
 pub use serialise::{MAGIC, STATE_VERSION};
-pub use state::{DoubleRatchet, RatchetStatus};
+pub use state::{KemRatchet, RatchetStatus};
+
+/// Type alias for backwards compatibility.
+#[deprecated(
+    since = "1.1.0",
+    note = "Use KemRatchet instead - this is a KEM ratchet, not a double ratchet"
+)]
+pub type DoubleRatchet = KemRatchet;
 
 /// Maximum previous keypairs to retain for async message handling.
 /// Messages may arrive encrypted to a previous keypair after rotation.

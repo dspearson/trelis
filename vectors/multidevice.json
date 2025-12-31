@@ -1,0 +1,222 @@
+{
+  "meta": {
+    "suite": "trelis-v1",
+    "category": "multidevice",
+    "version": "1.0.0",
+    "generated": "2025-12-31T00:00:00Z",
+    "description": "Test vectors for multi-device support including approval, revocation, and history key sharing"
+  },
+  "notes": {
+    "device_id": "16-byte unique device identifier",
+    "thread_id": "32-byte unique thread identifier",
+    "fingerprint": "32-byte BLAKE3 hash of device's signing public key",
+    "signature_scheme": "HybridSignature (Ed448 + ML-DSA-65) for all certificates"
+  },
+  "sizes": {
+    "device_id": 16,
+    "thread_id": 32,
+    "device_fingerprint": 32,
+    "retained_key": 80,
+    "hybrid_signature": 3423,
+    "hybrid_signing_public_key": 2009,
+    "hybrid_kem_public_key": 1214,
+    "one_time_key": 1222
+  },
+  "context_strings": {
+    "device_approval": {
+      "context": "trelis-v1-device-approval",
+      "description": "Domain separation for device approval certificates"
+    },
+    "device_revocation": {
+      "context": "trelis-v1-device-revocation",
+      "description": "Domain separation for device revocation certificates"
+    },
+    "history_key_share": {
+      "context": "trelis-v1-history-key-share",
+      "description": "Domain separation for history key share messages"
+    },
+    "device_key_wrap": {
+      "context": "trelis-v1-device-key-wrap",
+      "description": "Domain separation for device key wrapping"
+    }
+  },
+  "revocation_reasons": {
+    "values": [
+      {"byte": 0, "name": "UserInitiated", "description": "User explicitly revoked the device"},
+      {"byte": 1, "name": "DeviceLost", "description": "Device was reported lost"},
+      {"byte": 2, "name": "DeviceCompromised", "description": "Device is believed to be compromised"},
+      {"byte": 3, "name": "DeviceReplaced", "description": "Device was replaced with a new one"}
+    ],
+    "immediate_rekey": [2],
+    "note": "DeviceCompromised (2) requires immediate group rekey for security"
+  },
+  "wrap_purposes": {
+    "values": [
+      {"byte": 1, "name": "BundleKey", "description": "Wrapping a pre-key bundle key"},
+      {"byte": 2, "name": "SessionSeed", "description": "Wrapping a session establishment seed"},
+      {"byte": 3, "name": "HistoryKey", "description": "Wrapping history message keys"}
+    ]
+  },
+  "vectors": [
+    {
+      "name": "device_fingerprint_derivation",
+      "description": "Device fingerprint is BLAKE3 hash of serialised hybrid signing public key",
+      "inputs": {
+        "public_key_size": 2009,
+        "hash_algorithm": "BLAKE3"
+      },
+      "expected": {
+        "fingerprint_size": 32,
+        "determinism": "Same public key always produces same fingerprint"
+      }
+    },
+    {
+      "name": "device_approval_certificate_structure",
+      "description": "Structure of a device approval certificate",
+      "signing_data_format": [
+        {"offset": 0, "field": "context", "value": "trelis-v1-device-approval"},
+        {"offset": "context_len", "size": 16, "field": "approving_device_id"},
+        {"offset": "+16", "size": 32, "field": "new_device_fingerprint"},
+        {"offset": "+32", "size": 8, "field": "approved_at", "encoding": "u64 little-endian"}
+      ],
+      "serialised_format": [
+        {"offset": 0, "size": 16, "field": "approving_device_id"},
+        {"offset": 16, "size": 32, "field": "new_device_fingerprint"},
+        {"offset": 48, "size": 8, "field": "approved_at", "encoding": "u64 little-endian"},
+        {"offset": 56, "size": 3423, "field": "signature"}
+      ],
+      "total_size": 3479
+    },
+    {
+      "name": "device_revocation_certificate_structure",
+      "description": "Structure of a device revocation certificate",
+      "signing_data_format": [
+        {"offset": 0, "field": "context", "value": "trelis-v1-device-revocation"},
+        {"offset": "context_len", "size": 16, "field": "device_id"},
+        {"offset": "+16", "size": 8, "field": "revoked_at", "encoding": "u64 little-endian"},
+        {"offset": "+8", "size": 1, "field": "reason"}
+      ],
+      "serialised_format": [
+        {"offset": 0, "size": 16, "field": "device_id"},
+        {"offset": 16, "size": 8, "field": "revoked_at", "encoding": "u64 little-endian"},
+        {"offset": 24, "size": 1, "field": "reason"},
+        {"offset": 25, "size": 3423, "field": "signature"}
+      ],
+      "total_size": 3448
+    },
+    {
+      "name": "retained_key_structure",
+      "description": "Structure of a retained message key for history sync",
+      "format": [
+        {"offset": 0, "size": 32, "field": "message_id", "description": "Unique message identifier"},
+        {"offset": 32, "size": 32, "field": "message_key", "description": "Symmetric encryption key"},
+        {"offset": 64, "size": 8, "field": "sequence", "encoding": "u64 little-endian"},
+        {"offset": 72, "size": 8, "field": "timestamp", "encoding": "u64 little-endian"}
+      ],
+      "total_size": 80
+    },
+    {
+      "name": "history_key_share_message_structure",
+      "description": "Structure of a history key share message",
+      "signing_data_format": [
+        {"offset": 0, "field": "context", "value": "trelis-v1-history-key-share"},
+        {"offset": "context_len", "size": 32, "field": "thread_id"},
+        {"offset": "+32", "size": 8, "field": "key_count", "encoding": "u64 little-endian"},
+        {"offset": "+8", "size": 8, "field": "shared_at", "encoding": "u64 little-endian"}
+      ],
+      "serialised_format": [
+        {"offset": 0, "size": 32, "field": "thread_id"},
+        {"offset": 32, "size": 8, "field": "key_count", "encoding": "u64 little-endian"},
+        {"offset": 40, "size": "key_count * 80", "field": "keys"},
+        {"offset": "40 + keys_size", "size": 8, "field": "shared_at", "encoding": "u64 little-endian"},
+        {"offset": "+8", "size": 3423, "field": "signature"}
+      ]
+    },
+    {
+      "name": "thread_key_store_structure",
+      "description": "Serialised format for thread key store",
+      "format": [
+        {"offset": 0, "size": 32, "field": "thread_id"},
+        {"offset": 32, "size": 8, "field": "key_count", "encoding": "u64 little-endian"},
+        {"offset": 40, "size": "key_count * 80", "field": "keys", "description": "RetainedKey entries"}
+      ],
+      "operations": {
+        "retain_key": "Insert in sorted order by sequence number",
+        "get_key_by_sequence": "Binary search O(log n)",
+        "prune_before": "Remove keys with timestamp < threshold",
+        "merge": "Deduplicate by message_id, maintain sorted order"
+      }
+    },
+    {
+      "name": "device_key_wrap_structure",
+      "description": "Structure for wrapping keys for specific devices",
+      "format": [
+        {"offset": 0, "size": 1095, "field": "encapsulation", "description": "Hybrid KEM encapsulation"},
+        {"offset": 1095, "size": 80, "field": "encrypted_key", "description": "AEAD encrypted (32-byte key + 16-byte tag + 32-byte context)"}
+      ],
+      "total_size": 1175,
+      "context_binding": {
+        "recipient_key_id": "8 bytes",
+        "purpose": "1 byte",
+        "thread_id": "32 bytes",
+        "bundle_id": "32 bytes",
+        "epoch": "8 bytes"
+      }
+    },
+    {
+      "name": "thread_settings_defaults",
+      "description": "Default thread settings behaviour",
+      "new_thread": {
+        "history_sync_enabled": true,
+        "history_sync_changed_at": null
+      },
+      "ephemeral_thread": {
+        "history_sync_enabled": false,
+        "history_sync_changed_at": "creation timestamp"
+      }
+    }
+  ],
+  "test_cases": [
+    {
+      "name": "approval_roundtrip",
+      "description": "Create and verify device approval certificate",
+      "steps": [
+        "Generate signing keypair for approving device",
+        "Create approval certificate with device ID, fingerprint, timestamp",
+        "Serialise certificate",
+        "Deserialise certificate",
+        "Verify signature with approving device's public key"
+      ]
+    },
+    {
+      "name": "revocation_immediate_rekey",
+      "description": "Verify DeviceCompromised requires immediate rekey",
+      "steps": [
+        "Create revocation with reason=DeviceCompromised",
+        "Call requires_immediate_rekey()",
+        "Assert returns true"
+      ]
+    },
+    {
+      "name": "history_key_share_roundtrip",
+      "description": "Create and verify history key share message",
+      "steps": [
+        "Create retained keys for messages 0-9",
+        "Create history key share message",
+        "Serialise message",
+        "Deserialise message",
+        "Verify signature",
+        "Extract keys and verify count"
+      ]
+    },
+    {
+      "name": "thread_key_store_merge_dedup",
+      "description": "Merge deduplicates by message_id",
+      "steps": [
+        "Create store with key A (message_id=0x01...)",
+        "Merge with keys [A, B] where A has same message_id",
+        "Verify store has exactly 2 keys (not 3)"
+      ]
+    }
+  ]
+}

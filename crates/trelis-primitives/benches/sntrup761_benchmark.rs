@@ -5,7 +5,7 @@
 //! This benchmark requires both `std` and `wasm` features enabled to compare
 //! the C FFI (pqcrypto-ntruprime) and pure Rust (ntrulp) implementations.
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 
 // C FFI implementation (std feature)
 use trelis_primitives::sntrup761::{
@@ -17,7 +17,6 @@ use trelis_primitives::sntrup761::{
 use trelis_primitives::sntrup761_pure_rust::{
     PureRustSntrup761Ciphertext, PureRustSntrup761PublicKey, PureRustSntrup761SecretKey,
 };
-
 
 /// Benchmark key generation for both implementations.
 fn bench_keygen(c: &mut Criterion) {
@@ -202,19 +201,15 @@ fn bench_batch_kem(c: &mut Criterion) {
 
         group.throughput(Throughput::Elements(batch_size as u64));
 
-        group.bench_with_input(
-            BenchmarkId::new("c_ffi", batch_size),
-            &c_keys,
-            |b, keys| {
-                b.iter(|| {
-                    for (sk, pk) in keys {
-                        let (_, ct) = pk.encapsulate();
-                        let ss = sk.decapsulate(&ct).unwrap();
-                        black_box(ss);
-                    }
-                })
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("c_ffi", batch_size), &c_keys, |b, keys| {
+            b.iter(|| {
+                for (sk, pk) in keys {
+                    let (_, ct) = pk.encapsulate();
+                    let ss = sk.decapsulate(&ct).unwrap();
+                    black_box(ss);
+                }
+            })
+        });
 
         group.bench_with_input(
             BenchmarkId::new("pure_rust", batch_size),
@@ -304,7 +299,7 @@ fn bench_interop(c: &mut Criterion) {
 
 /// Benchmark polynomial multiplication: NTT vs Karatsuba.
 fn bench_poly_mult(c: &mut Criterion) {
-    use trelis_primitives::sntrup761_poly::{rq_mult_r3, rq_mult_r3_ntt, P};
+    use trelis_primitives::sntrup761_poly::{P, rq_mult_r3, rq_mult_r3_ntt};
 
     let mut group = c.benchmark_group("sntrup761_poly_mult");
 

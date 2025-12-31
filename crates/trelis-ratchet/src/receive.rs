@@ -21,7 +21,7 @@ use zeroize::Zeroize;
 
 use crate::header::RatchetMessage;
 use crate::kdf::kdf_rk;
-use crate::state::{DoubleRatchet, RatchetStatus};
+use crate::state::{KemRatchet, RatchetStatus};
 
 /// Decrypts a received message and updates the ratchet state.
 ///
@@ -54,7 +54,7 @@ use crate::state::{DoubleRatchet, RatchetStatus};
 /// - `AeadAuthenticationFailed` if decryption fails
 #[cfg(feature = "alloc")]
 pub fn receive_message(
-    state: &mut DoubleRatchet,
+    state: &mut KemRatchet,
     message: &RatchetMessage,
     current_time: u64,
 ) -> Result<Vec<u8>> {
@@ -132,12 +132,9 @@ mod tests {
 
         let bob_keypair = HybridKemKeypair::generate().unwrap();
 
-        let mut alice_state = DoubleRatchet::init_initiator(
-            &session_key,
-            bob_keypair.public_key().clone(),
-            1000,
-        )
-        .unwrap();
+        let mut alice_state =
+            KemRatchet::init_initiator(&session_key, bob_keypair.public_key().clone(), 1000)
+                .unwrap();
 
         let plaintext = b"Hello, Bob!";
         let result = send_message(&mut alice_state, plaintext, 1001).unwrap();
@@ -153,12 +150,9 @@ mod tests {
         let session_key = [0x42u8; 32];
         let their_keypair = HybridKemKeypair::generate().unwrap();
 
-        let mut state = DoubleRatchet::init_initiator(
-            &session_key,
-            their_keypair.public_key().clone(),
-            1000,
-        )
-        .unwrap();
+        let mut state =
+            KemRatchet::init_initiator(&session_key, their_keypair.public_key().clone(), 1000)
+                .unwrap();
 
         // Create a message with a different recipient key ID
         let other_keypair = HybridKemKeypair::generate().unwrap();
@@ -186,18 +180,14 @@ mod tests {
         let session_key = [0x42u8; 32];
         let our_keypair = HybridKemKeypair::generate().unwrap();
 
-        let mut state = DoubleRatchet::init_responder(&session_key, our_keypair, 1000);
+        let mut state = KemRatchet::init_responder(&session_key, our_keypair, 1000);
         state.mark_compromised();
 
         let other_keypair = HybridKemKeypair::generate().unwrap();
         let (_, encap) = other_keypair.public_key().encapsulate().unwrap();
 
-        let header = crate::header::MessageHeader::new(
-            0,
-            other_keypair.public_key().clone(),
-            encap,
-            0,
-        );
+        let header =
+            crate::header::MessageHeader::new(0, other_keypair.public_key().clone(), encap, 0);
 
         let message = RatchetMessage {
             header,

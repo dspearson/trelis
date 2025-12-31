@@ -38,10 +38,38 @@
 //! | `std` + `wasm` | C FFI (testing) | Cross-validation testing |
 //!
 //! The unified `Sntrup761*` types are always available when either feature is enabled.
+//!
+//! # Memory Locking (Optional)
+//!
+//! With the `mlock` feature, this crate provides OS-level memory protection:
+//!
+//! ```toml
+//! [dependencies]
+//! trelis-primitives = { version = "0.1", features = ["mlock"] }
+//! ```
+//!
+//! This enables `LockedBox<T>` for secrets that cannot be
+//! swapped to disk. See the `memlock` module for details.
 
 #![no_std]
-#![forbid(unsafe_code)]
+// NOTE: unsafe_code is denied at workspace level (Cargo.toml)
+// Only memlock.rs overrides this with #![allow(unsafe_code)] for mlock FFI
 #![warn(missing_docs)]
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::needless_borrow,
+        clippy::needless_range_loop,
+        clippy::manual_clamp,
+        clippy::manual_range_contains,
+        clippy::useless_asref,
+        clippy::clone_on_copy,
+        clippy::unnecessary_cast,
+        clippy::needless_as_bytes
+    )
+)]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -55,6 +83,24 @@ pub mod ed448;
 pub mod mldsa65;
 pub mod random;
 pub mod x448;
+
+/// Memory locking to prevent secrets from being swapped to disk.
+///
+/// This module provides `LockedBox<T>` and related types
+/// for OS-level memory protection using `mlock(2)` on Unix.
+///
+/// # Example
+///
+/// ```ignore
+/// use trelis_primitives::memlock::LockedBox;
+///
+/// // Create a secret key that cannot be swapped to disk
+/// let secret = LockedBox::new([0u8; 32])?;
+/// // Use secret...
+/// // Automatically zeroized and unlocked on drop
+/// ```
+#[cfg(feature = "mlock")]
+pub mod memlock;
 
 // sntrup761 implementations (backend-specific modules)
 /// C FFI sntrup761 KEM using pqcrypto-ntruprime (requires std).
@@ -70,13 +116,38 @@ pub mod sntrup761_poly;
 pub mod sntrup761_wasm;
 
 // Re-export key types for convenience
-pub use aead::{decrypt, encrypt, AeadKey, Nonce, Tag};
-pub use blake3_kdf::{derive_key, hash, keyed_hash};
+pub use aead::{AeadKey, Nonce, Tag, decrypt, encrypt};
+pub use blake3_kdf::{
+    // Domain separation contexts
+    BUNDLE_WRAP_CONTEXT,
+    COMPROMISE_NOTICE_CONTEXT,
+    DerivedKey,
+    HYBRID_KEM_CONTEXT,
+    OUTPUT_SIZE,
+    PREKEY_BUNDLE_SIG_CONTEXT,
+    RATCHET_MESSAGE_CONTEXT,
+    RATCHET_NONCE_CONTEXT,
+    RATCHET_ROOT_CONTEXT,
+    RECOVERY_ED448_CONTEXT,
+    RECOVERY_MLDSA_CONTEXT,
+    SAFETY_NUMBER_CONTEXT,
+    SESSION_CONTEXT,
+    derive_key,
+    hash,
+    keyed_hash,
+};
 pub use ed448::{Ed448Signature, Ed448SigningKey, Ed448VerifyingKey};
 pub use mldsa65::{MlDsa65Signature, MlDsa65SigningKey, MlDsa65VerifyingKey};
 pub use random::{fill_bytes, generate_bytes};
 pub use trelis_error::{CryptoError, Result};
 pub use x448::{X448Public, X448Secret, X448SharedSecret};
+
+// Memory locking re-exports (when mlock feature is enabled)
+#[cfg(feature = "mlock")]
+pub use memlock::{
+    LockedBox, LockedVec, MemlockError, is_mlock_available, lock_memory, memlock_limit, page_size,
+    unlock_memory,
+};
 
 // ============================================================================
 // Unified sntrup761 API
@@ -104,19 +175,18 @@ pub use sntrup761_wasm::{
 };
 
 // Additional exports for cross-validation testing (both backends available)
-/// Pure Rust sntrup761 types for cross-validation testing.
-/// Only available when both `std` and `wasm` features are enabled.
 #[cfg(all(feature = "std", feature = "wasm"))]
 pub mod sntrup761_pure_rust {
-    //! Pure Rust sntrup761 implementation for cross-validation testing.
+    //! Pure Rust sntrup761 types for cross-validation testing.
     //!
+    //! Only available when both `std` and `wasm` features are enabled.
     //! This module re-exports the pure Rust implementation with prefixed names
     //! to allow comparing outputs between C FFI and pure Rust backends.
     pub use crate::sntrup761_wasm::{
+        CIPHERTEXT_SIZE, PUBLIC_KEY_SIZE, SECRET_KEY_SIZE, SHARED_SECRET_SIZE,
         Sntrup761Ciphertext as PureRustSntrup761Ciphertext,
         Sntrup761PublicKey as PureRustSntrup761PublicKey,
         Sntrup761SecretKey as PureRustSntrup761SecretKey,
         Sntrup761SharedSecret as PureRustSntrup761SharedSecret,
-        CIPHERTEXT_SIZE, PUBLIC_KEY_SIZE, SECRET_KEY_SIZE, SHARED_SECRET_SIZE,
     };
 }

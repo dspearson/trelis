@@ -7,10 +7,11 @@ use crate::constants::{CIPHER_SUITE, HEADER_SIZE, PROTOCOL_VERSION};
 use trelis_error::{CryptoError, Result};
 
 /// Protocol version identifier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u8)]
 pub enum ProtocolVersion {
     /// Protocol version 1 (current, hybrid post-quantum).
+    #[default]
     V1 = 0x01,
 }
 
@@ -37,17 +38,12 @@ impl ProtocolVersion {
     }
 }
 
-impl Default for ProtocolVersion {
-    fn default() -> Self {
-        Self::V1
-    }
-}
-
 /// Cipher suite identifier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u8)]
 pub enum CipherSuite {
     /// TRELIS_HYBRID_V1: Ed448+ML-DSA-65, X448+sntrup761, XChaCha20-Poly1305, BLAKE3.
+    #[default]
     TrelisHybridV1 = 0x01,
 }
 
@@ -71,12 +67,6 @@ impl CipherSuite {
     #[must_use]
     pub const fn as_byte(self) -> u8 {
         self as u8
-    }
-}
-
-impl Default for CipherSuite {
-    fn default() -> Self {
-        Self::TrelisHybridV1
     }
 }
 

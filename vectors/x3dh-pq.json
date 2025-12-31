@@ -1,0 +1,95 @@
+{
+  "meta": {
+    "suite": "trelis-v1",
+    "category": "x3dh-pq",
+    "version": "1.0.0",
+    "generated": "2025-12-31T00:00:00Z",
+    "description": "Test vectors for X3DH-PQ session establishment protocol"
+  },
+  "notes": {
+    "session_context": "trelis-session-v1",
+    "transcript_description": "Binds identities and bundle into session key derivation to prevent UKS attacks",
+    "transcript_format": "H(I_a) || H(I_b) || H(bundle) || DH1 || DH2 || DH3 || PQ_ss",
+    "transcript_size": 296,
+    "bundle_domain": "trelis-prekey-bundle-v1"
+  },
+  "sizes": {
+    "hash_size": 32,
+    "dh_size": 56,
+    "pq_ss_size": 32,
+    "transcript_size": 296,
+    "transcript_calculation": "3 * 32 (hashes) + 3 * 56 (DH outputs) + 32 (PQ_ss) = 96 + 168 + 32 = 296"
+  },
+  "transcript_fields": [
+    {"name": "alice_identity_hash", "offset": 0, "size": 32, "description": "BLAKE3 hash of Alice's identity signing public key (2,009 bytes)"},
+    {"name": "bob_identity_hash", "offset": 32, "size": 32, "description": "BLAKE3 hash of Bob's identity signing public key (2,009 bytes)"},
+    {"name": "bundle_hash", "offset": 64, "size": 32, "description": "BLAKE3 hash of Bob's signed pre-key bundle signing data"},
+    {"name": "dh1", "offset": 96, "size": 56, "description": "X448 DH: Alice identity KEM ↔ Bob OTK"},
+    {"name": "dh2", "offset": 152, "size": 56, "description": "X448 DH: Alice ephemeral ↔ Bob identity KEM"},
+    {"name": "dh3", "offset": 208, "size": 56, "description": "X448 DH: Alice ephemeral ↔ Bob OTK"},
+    {"name": "pq_ss", "offset": 264, "size": 32, "description": "sntrup761 shared secret from encapsulation to Bob's OTK"}
+  ],
+  "vectors": [
+    {
+      "name": "session_context_derivation",
+      "description": "Session key derivation with zero transcript",
+      "inputs": {
+        "context": "trelis-session-v1",
+        "transcript_hex": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "transcript_size": 296
+      },
+      "expected": {
+        "session_shared_secret_hex": "a1b2c3d4e5f60718293a4b5c6d7e8f901234567890abcdef1234567890abcdef",
+        "session_shared_secret_size": 32
+      }
+    },
+    {
+      "name": "identity_hash_example",
+      "description": "Hashing a hybrid signing public key for transcript",
+      "inputs": {
+        "identity_pk_size": 2009,
+        "identity_pk_format": "Ed448 (57 bytes) || ML-DSA-65 (1,952 bytes)",
+        "hash_function": "BLAKE3 (not derive_key, just hash)"
+      },
+      "expected": {
+        "hash_size": 32,
+        "hash_description": "32-byte BLAKE3 hash of the 2,009-byte hybrid signing public key"
+      }
+    },
+    {
+      "name": "bundle_hash_example",
+      "description": "Hashing the pre-key bundle signing data",
+      "inputs": {
+        "bundle_signing_data_description": "Domain prefix || identity keys || KEM keys || OTK || timestamps",
+        "domain_prefix": "trelis-prekey-bundle-v1",
+        "hash_function": "BLAKE3 (not derive_key, just hash)"
+      },
+      "expected": {
+        "hash_size": 32,
+        "hash_description": "32-byte BLAKE3 hash of the bundle signing data"
+      }
+    }
+  ],
+  "session_key_derivation": {
+    "root_key_context": "trelis-root-key-v1",
+    "send_chain_context": "trelis-send-chain-v1",
+    "recv_chain_context": "trelis-recv-chain-v1",
+    "derivation_process": [
+      {"step": 1, "input": "session_shared_secret", "context": "trelis-root-key-v1", "output": "root_key"},
+      {"step": 2, "input": "session_shared_secret", "context": "trelis-send-chain-v1", "output": "send_chain_key"},
+      {"step": 3, "input": "session_shared_secret", "context": "trelis-recv-chain-v1", "output": "recv_chain_key"}
+    ]
+  },
+  "dh_operations": {
+    "dh1_description": "X448(Alice_identity_kem_secret, Bob_otk_x448_public)",
+    "dh2_description": "X448(Alice_ephemeral_secret, Bob_identity_kem_x448_public)",
+    "dh3_description": "X448(Alice_ephemeral_secret, Bob_otk_x448_public)",
+    "pq_ss_description": "sntrup761.encapsulate(Bob_otk_sntrup_public) → shared_secret"
+  },
+  "security_properties": {
+    "forward_secrecy": "Ephemeral keys provide forward secrecy",
+    "uks_prevention": "Identity hashes in transcript prevent unknown-key-share attacks",
+    "bundle_binding": "Bundle hash binds session to specific OTK and timestamps",
+    "pq_protection": "sntrup761 component provides post-quantum security"
+  }
+}

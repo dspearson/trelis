@@ -31,32 +31,40 @@ extern crate alloc;
 extern crate std;
 
 pub mod combiner;
-#[cfg(feature = "std")]
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub mod kem;
 pub mod signature;
 
-#[cfg(feature = "std")]
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub mod identity;
-#[cfg(feature = "std")]
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub mod one_time_key;
-#[cfg(feature = "std")]
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub mod prekey_bundle;
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
+pub mod recovery;
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub mod safety_number;
 
 // Re-export key types
 pub use combiner::HybridSharedSecret;
-#[cfg(feature = "std")]
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub use kem::{HybridEncapsulation, HybridKemKeypair, HybridKemPublicKey};
 pub use signature::{HybridSignature, HybridSigningKeypair, HybridSigningPublicKey};
 
-#[cfg(feature = "std")]
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub use identity::{HybridIdentityKeypair, HybridIdentityPublicKey};
-#[cfg(feature = "std")]
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub use one_time_key::{HybridOneTimeKey, HybridOneTimeKeyPair};
-#[cfg(feature = "std")]
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub use prekey_bundle::HybridPreKeyBundle;
-#[cfg(feature = "std")]
+#[cfg(any(feature = "std", feature = "wasm"))]
+pub use recovery::derive_recovery_keypair;
+#[cfg(feature = "alloc")]
+pub use recovery::{
+    CompromiseNotice, CompromiseReason, FINGERPRINT_SIZE, RECOVERY_SEED_SIZE, key_fingerprint,
+};
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub use safety_number::SafetyNumber;
 
 pub use trelis_error::{CryptoError, Result};

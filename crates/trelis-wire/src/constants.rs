@@ -93,7 +93,8 @@ pub const OTK_SIZE: usize = KEY_ID_SIZE + HYBRID_KEM_PK_SIZE;
 pub const PREKEY_BUNDLE_SIZE: usize = HYBRID_SIGNING_PK_SIZE + HYBRID_KEM_PK_SIZE + OTK_SIZE;
 
 /// Size of device key wrap in bytes.
-pub const DEVICE_KEY_WRAP_SIZE: usize = KEY_ID_SIZE + X448_PK_SIZE + SNTRUP761_CT_SIZE + NONCE_SIZE + 48;
+pub const DEVICE_KEY_WRAP_SIZE: usize =
+    KEY_ID_SIZE + X448_PK_SIZE + SNTRUP761_CT_SIZE + NONCE_SIZE + 48;
 
 // =============================================================================
 // Double Ratchet

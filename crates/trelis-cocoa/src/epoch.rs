@@ -58,7 +58,11 @@ impl EpochSecrets {
         let key = derive_message_key(&self.app_secret, counter);
         let nonce = derive_message_nonce(&self.app_secret, counter);
 
-        MessageKey { key, nonce, counter }
+        MessageKey {
+            key,
+            nonce,
+            counter,
+        }
     }
 }
 
@@ -140,6 +144,7 @@ impl Epoch {
 
     /// Creates a new epoch from the previous epoch's init_secret.
     #[must_use]
+    #[allow(clippy::expect_used)] // u64 overflow is impossible in practice
     pub fn advance(
         prev_init_secret: &[u8; 32],
         delta_root: &[u8; 32],
@@ -190,6 +195,7 @@ impl Epoch {
     }
 
     /// Derives the next message key and increments the counter.
+    #[allow(clippy::expect_used)] // u64 overflow is impossible in practice
     pub fn next_message_key(&mut self) -> MessageKey {
         let key = self.secrets.derive_message_key(self.message_counter);
         self.message_counter = self

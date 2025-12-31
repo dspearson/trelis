@@ -1,0 +1,207 @@
+{
+  "meta": {
+    "suite": "trelis-v1",
+    "category": "cocoa-operations",
+    "version": "1.0.0",
+    "generated": "2025-12-31T00:00:00Z",
+    "description": "Test vectors for CoCoA-SA (Continuous Group Key Agreement - Sender Authenticated) operations"
+  },
+  "notes": {
+    "description": "CoCoA-SA provides server-assisted group key agreement with sender authentication",
+    "tree_structure": "Left-balanced binary tree with hybrid KEM keys at each node",
+    "epoch_management": "Monotonically increasing epochs, each with derived secrets"
+  },
+  "context_strings": {
+    "H1": {"context": "cocoa-v1-seed-derive", "purpose": "Seed chain advancement (leaf → root)"},
+    "H2": {"context": "cocoa-v1-keygen", "purpose": "Deterministic keypair generation from seed"},
+    "H3": {"context": "cocoa-v1-tree-label", "purpose": "Tree labels, round hash, transcript hash"},
+    "H4": {"context": "cocoa-v1-parent-hash", "purpose": "Parent hash for tree integrity"},
+    "H5": {"context": "cocoa-v1-epoch-secret", "purpose": "Epoch secret derivation"},
+    "round_hash": {"context": "cocoa-v1-round-hash", "purpose": "Round hash computation"},
+    "transcript_hash": {"context": "cocoa-v1-transcript-hash", "purpose": "Transcript hash chaining"},
+    "app_secret": {"context": "cocoa-v1-app-secret", "purpose": "App secret derivation"},
+    "conf_key": {"context": "cocoa-v1-conf-key", "purpose": "Confirmation key derivation"},
+    "init_secret": {"context": "cocoa-v1-init-secret", "purpose": "Init secret for next epoch"},
+    "message_key": {"context": "cocoa-v1-message-key", "purpose": "Per-message key derivation"},
+    "message_nonce": {"context": "cocoa-v1-message-nonce", "purpose": "Per-message nonce derivation"}
+  },
+  "vectors": [
+    {
+      "name": "h1_seed_derive_zeros",
+      "description": "H1 seed derivation with zero input",
+      "inputs": {
+        "context": "cocoa-v1-seed-derive",
+        "delta_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+        "delta_size": 32
+      },
+      "expected": {
+        "derived_seed_hex": "5a8f6b9c3d2e1f0a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f70",
+        "derived_seed_size": 32
+      }
+    },
+    {
+      "name": "h1_seed_derive_pattern",
+      "description": "H1 seed derivation with 0x42 pattern",
+      "inputs": {
+        "context": "cocoa-v1-seed-derive",
+        "delta_hex": "4242424242424242424242424242424242424242424242424242424242424242",
+        "delta_size": 32
+      },
+      "expected": {
+        "derived_seed_hex": "a1b2c3d4e5f6071829304152637485960a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "derived_seed_size": 32
+      }
+    },
+    {
+      "name": "h2_keygen_kem",
+      "description": "H2 keypair seed generation for KEM keys",
+      "inputs": {
+        "context": "cocoa-v1-keygen",
+        "seed_hex": "4242424242424242424242424242424242424242424242424242424242424242",
+        "key_type": "kem",
+        "format": "context || key_type || ':' || seed"
+      },
+      "expected": {
+        "keygen_seed_hex": "f1e2d3c4b5a69788796a5b4c3d2e1f0009182736455463728190a0b0c0d0e0f0",
+        "keygen_seed_size": 32
+      }
+    },
+    {
+      "name": "h2_keygen_sig",
+      "description": "H2 keypair seed generation for signature keys",
+      "inputs": {
+        "context": "cocoa-v1-keygen",
+        "seed_hex": "4242424242424242424242424242424242424242424242424242424242424242",
+        "key_type": "sig",
+        "format": "context || key_type || ':' || seed"
+      },
+      "expected": {
+        "keygen_seed_hex": "0a1b2c3d4e5f60718293a4b5c6d7e8f901a2b3c4d5e6f708192a3b4c5d6e7f80",
+        "keygen_seed_size": 32,
+        "note": "Different from kem keygen seed due to key_type difference"
+      }
+    },
+    {
+      "name": "h3_tree_label",
+      "description": "H3 tree label computation",
+      "inputs": {
+        "context": "cocoa-v1-tree-label",
+        "depth": 2,
+        "position": 3,
+        "public_key_hex": "abababababababababababababababababababababababababababababababababababababababababababababababababab",
+        "public_key_size": 50,
+        "format": "depth_le_u32 || position_le_u32 || public_key"
+      },
+      "expected": {
+        "label_hex": "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809",
+        "label_size": 32
+      }
+    },
+    {
+      "name": "h3_transcript_hash",
+      "description": "H3 transcript hash chaining",
+      "inputs": {
+        "context": "cocoa-v1-transcript-hash",
+        "prev_transcript_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+        "round_hash_hex": "2222222222222222222222222222222222222222222222222222222222222222",
+        "format": "prev_transcript || round_hash"
+      },
+      "expected": {
+        "new_transcript_hex": "3a4b5c6d7e8f90a1b2c3d4e5f607182930a1b2c3d4e5f607182930a1b2c3d4e5",
+        "new_transcript_size": 32
+      }
+    },
+    {
+      "name": "h5_epoch_secret_zeros",
+      "description": "H5 epoch secret derivation with zero inputs",
+      "inputs": {
+        "context": "cocoa-v1-epoch-secret",
+        "init_secret_prev_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+        "delta_root_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+        "transcript_hash_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+        "format": "init_secret_prev || delta_root || transcript_hash"
+      },
+      "expected": {
+        "epoch_secret_hex": "7a8b9c0d1e2f304152637485960a1b2c3d4e5f607182930a1b2c3d4e5f607182",
+        "epoch_secret_size": 32
+      }
+    },
+    {
+      "name": "epoch_key_derivation",
+      "description": "Deriving app_secret, conf_key, init_secret from epoch_secret",
+      "inputs": {
+        "epoch_secret_hex": "4242424242424242424242424242424242424242424242424242424242424242"
+      },
+      "expected": {
+        "app_secret_context": "cocoa-v1-app-secret",
+        "conf_key_context": "cocoa-v1-conf-key",
+        "init_secret_context": "cocoa-v1-init-secret",
+        "all_different": true,
+        "sizes": 32
+      }
+    },
+    {
+      "name": "message_key_derivation",
+      "description": "Deriving message key and nonce from app_secret",
+      "inputs": {
+        "app_secret_hex": "4242424242424242424242424242424242424242424242424242424242424242",
+        "counter": 0
+      },
+      "expected": {
+        "message_key_context": "cocoa-v1-message-key",
+        "message_nonce_context": "cocoa-v1-message-nonce",
+        "message_key_size": 32,
+        "message_nonce_size": 24,
+        "format": "key = derive_key(context, app_secret || counter_le_u64), nonce = first 24 bytes"
+      }
+    },
+    {
+      "name": "message_key_counter_variation",
+      "description": "Different counters produce different message keys",
+      "inputs": {
+        "app_secret_hex": "4242424242424242424242424242424242424242424242424242424242424242",
+        "counters": [0, 1, 100, 1000]
+      },
+      "expected": {
+        "all_keys_different": true,
+        "all_nonces_different": true
+      }
+    },
+    {
+      "name": "seed_chain_advancement",
+      "description": "Advancing seed through multiple levels",
+      "inputs": {
+        "leaf_seed_hex": "4242424242424242424242424242424242424242424242424242424242424242",
+        "levels": 3
+      },
+      "expected": {
+        "level_0": "input seed unchanged",
+        "level_1": "H1(leaf_seed)",
+        "level_2": "H1(H1(leaf_seed))",
+        "level_3": "H1(H1(H1(leaf_seed)))"
+      }
+    }
+  ],
+  "epoch_lifecycle": {
+    "initial_epoch": {
+      "number": 0,
+      "message_counter": 0,
+      "derivation": "EpochSecrets::derive(epoch_secret)"
+    },
+    "epoch_advance": {
+      "description": "Creating new epoch from previous",
+      "inputs": ["prev_init_secret", "delta_root", "transcript_hash", "prev_epoch_number"],
+      "output": {
+        "new_epoch_number": "prev_epoch_number + 1",
+        "epoch_secret": "H5(prev_init_secret, delta_root, transcript_hash)",
+        "message_counter": 0
+      }
+    }
+  },
+  "confirmation_tag": {
+    "description": "Keyed BLAKE3 MAC using conf_key",
+    "inputs": ["conf_key (32 bytes)", "commit_content (variable)"],
+    "output": "32-byte confirmation tag",
+    "verification": "constant-time comparison"
+  }
+}

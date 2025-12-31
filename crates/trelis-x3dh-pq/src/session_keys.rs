@@ -1,7 +1,7 @@
 //! Session key derivation from X3DH-PQ shared secret.
 //!
 //! After the X3DH-PQ handshake completes, both parties have a shared secret.
-//! This module derives the session keys used by the Double Ratchet:
+//! This module derives the session keys used by the KEM Ratchet:
 //!
 //! - **Root key**: Seeds the symmetric ratchet
 //! - **Send chain key**: Initial sending chain (direction depends on role)
@@ -12,22 +12,28 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 use crate::transcript::HASH_SIZE;
 
 /// Context for deriving the root key.
-const ROOT_KEY_CONTEXT: &str = "trelis-root-key-v1";
+///
+/// Per spec Section 14, Table 14.1: `trelis-session-root-v1`
+const ROOT_KEY_CONTEXT: &str = "trelis-session-root-v1";
 
 /// Context for deriving the send chain key (for initiator).
-const SEND_CHAIN_CONTEXT: &str = "trelis-send-chain-v1";
+///
+/// Per spec Section 14, Table 14.1: `trelis-session-send-v1`
+const SEND_CHAIN_CONTEXT: &str = "trelis-session-send-v1";
 
 /// Context for deriving the receive chain key (for initiator).
-const RECV_CHAIN_CONTEXT: &str = "trelis-recv-chain-v1";
+///
+/// Per spec Section 14, Table 14.1: `trelis-session-recv-v1`
+const RECV_CHAIN_CONTEXT: &str = "trelis-session-recv-v1";
 
 /// Session keys derived from X3DH-PQ handshake.
 ///
-/// These keys initialise the Double Ratchet state machine.
+/// These keys initialise the KEM Ratchet state machine.
 /// The root key seeds the symmetric ratchet, while the chain
 /// keys provide the initial sending/receiving states.
 #[derive(Clone, Zeroize, ZeroizeOnDrop)]
 pub struct SessionKeys {
-    /// Root key for the Double Ratchet (32 bytes).
+    /// Root key for the KEM Ratchet (32 bytes).
     root_key: [u8; HASH_SIZE],
     /// Initial sending chain key (32 bytes).
     send_chain_key: [u8; HASH_SIZE],

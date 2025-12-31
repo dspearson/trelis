@@ -1,16 +1,35 @@
 //! Group initialisation (CGKA.Init).
 //!
 //! Creates a new CoCoA group with the creator as the first member.
+//!
+//! # Welcome Message Encryption
+//!
+//! When adding members to a group, the creator sends encrypted welcome messages
+//! containing the epoch secret and transcript hash. The encryption uses:
+//!
+//! 1. Hybrid KEM (X448 + sntrup761) to encapsulate to each member's identity key
+//! 2. XChaCha20-Poly1305 AEAD for symmetric encryption
+//!
+//! This provides both classical and post-quantum security for the welcome data.
 
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
-use trelis_error::Result;
-use trelis_hybrid::{HybridIdentityKeypair, HybridKemKeypair, HybridPreKeyBundle};
+use trelis_error::{CryptoError, Result};
+use trelis_hybrid::{
+    HybridEncapsulation, HybridIdentityKeypair, HybridKemKeypair, HybridPreKeyBundle,
+};
+use trelis_primitives::aead::{self, AeadKey, Nonce};
 use trelis_primitives::random::generate_bytes;
 
 use crate::session::CocoaSession;
 use crate::{GroupId, UserId};
+
+/// Size of welcome info plaintext: epoch_secret (32) + transcript_hash (32).
+const WELCOME_INFO_PLAINTEXT_SIZE: usize = 64;
+
+/// Context for deriving welcome encryption key from shared secret.
+const WELCOME_KEY_CONTEXT: &str = "trelis-v1-welcome-key";
 
 /// Welcome message sent to new members when joining a group.
 #[cfg(feature = "alloc")]
@@ -45,7 +64,13 @@ pub struct Welcome {
 /// # Returns
 ///
 /// A tuple of (creator's session, welcome messages for other members).
-#[cfg(all(feature = "alloc", feature = "std"))]
+///
+/// # Security
+///
+/// Each welcome message is encrypted to the recipient's identity KEM key using
+/// hybrid encryption (X448 + sntrup761). This ensures only the intended recipient
+/// can decrypt the epoch secret.
+#[cfg(all(feature = "alloc", any(feature = "std", feature = "wasm")))]
 pub fn create_group(
     _creator_identity: &HybridIdentityKeypair,
     creator_kem: HybridKemKeypair,
@@ -61,20 +86,46 @@ pub fn create_group(
     // Generate initial epoch secret
     let epoch_secret: [u8; 32] = generate_bytes()?;
 
+    // Initial transcript hash (empty for new group)
+    let transcript_hash = [0u8; 32];
+
     // Create creator's session
-    let session =
-        CocoaSession::create_group(group_id, creator_user_id, creator_kem, total_members, &epoch_secret)?;
+    let session = CocoaSession::create_group(
+        group_id,
+        creator_user_id,
+        creator_kem,
+        total_members,
+        &epoch_secret,
+    )?;
 
     // Generate welcome messages for other members
     let mut welcomes = Vec::with_capacity(member_bundles.len());
 
-    for (i, _bundle) in member_bundles.iter().enumerate() {
+    for (i, bundle) in member_bundles.iter().enumerate() {
         let leaf_position = (i + 1) as u32; // Creator is at position 0
 
-        // In a full implementation, we would:
-        // 1. Encrypt the epoch secret and tree state to the bundle's KEM key
-        // 2. Include the encrypted data in the welcome message
-        // For now, create a placeholder welcome
+        // Encapsulate to the member's identity KEM key
+        let (shared_secret, encap) = bundle.identity_kem().encapsulate()?;
+
+        // Derive AEAD key from shared secret
+        let aead_key = derive_welcome_key(shared_secret.as_bytes());
+
+        // Build welcome info plaintext: epoch_secret || transcript_hash
+        let mut plaintext = [0u8; WELCOME_INFO_PLAINTEXT_SIZE];
+        plaintext[..32].copy_from_slice(&epoch_secret);
+        plaintext[32..].copy_from_slice(&transcript_hash);
+
+        // Generate random nonce for AEAD
+        let nonce_bytes: [u8; 24] = generate_bytes()?;
+        let nonce = Nonce::from_bytes(nonce_bytes);
+
+        // Encrypt with group_id as AAD to bind welcome to this group
+        let ciphertext = aead::encrypt(&aead_key, &nonce, &plaintext, &group_id)?;
+
+        // encrypted_info = nonce (24) || ciphertext (plaintext + 16 tag)
+        let mut encrypted_info = Vec::with_capacity(24 + ciphertext.len());
+        encrypted_info.extend_from_slice(&nonce_bytes);
+        encrypted_info.extend_from_slice(&ciphertext);
 
         let welcome = Welcome {
             group_id,
@@ -82,14 +133,20 @@ pub fn create_group(
             leaf_position,
             tree_depth: session.tree().tree_depth(),
             member_count: total_members,
-            encrypted_info: Vec::new(), // Placeholder
-            encapsulation: Vec::new(),   // Placeholder
+            encrypted_info,
+            encapsulation: encap.to_bytes().to_vec(),
         };
 
         welcomes.push(welcome);
     }
 
     Ok((session, welcomes))
+}
+
+/// Derives the AEAD key for welcome message encryption.
+fn derive_welcome_key(shared_secret: &[u8; 32]) -> AeadKey {
+    let key_bytes = blake3::derive_key(WELCOME_KEY_CONTEXT, shared_secret);
+    AeadKey::from_bytes(key_bytes)
 }
 
 /// Processes a welcome message to join a group.
@@ -103,20 +160,50 @@ pub fn create_group(
 /// # Returns
 ///
 /// A session for participating in the group.
-#[cfg(feature = "alloc")]
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The encapsulation cannot be parsed
+/// - Decapsulation fails (wrong key or corrupted data)
+/// - Decryption fails (tampered ciphertext or wrong AAD)
+#[cfg(all(feature = "alloc", any(feature = "std", feature = "wasm")))]
 pub fn process_welcome(
     our_user_id: UserId,
     our_kem: HybridKemKeypair,
     welcome: &Welcome,
 ) -> Result<CocoaSession> {
-    // In a full implementation, we would:
-    // 1. Decapsulate to get the encryption key
-    // 2. Decrypt the epoch secret and tree state
-    // 3. Verify the tree structure
-    // For now, create a session with placeholder values
+    // Parse the encapsulation from bytes
+    let encapsulation = HybridEncapsulation::from_bytes(&welcome.encapsulation)?;
 
-    let epoch_secret = [0u8; 32]; // Would be decrypted from welcome.encrypted_info
-    let transcript_hash = [0u8; 32]; // Would be included in welcome.encrypted_info
+    // Decapsulate to recover the shared secret
+    let shared_secret = our_kem.decapsulate(&encapsulation)?;
+
+    // Derive the same AEAD key
+    let aead_key = derive_welcome_key(shared_secret.as_bytes());
+
+    // Parse encrypted_info: nonce (24) || ciphertext
+    if welcome.encrypted_info.len() < 24 {
+        return Err(CryptoError::MalformedMessage);
+    }
+    let mut nonce_bytes = [0u8; 24];
+    nonce_bytes.copy_from_slice(&welcome.encrypted_info[..24]);
+    let nonce = Nonce::from_bytes(nonce_bytes);
+    let ciphertext = &welcome.encrypted_info[24..];
+
+    // Decrypt with group_id as AAD
+    let plaintext = aead::decrypt(&aead_key, &nonce, ciphertext, &welcome.group_id)?;
+
+    // Validate plaintext size
+    if plaintext.len() != WELCOME_INFO_PLAINTEXT_SIZE {
+        return Err(CryptoError::MalformedMessage);
+    }
+
+    // Extract epoch_secret and transcript_hash
+    let mut epoch_secret = [0u8; 32];
+    let mut transcript_hash = [0u8; 32];
+    epoch_secret.copy_from_slice(&plaintext[..32]);
+    transcript_hash.copy_from_slice(&plaintext[32..]);
 
     let mut session = CocoaSession::join_group(
         welcome.group_id,
@@ -196,5 +283,101 @@ mod tests {
         let (session, welcomes) = create_group(&identity, kem, user_id, &[&bundle]).unwrap();
 
         assert_eq!(welcomes[0].group_id, *session.group_id());
+    }
+
+    #[test]
+    fn test_welcome_encryption_round_trip() {
+        // Creator sets up the group
+        let creator_identity = HybridIdentityKeypair::generate().unwrap();
+        let creator_kem = HybridKemKeypair::generate().unwrap();
+        let creator_user_id = [0x01u8; 32];
+
+        // Member's identity key - the bundle is created with this, and the member
+        // keeps the keypair to decrypt the welcome
+        let member_identity = HybridIdentityKeypair::generate().unwrap();
+        let member_kem = member_identity.kem().clone();
+        let member_user_id = [0x02u8; 32];
+        let bundle = create_test_bundle(&member_identity);
+
+        // Create group with member
+        let (creator_session, welcomes) =
+            create_group(&creator_identity, creator_kem, creator_user_id, &[&bundle]).unwrap();
+
+        assert_eq!(welcomes.len(), 1);
+        let welcome = &welcomes[0];
+
+        // Verify welcome has encrypted data
+        assert!(!welcome.encrypted_info.is_empty());
+        assert!(!welcome.encapsulation.is_empty());
+
+        // Member processes the welcome using their identity KEM keypair
+        let member_session = process_welcome(member_user_id, member_kem, welcome).unwrap();
+
+        // Verify both sessions are for the same group
+        assert_eq!(member_session.group_id(), creator_session.group_id());
+
+        // Verify member is at the correct position
+        assert_eq!(member_session.our_leaf_position(), 1);
+        assert_eq!(creator_session.our_leaf_position(), 0);
+
+        // Both should be at epoch 0
+        assert_eq!(member_session.epoch_number(), 0);
+        assert_eq!(creator_session.epoch_number(), 0);
+    }
+
+    #[test]
+    fn test_welcome_decryption_fails_with_wrong_key() {
+        // Creator sets up the group
+        let creator_identity = HybridIdentityKeypair::generate().unwrap();
+        let creator_kem = HybridKemKeypair::generate().unwrap();
+        let creator_user_id = [0x01u8; 32];
+
+        let member_identity = HybridIdentityKeypair::generate().unwrap();
+        let bundle = create_test_bundle(&member_identity);
+
+        // Create group
+        let (_, welcomes) =
+            create_group(&creator_identity, creator_kem, creator_user_id, &[&bundle]).unwrap();
+
+        let welcome = &welcomes[0];
+
+        // Try to process with a different KEM keypair (attacker scenario)
+        let wrong_identity = HybridIdentityKeypair::generate().unwrap();
+        let wrong_kem = wrong_identity.kem().clone();
+
+        // This should fail because the wrong key can't decrypt
+        let result = process_welcome([0x03u8; 32], wrong_kem, welcome);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_welcome_encryption_unique_per_member() {
+        let creator_identity = HybridIdentityKeypair::generate().unwrap();
+        let creator_kem = HybridKemKeypair::generate().unwrap();
+        let creator_user_id = [0x01u8; 32];
+
+        let member1_identity = HybridIdentityKeypair::generate().unwrap();
+        let bundle1 = create_test_bundle(&member1_identity);
+
+        let member2_identity = HybridIdentityKeypair::generate().unwrap();
+        let bundle2 = create_test_bundle(&member2_identity);
+
+        let (_, welcomes) = create_group(
+            &creator_identity,
+            creator_kem,
+            creator_user_id,
+            &[&bundle1, &bundle2],
+        )
+        .unwrap();
+
+        assert_eq!(welcomes.len(), 2);
+
+        // Each welcome should have different encrypted data (different nonces, different encapsulations)
+        assert_ne!(welcomes[0].encrypted_info, welcomes[1].encrypted_info);
+        assert_ne!(welcomes[0].encapsulation, welcomes[1].encapsulation);
+
+        // But same group parameters
+        assert_eq!(welcomes[0].group_id, welcomes[1].group_id);
+        assert_eq!(welcomes[0].epoch, welcomes[1].epoch);
     }
 }

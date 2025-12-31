@@ -1,4 +1,4 @@
-//! Double Ratchet encryption (send) path.
+//! KEM Ratchet encryption (send) path.
 //!
 //! Encrypts plaintext by:
 //! 1. Generating a fresh hybrid keypair
@@ -14,15 +14,37 @@ use zeroize::Zeroize;
 use crate::header::{MessageHeader, RatchetMessage};
 use crate::kdf::kdf_rk;
 use crate::nonce::derive_hedged_nonce;
-use crate::state::{DoubleRatchet, RatchetStatus};
+use crate::state::{KemRatchet, RatchetStatus};
 
 /// Result of a send operation.
+///
+/// Contains the encrypted message to transmit and metadata about the
+/// state update that occurred. The caller must send the message over
+/// the network to complete the operation.
+///
+/// # Usage
+///
+/// ```ignore
+/// let result = send_message(&mut ratchet_state, plaintext, timestamp)?;
+///
+/// // Send the encrypted message
+/// network.send(result.message().to_bytes());
+///
+/// // Check if state was updated (always true for successful sends)
+/// assert!(result.state_updated());
+/// ```
+///
+/// # Per-Message Forward Secrecy
+///
+/// Each send operation generates a fresh hybrid keypair. The previous
+/// keypair is retained temporarily for async message handling, but the
+/// message key is deleted immediately after encryption.
 #[cfg(feature = "alloc")]
 pub struct SendResult {
     /// The encrypted message to send.
     pub message: RatchetMessage,
-    /// The updated ratchet state.
-    /// (The caller should replace their state with this.)
+    /// Whether the ratchet state was updated.
+    /// Always true for successful sends.
     state_updated: bool,
 }
 
@@ -69,9 +91,9 @@ impl SendResult {
 /// - `NoRecipientKey` if recipient's public key is unknown
 /// - `SessionExhausted` if the message counter is near overflow
 /// - `RngFailure` if random number generation fails
-#[cfg(all(feature = "alloc", feature = "std"))]
+#[cfg(all(feature = "alloc", any(feature = "std", feature = "wasm")))]
 pub fn send_message(
-    state: &mut DoubleRatchet,
+    state: &mut KemRatchet,
     plaintext: &[u8],
     current_time: u64,
 ) -> Result<SendResult> {
@@ -138,12 +160,9 @@ mod tests {
         let session_key = [0x42u8; 32];
         let their_keypair = HybridKemKeypair::generate().unwrap();
 
-        let mut state = DoubleRatchet::init_initiator(
-            &session_key,
-            their_keypair.public_key().clone(),
-            1000,
-        )
-        .unwrap();
+        let mut state =
+            KemRatchet::init_initiator(&session_key, their_keypair.public_key().clone(), 1000)
+                .unwrap();
 
         let plaintext = b"Hello, World!";
         let result = send_message(&mut state, plaintext, 1001).unwrap();
@@ -162,12 +181,9 @@ mod tests {
         let session_key = [0x42u8; 32];
         let their_keypair = HybridKemKeypair::generate().unwrap();
 
-        let mut state = DoubleRatchet::init_initiator(
-            &session_key,
-            their_keypair.public_key().clone(),
-            1000,
-        )
-        .unwrap();
+        let mut state =
+            KemRatchet::init_initiator(&session_key, their_keypair.public_key().clone(), 1000)
+                .unwrap();
 
         // Send multiple messages
         for i in 0..5 {
@@ -184,12 +200,9 @@ mod tests {
         let session_key = [0x42u8; 32];
         let their_keypair = HybridKemKeypair::generate().unwrap();
 
-        let mut state = DoubleRatchet::init_initiator(
-            &session_key,
-            their_keypair.public_key().clone(),
-            1000,
-        )
-        .unwrap();
+        let mut state =
+            KemRatchet::init_initiator(&session_key, their_keypair.public_key().clone(), 1000)
+                .unwrap();
 
         let original_key_id = state.our_key_id();
 
@@ -206,7 +219,7 @@ mod tests {
         let session_key = [0x42u8; 32];
         let our_keypair = HybridKemKeypair::generate().unwrap();
 
-        let mut state = DoubleRatchet::init_responder(&session_key, our_keypair, 1000);
+        let mut state = KemRatchet::init_responder(&session_key, our_keypair, 1000);
 
         let result = send_message(&mut state, b"test", 1001);
         assert!(result.is_err());
@@ -217,12 +230,9 @@ mod tests {
         let session_key = [0x42u8; 32];
         let their_keypair = HybridKemKeypair::generate().unwrap();
 
-        let mut state = DoubleRatchet::init_initiator(
-            &session_key,
-            their_keypair.public_key().clone(),
-            1000,
-        )
-        .unwrap();
+        let mut state =
+            KemRatchet::init_initiator(&session_key, their_keypair.public_key().clone(), 1000)
+                .unwrap();
 
         let result1 = send_message(&mut state, b"message 1", 1001).unwrap();
         let result2 = send_message(&mut state, b"message 2", 1002).unwrap();

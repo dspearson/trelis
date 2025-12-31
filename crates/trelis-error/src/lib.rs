@@ -27,7 +27,6 @@ pub type Result<T> = core::result::Result<T, CryptoError>;
 #[non_exhaustive]
 pub enum CryptoError {
     // ─── Key Errors ─────────────────────────────────────────────────────────
-
     /// Key length does not match expected size.
     InvalidKeyLength {
         /// Expected length in bytes.
@@ -43,7 +42,6 @@ pub enum CryptoError {
     KeyDerivationFailed,
 
     // ─── Signature Errors ───────────────────────────────────────────────────
-
     /// Signature verification failed.
     ///
     /// This error is intentionally vague to prevent timing attacks.
@@ -60,7 +58,6 @@ pub enum CryptoError {
     InvalidSignature,
 
     // ─── Encryption Errors ──────────────────────────────────────────────────
-
     /// Decryption failed due to invalid ciphertext or wrong key.
     ///
     /// This error is intentionally vague to prevent oracle attacks.
@@ -78,7 +75,6 @@ pub enum CryptoError {
     },
 
     // ─── KEM Errors ─────────────────────────────────────────────────────────
-
     /// KEM encapsulation failed.
     EncapsulationFailed,
 
@@ -97,7 +93,6 @@ pub enum CryptoError {
     },
 
     // ─── Protocol Errors ────────────────────────────────────────────────────
-
     /// Session has not been initialised.
     SessionNotInitialised,
 
@@ -147,7 +142,6 @@ pub enum CryptoError {
     },
 
     // ─── Wire Format Errors ─────────────────────────────────────────────────
-
     /// Unsupported protocol version.
     UnsupportedProtocolVersion {
         /// Received version byte.
@@ -179,7 +173,6 @@ pub enum CryptoError {
     },
 
     // ─── Bundle Errors ──────────────────────────────────────────────────────
-
     /// Pre-key bundle signature verification failed.
     BundleSignatureInvalid,
 
@@ -190,7 +183,6 @@ pub enum CryptoError {
     BundleTimestampInFuture,
 
     // ─── Device Wrap Errors ─────────────────────────────────────────────────
-
     /// Device key wrap is for wrong recipient.
     WrongRecipient,
 
@@ -198,12 +190,10 @@ pub enum CryptoError {
     ContextMismatch,
 
     // ─── Random Number Generation ───────────────────────────────────────────
-
     /// Cryptographically secure RNG failure.
     RngFailure,
 
     // ─── Tree/Group Errors ──────────────────────────────────────────────────
-
     /// Invalid tree node index.
     InvalidNodeIndex,
 
@@ -240,12 +230,10 @@ pub enum CryptoError {
     },
 
     // ─── Rate Limiting ──────────────────────────────────────────────────────
-
     /// Rate limit exceeded.
     RateLimitExceeded,
 
     // ─── Session Errors ─────────────────────────────────────────────────────
-
     /// No active session established.
     NoActiveSession,
 
@@ -254,10 +242,6 @@ pub enum CryptoError {
 
     /// No recipient public key available.
     NoRecipientKey,
-
-    /// Too many messages skipped (exceeds MAX_SKIP).
-    #[deprecated(note = "Skipped keys not supported in per-message KEM ratchet")]
-    TooManySkippedMessages,
 
     /// Message arrived out of order (ordered delivery required).
     ///
@@ -271,7 +255,6 @@ pub enum CryptoError {
     },
 
     // ─── Serialisation Errors ───────────────────────────────────────────────
-
     /// Invalid magic bytes in serialised data.
     InvalidMagic,
 
@@ -308,7 +291,10 @@ impl fmt::Display for CryptoError {
             Self::DecapsulationFailed => write!(f, "KEM decapsulation failed"),
             Self::InvalidCiphertext => write!(f, "invalid ciphertext format"),
             Self::InvalidCiphertextLength { expected, actual } => {
-                write!(f, "invalid ciphertext length: expected {expected}, got {actual}")
+                write!(
+                    f,
+                    "invalid ciphertext length: expected {expected}, got {actual}"
+                )
             }
 
             // Protocol errors
@@ -316,7 +302,10 @@ impl fmt::Display for CryptoError {
             Self::UnknownSenderKey => write!(f, "unknown sender public key"),
             Self::MessageCounterTooOld => write!(f, "message counter too old"),
             Self::MessageCounterTooFarAhead { max_skip, gap } => {
-                write!(f, "message counter too far ahead (max skip: {max_skip}, gap: {gap})")
+                write!(
+                    f,
+                    "message counter too far ahead (max skip: {max_skip}, gap: {gap})"
+                )
             }
             Self::TooManySkippedKeys { limit } => {
                 write!(f, "too many skipped keys (limit: {limit})")
@@ -324,21 +313,33 @@ impl fmt::Display for CryptoError {
             Self::SkippedKeyExpired => write!(f, "skipped key has expired"),
             Self::DuplicateMessage => write!(f, "duplicate message detected"),
             Self::EpochTooOld { minimum, received } => {
-                write!(f, "epoch too old (minimum: {minimum}, received: {received})")
+                write!(
+                    f,
+                    "epoch too old (minimum: {minimum}, received: {received})"
+                )
             }
             Self::UnknownRecipientKeyId => write!(f, "unknown recipient key ID"),
             Self::SessionExhausted { current, threshold } => {
-                write!(f, "session exhausted (current: {current}, threshold: {threshold})")
+                write!(
+                    f,
+                    "session exhausted (current: {current}, threshold: {threshold})"
+                )
             }
 
             // Wire format errors
-            Self::UnsupportedProtocolVersion { received, supported } => {
+            Self::UnsupportedProtocolVersion {
+                received,
+                supported,
+            } => {
                 write!(
                     f,
                     "unsupported protocol version: received 0x{received:02x}, supported 0x{supported:02x}"
                 )
             }
-            Self::UnsupportedCipherSuite { received, supported } => {
+            Self::UnsupportedCipherSuite {
+                received,
+                supported,
+            } => {
                 write!(
                     f,
                     "unsupported cipher suite: received 0x{received:02x}, supported 0x{supported:02x}"
@@ -346,8 +347,14 @@ impl fmt::Display for CryptoError {
             }
             Self::MalformedMessage => write!(f, "malformed message"),
             Self::InvalidHeader => write!(f, "invalid header format"),
-            Self::UnexpectedEndOfInput { expected, available } => {
-                write!(f, "unexpected end of input: expected {expected}, available {available}")
+            Self::UnexpectedEndOfInput {
+                expected,
+                available,
+            } => {
+                write!(
+                    f,
+                    "unexpected end of input: expected {expected}, available {available}"
+                )
             }
 
             // Bundle errors
@@ -373,7 +380,10 @@ impl fmt::Display for CryptoError {
             Self::InvalidLeafPosition => write!(f, "invalid leaf position"),
             Self::RemovedFromGroup => write!(f, "you have been removed from the group"),
             Self::EpochMismatch { expected, received } => {
-                write!(f, "epoch mismatch: expected {expected}, received {received}")
+                write!(
+                    f,
+                    "epoch mismatch: expected {expected}, received {received}"
+                )
             }
 
             // Rate limiting
@@ -383,9 +393,11 @@ impl fmt::Display for CryptoError {
             Self::NoActiveSession => write!(f, "no active session"),
             Self::SessionCompromised => write!(f, "session compromised"),
             Self::NoRecipientKey => write!(f, "no recipient public key"),
-            Self::TooManySkippedMessages => write!(f, "too many skipped messages"),
             Self::MessageOrderViolation { expected, received } => {
-                write!(f, "message order violation: expected {expected}, received {received}")
+                write!(
+                    f,
+                    "message order violation: expected {expected}, received {received}"
+                )
             }
 
             // Serialisation errors
@@ -472,7 +484,6 @@ impl CryptoError {
             | Self::InvalidCiphertextLength { .. }
             | Self::EncapsulationFailed
             | Self::KeyDerivationFailed
-            | Self::TooManySkippedMessages
             | Self::InvalidMagic
             | Self::UnsupportedStateVersion => ErrorCategory::Security,
         }

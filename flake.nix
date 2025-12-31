@@ -18,8 +18,8 @@
           inherit system overlays;
         };
 
-        # Rust 1.85+ toolchain for edition 2024
-        rustToolchain = pkgs.rust-bin.stable."1.85.0".minimal.override {
+        # Rust toolchain (latest stable, requires 1.85+ for edition 2024)
+        rustToolchain = pkgs.rust-bin.stable.latest.minimal.override {
           extensions = [ "rust-src" "rust-analyzer" "clippy" "rustfmt" ];
           targets = [ "wasm32-unknown-unknown" ];
         };

@@ -174,7 +174,7 @@ fn divmod_u14(x: u32, m: u16) -> (u32, u16) {
 ///
 /// Total: 1158 bytes
 ///
-/// The moduli satisfy M[i+1] ≈ ceil(sqrt(M[i]^2)) to achieve near-optimal compression.
+/// The moduli satisfy M\[i+1\] ≈ ceil(sqrt(M\[i\]^2)) to achieve near-optimal compression.
 pub fn rq_encode(coeffs: &[i16; P]) -> [u8; RQ_BYTES] {
     let mut out = [0u8; RQ_BYTES];
     let mut out_idx = 0;
@@ -843,7 +843,8 @@ mod tests {
             assert!(
                 decoded[i].abs() <= 3,
                 "Coefficient {} should be near zero, got {}",
-                i, decoded[i]
+                i,
+                decoded[i]
             );
         }
     }
@@ -906,7 +907,10 @@ mod c_comparison_tests {
             assert!(
                 c >= -Q12 && c <= Q12,
                 "Coefficient {} out of range: {} (should be in [{}, {}])",
-                i, c, -Q12, Q12
+                i,
+                c,
+                -Q12,
+                Q12
             );
         }
     }

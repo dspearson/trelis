@@ -145,7 +145,9 @@ pub fn process_add(session: &mut CocoaSession, commit: &AddCommit) -> Result<()>
     // verify_commit_signature(&commit)?;
 
     // Update tree with new member
-    session.tree_mut().set_member_count(commit.new_leaf_position + 1);
+    session
+        .tree_mut()
+        .set_member_count(commit.new_leaf_position + 1);
 
     // Process path updates
     // In full implementation, would decrypt seeds and update tree nodes

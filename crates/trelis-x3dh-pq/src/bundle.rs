@@ -24,7 +24,7 @@ pub const PREKEY_BUNDLE_SIZE: usize = HYBRID_SIGNING_PK_SIZE  // Identity signin
     + HYBRID_KEM_PK_SIZE      // One-time key: 1,214 B
     + KEY_ID_SIZE             // OTK key ID: 8 B
     + 8                        // Timestamp: 8 B
-    + 8;                       // Expiration: 8 B
+    + 8; // Expiration: 8 B
 
 /// Size of the signed pre-key bundle.
 pub const SIGNED_BUNDLE_SIZE: usize = PREKEY_BUNDLE_SIZE + HYBRID_SIG_SIZE;
@@ -233,7 +233,9 @@ mod tests {
             2000,
         );
 
-        let signed = bundle.sign(&identity_signing).expect("signing should succeed");
+        let signed = bundle
+            .sign(&identity_signing)
+            .expect("signing should succeed");
         assert!(signed.verify().is_ok());
     }
 

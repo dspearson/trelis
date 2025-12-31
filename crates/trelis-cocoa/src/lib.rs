@@ -34,6 +34,15 @@
 //! ```
 
 #![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::needless_borrow,
+        clippy::assertions_on_constants
+    )
+)]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -46,7 +55,10 @@ pub mod tree;
 
 // Re-exports
 pub use epoch::{EpochSecrets, MessageKey};
-pub use key_schedule::{H1_CONTEXT, H2_CONTEXT, H3_CONTEXT, H4_CONTEXT, H5_CONTEXT};
+pub use key_schedule::{
+    H1_CONTEXT, H2_CONTEXT_PREFIX, H2_CONTEXT_SNTRUP, H2_CONTEXT_X448, H3_CONTEXT, H4_CONTEXT,
+    H5_CONTEXT,
+};
 pub use session::CocoaSession;
 pub use tree::{NodeIndex, NodeState, PartialTreeView};
 
