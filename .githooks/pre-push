@@ -1,0 +1,43 @@
+#!/bin/sh
+# Pre-push hook: runs fmt check, clippy, and tests when pushing to master
+#
+# Install with: git config core.hooksPath .githooks
+
+set -e
+
+REMOTE="$1"
+URL="$2"
+
+# Read stdin for refs being pushed
+while read local_ref local_sha remote_ref remote_sha; do
+    # Check if pushing to master or main
+    if echo "$remote_ref" | grep -qE "refs/heads/(master|main)$"; then
+        echo "Pushing to master/main - running quality checks..."
+
+        echo "==> Checking formatting..."
+        cargo fmt --all -- --check
+        if [ $? -ne 0 ]; then
+            echo "ERROR: Formatting check failed. Run 'cargo fmt --all' to fix."
+            exit 1
+        fi
+
+        echo "==> Running clippy..."
+        RUSTFLAGS="-Dwarnings" cargo clippy --all-features --all-targets -- -D warnings
+        if [ $? -ne 0 ]; then
+            echo "ERROR: Clippy found issues."
+            exit 1
+        fi
+
+        echo "==> Running tests..."
+        cargo test --all
+        if [ $? -ne 0 ]; then
+            echo "ERROR: Tests failed."
+            exit 1
+        fi
+
+        echo "All checks passed!"
+        break
+    fi
+done
+
+exit 0
