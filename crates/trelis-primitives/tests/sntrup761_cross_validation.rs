@@ -840,6 +840,7 @@ mod proptest_tests {
 // ============================================================================
 
 #[test]
+#[ignore] // Long-running: run with `cargo test -- --ignored`
 fn stress_test_1000_c_rust_roundtrips() {
     (0..1000).into_par_iter().for_each(|i| {
         let c_sk = c_impl::Sntrup761SecretKey::generate();
@@ -854,6 +855,7 @@ fn stress_test_1000_c_rust_roundtrips() {
 }
 
 #[test]
+#[ignore] // Long-running: run with `cargo test -- --ignored`
 fn stress_test_500_cross_kem_c_key_rust_encap() {
     (0..500).into_par_iter().for_each(|i| {
         let c_sk = c_impl::Sntrup761SecretKey::generate();
@@ -877,6 +879,7 @@ fn stress_test_500_cross_kem_c_key_rust_encap() {
 }
 
 #[test]
+#[ignore] // Long-running: run with `cargo test -- --ignored`
 fn stress_test_500_cross_kem_rust_key_c_encap() {
     (0..500).into_par_iter().for_each(|i| {
         let rust_sk = rust_impl::Sntrup761SecretKey::generate();
@@ -902,6 +905,7 @@ fn stress_test_500_cross_kem_rust_key_c_encap() {
 }
 
 #[test]
+#[ignore] // Long-running: run with `cargo test -- --ignored`
 fn stress_test_1000_rust_only_kem() {
     (0..1000).into_par_iter().for_each(|i| {
         let sk = rust_impl::Sntrup761SecretKey::generate();
@@ -920,6 +924,7 @@ fn stress_test_1000_rust_only_kem() {
 }
 
 #[test]
+#[ignore] // Long-running: run with `cargo test -- --ignored`
 fn stress_test_1000_c_only_kem() {
     (0..1000).into_par_iter().for_each(|i| {
         let sk = c_impl::Sntrup761SecretKey::generate();
@@ -938,6 +943,7 @@ fn stress_test_1000_c_only_kem() {
 }
 
 #[test]
+#[ignore] // Long-running: run with `cargo test -- --ignored`
 fn stress_test_secret_key_serialisation() {
     (0..200).into_par_iter().for_each(|i| {
         // Generate with C, use with Rust
