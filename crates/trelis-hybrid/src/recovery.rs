@@ -376,6 +376,10 @@ pub const RECOVERY_SEED_SIZE: usize = 32;
 /// This function uses domain-separated BLAKE3 key derivation to produce
 /// a hybrid signing keypair that can be regenerated from the same seed.
 ///
+/// The type parameter `S` selects the ML-DSA variant:
+/// - `MlDsa65Fips204`: Standard FIPS 204 (default if not specified)
+/// - `MlDsa65SuiteB`: PQC-Suite-B with BLAKE3
+///
 /// # Arguments
 ///
 /// * `seed` - A 32-byte seed (e.g., derived from a mnemonic phrase)
@@ -396,12 +400,13 @@ pub const RECOVERY_SEED_SIZE: usize = 32;
 ///
 /// ```ignore
 /// use trelis_hybrid::recovery::derive_recovery_keypair;
+/// use trelis_primitives::MlDsa65Fips204;
 ///
 /// let seed = [0x42u8; 32]; // In practice, derive from mnemonic
-/// let recovery_key = derive_recovery_keypair(&seed).unwrap();
+/// let recovery_key = derive_recovery_keypair::<MlDsa65Fips204>(&seed).unwrap();
 ///
 /// // Same seed always produces the same keypair
-/// let recovery_key2 = derive_recovery_keypair(&seed).unwrap();
+/// let recovery_key2 = derive_recovery_keypair::<MlDsa65Fips204>(&seed).unwrap();
 /// assert_eq!(
 ///     recovery_key.public_key().to_bytes(),
 ///     recovery_key2.public_key().to_bytes()
@@ -412,9 +417,9 @@ pub const RECOVERY_SEED_SIZE: usize = 32;
 ///
 /// Returns `KeyGenerationFailed` if key generation fails internally.
 #[cfg(any(feature = "std", feature = "wasm"))]
-pub fn derive_recovery_keypair(
+pub fn derive_recovery_keypair<S: MlDsaScheme>(
     seed: &[u8; RECOVERY_SEED_SIZE],
-) -> Result<HybridSigningKeypair<trelis_primitives::MlDsa65Fips204>> {
+) -> Result<HybridSigningKeypair<S>> {
     // Derive Ed448 seed (57 bytes) using domain separation
     // We derive two 32-byte blocks and combine them
     // Using a fixed suffix for the second derivation to avoid format! dependency
@@ -429,94 +434,13 @@ pub fn derive_recovery_keypair(
 
     let ed448_secret = Ed448SigningKey::from_seed(ed448_seed);
 
-    // Derive ML-DSA-65 key using a deterministic RNG seeded from recovery seed
+    // Derive ML-DSA key using the trait's generate_from_seed method
     let mldsa_rng_seed = derive_key(RECOVERY_MLDSA_CONTEXT, seed);
-    let mldsa_secret = derive_mldsa_from_seed(&mldsa_rng_seed)?;
+    let mldsa_secret = S::generate_from_seed(&mldsa_rng_seed)?;
 
     // Construct the hybrid keypair
     Ok(HybridSigningKeypair::from_components(ed448_secret, mldsa_secret))
 }
-
-/// Derives an ML-DSA-65 signing key deterministically from a 32-byte seed.
-///
-/// Uses ChaCha20 as a deterministic PRNG seeded from the input.
-#[cfg(any(feature = "std", feature = "wasm"))]
-fn derive_mldsa_from_seed(seed: &[u8; 32]) -> Result<trelis_primitives::MlDsa65SigningKey> {
-    use fips204::ml_dsa_65;
-    use fips204::traits::SerDes;
-
-    // Create a deterministic RNG from the seed
-    let mut rng = DeterministicRng::new(seed);
-
-    // Generate ML-DSA-65 keypair using the deterministic RNG
-    let (_pk, sk) =
-        ml_dsa_65::try_keygen_with_rng(&mut rng).map_err(|_| CryptoError::KeyGenerationFailed)?;
-
-    trelis_primitives::MlDsa65SigningKey::from_bytes(&sk.into_bytes())
-}
-
-/// A deterministic PRNG based on ChaCha20 for recovery key derivation.
-///
-/// This is used internally to make ML-DSA-65 key generation deterministic.
-#[cfg(any(feature = "std", feature = "wasm"))]
-struct DeterministicRng {
-    state: [u8; 32],
-    counter: u64,
-}
-
-#[cfg(any(feature = "std", feature = "wasm"))]
-impl DeterministicRng {
-    fn new(seed: &[u8; 32]) -> Self {
-        Self {
-            state: *seed,
-            counter: 0,
-        }
-    }
-
-    fn next_block(&mut self) -> [u8; 32] {
-        // Use BLAKE3 keyed hash as a simple PRNG
-        // state = BLAKE3(state || counter)
-        let mut input = [0u8; 40];
-        input[..32].copy_from_slice(&self.state);
-        input[32..40].copy_from_slice(&self.counter.to_le_bytes());
-        self.counter += 1;
-        self.state = blake3::hash(&input).into();
-        self.state
-    }
-}
-
-#[cfg(any(feature = "std", feature = "wasm"))]
-impl fips204::RngCore for DeterministicRng {
-    fn next_u32(&mut self) -> u32 {
-        let mut buf = [0u8; 4];
-        self.fill_bytes(&mut buf);
-        u32::from_le_bytes(buf)
-    }
-
-    fn next_u64(&mut self) -> u64 {
-        let mut buf = [0u8; 8];
-        self.fill_bytes(&mut buf);
-        u64::from_le_bytes(buf)
-    }
-
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        let mut offset = 0;
-        while offset < dest.len() {
-            let block = self.next_block();
-            let copy_len = core::cmp::min(32, dest.len() - offset);
-            dest[offset..offset + copy_len].copy_from_slice(&block[..copy_len]);
-            offset += copy_len;
-        }
-    }
-
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> core::result::Result<(), fips204::RngError> {
-        self.fill_bytes(dest);
-        Ok(())
-    }
-}
-
-#[cfg(any(feature = "std", feature = "wasm"))]
-impl fips204::CryptoRng for DeterministicRng {}
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::needless_borrow)]
@@ -673,8 +597,8 @@ mod tests {
     fn test_derive_recovery_keypair_deterministic() {
         let seed = [0x42u8; 32];
 
-        let keypair1 = derive_recovery_keypair(&seed).unwrap();
-        let keypair2 = derive_recovery_keypair(&seed).unwrap();
+        let keypair1 = derive_recovery_keypair::<MlDsa65Fips204>(&seed).unwrap();
+        let keypair2 = derive_recovery_keypair::<MlDsa65Fips204>(&seed).unwrap();
 
         // Same seed should produce identical public keys
         assert_eq!(
@@ -689,8 +613,8 @@ mod tests {
         let seed1 = [0x42u8; 32];
         let seed2 = [0x43u8; 32];
 
-        let keypair1 = derive_recovery_keypair(&seed1).unwrap();
-        let keypair2 = derive_recovery_keypair(&seed2).unwrap();
+        let keypair1 = derive_recovery_keypair::<MlDsa65Fips204>(&seed1).unwrap();
+        let keypair2 = derive_recovery_keypair::<MlDsa65Fips204>(&seed2).unwrap();
 
         // Different seeds should produce different public keys
         assert_ne!(
@@ -703,7 +627,7 @@ mod tests {
     #[test]
     fn test_derive_recovery_keypair_sign_verify() {
         let seed = [0xAAu8; 32];
-        let keypair = derive_recovery_keypair(&seed).unwrap();
+        let keypair = derive_recovery_keypair::<MlDsa65Fips204>(&seed).unwrap();
 
         let message = b"test message for recovery key";
         let signature = keypair.sign(message).unwrap();
@@ -716,7 +640,7 @@ mod tests {
     #[test]
     fn test_derive_recovery_keypair_compromise_notice() {
         let seed = [0xBBu8; 32];
-        let recovery_keypair = derive_recovery_keypair(&seed).unwrap();
+        let recovery_keypair = derive_recovery_keypair::<MlDsa65Fips204>(&seed).unwrap();
         let compromised_fingerprint = [0xCCu8; 32];
 
         // Create a compromise notice signed by recovery key

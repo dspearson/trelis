@@ -79,6 +79,23 @@ impl MlDsa65SigningKey {
         })
     }
 
+    /// Generates a signing key deterministically from a 32-byte seed.
+    ///
+    /// This is used for recovery key derivation where the same seed must
+    /// always produce the same key.
+    ///
+    /// # Errors
+    ///
+    /// Returns `KeyGenerationFailed` if key generation fails internally.
+    pub fn generate_from_seed(seed: &[u8; 32]) -> Result<Self> {
+        let mut rng = DeterministicRng::new(seed);
+        let (_pk, sk) = ml_dsa_65::try_keygen_with_rng(&mut rng)
+            .map_err(|_| CryptoError::KeyGenerationFailed)?;
+        Ok(Self {
+            bytes: sk.into_bytes(),
+        })
+    }
+
     /// Creates a signing key from raw bytes.
     ///
     /// # Errors
@@ -394,6 +411,66 @@ impl fips204::RngCore for CsprngAdapter {
 }
 
 impl fips204::CryptoRng for CsprngAdapter {}
+
+/// Deterministic PRNG based on BLAKE3 for seed-based key generation.
+///
+/// This generates a stream of pseudo-random bytes from a 32-byte seed,
+/// ensuring the same seed always produces the same output.
+struct DeterministicRng {
+    state: [u8; 32],
+    counter: u64,
+}
+
+impl DeterministicRng {
+    fn new(seed: &[u8; 32]) -> Self {
+        Self {
+            state: *seed,
+            counter: 0,
+        }
+    }
+
+    fn next_block(&mut self) -> [u8; 32] {
+        // Use BLAKE3 keyed hash as a simple PRNG
+        // state = BLAKE3(state || counter)
+        let mut input = [0u8; 40];
+        input[..32].copy_from_slice(&self.state);
+        input[32..40].copy_from_slice(&self.counter.to_le_bytes());
+        self.counter += 1;
+        self.state = blake3::hash(&input).into();
+        self.state
+    }
+}
+
+impl fips204::RngCore for DeterministicRng {
+    fn next_u32(&mut self) -> u32 {
+        let mut buf = [0u8; 4];
+        self.fill_bytes(&mut buf);
+        u32::from_le_bytes(buf)
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        let mut buf = [0u8; 8];
+        self.fill_bytes(&mut buf);
+        u64::from_le_bytes(buf)
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        let mut offset = 0;
+        while offset < dest.len() {
+            let block = self.next_block();
+            let copy_len = core::cmp::min(32, dest.len() - offset);
+            dest[offset..offset + copy_len].copy_from_slice(&block[..copy_len]);
+            offset += copy_len;
+        }
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> core::result::Result<(), fips204::RngError> {
+        self.fill_bytes(dest);
+        Ok(())
+    }
+}
+
+impl fips204::CryptoRng for DeterministicRng {}
 
 #[cfg(test)]
 mod tests {

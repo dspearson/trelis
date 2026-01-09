@@ -80,8 +80,20 @@ impl MlDsa65BSigningKey {
         let mut seed = [0u8; 32];
         fill_bytes(&mut seed)?;
 
+        Self::generate_from_seed(&seed)
+    }
+
+    /// Generates a signing key deterministically from a 32-byte seed.
+    ///
+    /// This is used for recovery key derivation where the same seed must
+    /// always produce the same key.
+    ///
+    /// # Errors
+    ///
+    /// Returns `KeyGenerationFailed` if key generation fails internally.
+    pub fn generate_from_seed(seed: &[u8; 32]) -> Result<Self> {
         // Convert to B32 (hybrid_array::Array<u8, U32>)
-        let seed_array: B32 = seed.into();
+        let seed_array: B32 = (*seed).into();
         let keypair = MlDsa65::key_gen_internal(&seed_array);
         let sk_encoded = keypair.signing_key().encode();
 

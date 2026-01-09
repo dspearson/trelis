@@ -40,6 +40,12 @@ pub trait MlDsaScheme: Sized + Clone + 'static {
     /// Generates a new random signing key.
     fn generate() -> Result<Self::SigningKey>;
 
+    /// Generates a signing key deterministically from a 32-byte seed.
+    ///
+    /// This is used for recovery key derivation where the same seed must
+    /// always produce the same key.
+    fn generate_from_seed(seed: &[u8; 32]) -> Result<Self::SigningKey>;
+
     /// Derives the verifying key from a signing key.
     fn verifying_key(sk: &Self::SigningKey) -> Self::VerifyingKey;
 
@@ -109,6 +115,10 @@ impl MlDsaScheme for MlDsa65Fips204 {
 
     fn generate() -> Result<Self::SigningKey> {
         MlDsa65SigningKey::generate()
+    }
+
+    fn generate_from_seed(seed: &[u8; 32]) -> Result<Self::SigningKey> {
+        MlDsa65SigningKey::generate_from_seed(seed)
     }
 
     fn verifying_key(sk: &Self::SigningKey) -> Self::VerifyingKey {
@@ -215,6 +225,10 @@ impl MlDsaScheme for MlDsa65SuiteB {
 
     fn generate() -> Result<Self::SigningKey> {
         MlDsa65BSigningKey::generate()
+    }
+
+    fn generate_from_seed(seed: &[u8; 32]) -> Result<Self::SigningKey> {
+        MlDsa65BSigningKey::generate_from_seed(seed)
     }
 
     fn verifying_key(sk: &Self::SigningKey) -> Self::VerifyingKey {
