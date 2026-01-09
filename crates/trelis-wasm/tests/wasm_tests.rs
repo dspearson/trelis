@@ -1354,22 +1354,26 @@ mod multidevice_tests {
 
     #[wasm_bindgen_test]
     fn test_thread_settings_create() {
+        let thread_id = random_bytes_32().unwrap();
         let settings = thread_settings_create(
-            true, // retain_history
-            7,    // max_retention_days
-            100,  // max_messages
+            &thread_id,
+            false, // ephemeral
+            1234567890,
         )
         .unwrap();
 
-        assert!(settings.len() > 0);
+        // Returns JsValue object
+        let ephemeral = get_bool_field(&settings, "ephemeral");
+        assert!(!ephemeral);
     }
 
     #[wasm_bindgen_test]
     fn test_retained_key_create_parse() {
-        let epoch_key = random_bytes_32().unwrap();
+        let message_id = random_bytes_32().unwrap();
+        let message_key = random_bytes_32().unwrap();
         let timestamp = 1234567890u64;
 
-        let retained = retained_key_create(&epoch_key, timestamp).unwrap();
+        let retained = retained_key_create(&message_id, &message_key, 0, timestamp).unwrap();
         assert!(retained.len() > 0);
 
         let parsed = retained_key_parse(&retained).unwrap();
@@ -1377,7 +1381,7 @@ mod multidevice_tests {
         let parsed_key = get_bytes_field(&parsed, "key");
         let parsed_timestamp = get_number_field(&parsed, "timestamp") as u64;
 
-        assert_eq!(parsed_key, epoch_key);
+        assert_eq!(parsed_key, message_key);
         assert_eq!(parsed_timestamp, timestamp);
     }
 
@@ -1388,9 +1392,11 @@ mod multidevice_tests {
         let store = thread_key_store_create(&thread_id).unwrap();
         assert!(store.len() > 0);
 
-        // Retain a key
-        let epoch_key = random_bytes_32().unwrap();
-        let store = thread_key_store_retain(&store, 0, &epoch_key, 1234567890).unwrap();
+        // Create and retain a key
+        let message_id = random_bytes_32().unwrap();
+        let message_key = random_bytes_32().unwrap();
+        let retained_key = retained_key_create(&message_id, &message_key, 0, 1234567890).unwrap();
+        let store = thread_key_store_retain(&store, &retained_key).unwrap();
 
         // Get info
         let info = thread_key_store_info(&store).unwrap();
@@ -1423,14 +1429,16 @@ mod history_tests {
 
         // Create key store with a key
         let store = thread_key_store_create(&thread_id).unwrap();
-        let epoch_key = random_bytes_32().unwrap();
-        let store = thread_key_store_retain(&store, 0, &epoch_key, 1234567890).unwrap();
+        let message_id = random_bytes_32().unwrap();
+        let message_key = random_bytes_32().unwrap();
+        let retained_key = retained_key_create(&message_id, &message_key, 0, 1234567890).unwrap();
+        let store = thread_key_store_retain(&store, &retained_key).unwrap();
 
         let keys = thread_key_store_get_all_keys(&store).unwrap();
 
-        // Create history share
+        // Create history share (thread_id, retained_keys, signing_secret, shared_at)
         let share =
-            history_key_share_create(&thread_id, &keys, 1234567890, signing_secret).unwrap();
+            history_key_share_create(&thread_id, &keys, signing_secret, 1234567890).unwrap();
 
         assert!(share.len() > 0);
 
@@ -1454,13 +1462,15 @@ mod history_tests {
         let thread_id = random_bytes_32().unwrap();
 
         let store = thread_key_store_create(&thread_id).unwrap();
-        let epoch_key = random_bytes_32().unwrap();
-        let store = thread_key_store_retain(&store, 0, &epoch_key, 1234567890).unwrap();
+        let message_id = random_bytes_32().unwrap();
+        let message_key = random_bytes_32().unwrap();
+        let retained_key = retained_key_create(&message_id, &message_key, 0, 1234567890).unwrap();
+        let store = thread_key_store_retain(&store, &retained_key).unwrap();
 
         let keys = thread_key_store_get_all_keys(&store).unwrap();
 
         let share =
-            history_key_share_create(&thread_id, &keys, 1234567890, signing_secret).unwrap();
+            history_key_share_create(&thread_id, &keys, signing_secret, 1234567890).unwrap();
 
         let extracted = history_key_share_extract_keys(&share).unwrap();
         assert!(extracted.len() > 0);

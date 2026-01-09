@@ -21,12 +21,15 @@
 
 use wasm_bindgen::prelude::*;
 
-// Type aliases for explicit ML-DSA scheme selection
+// Type aliases using the compile-time selected default ML-DSA scheme
+// With `mldsa-suite-b-default` feature: uses MlDsa65SuiteB (BLAKE3)
+// Without that feature (default): uses MlDsa65Fips204 (SHA-3/SHAKE)
 type HybridSigningPublicKey =
-    trelis_hybrid::HybridSigningPublicKey<trelis_primitives::mldsa::MlDsa65Fips204>;
+    trelis_hybrid::HybridSigningPublicKey<trelis_primitives::mldsa::DefaultMlDsaScheme>;
 type HybridSigningKeypair =
-    trelis_hybrid::HybridSigningKeypair<trelis_primitives::mldsa::MlDsa65Fips204>;
-type HybridSignature = trelis_hybrid::HybridSignature<trelis_primitives::mldsa::MlDsa65Fips204>;
+    trelis_hybrid::HybridSigningKeypair<trelis_primitives::mldsa::DefaultMlDsaScheme>;
+type HybridSignature =
+    trelis_hybrid::HybridSignature<trelis_primitives::mldsa::DefaultMlDsaScheme>;
 
 /// Initialise the WASM module with better panic handling (optional).
 #[wasm_bindgen(start)]
@@ -767,7 +770,7 @@ pub fn compromise_notice_create(
         .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
     let notice = trelis_hybrid::recovery::CompromiseNotice::<
-        trelis_primitives::mldsa::MlDsa65Fips204,
+        trelis_primitives::mldsa::DefaultMlDsaScheme,
     >::new(fp, reason, compromised_at, &keypair)
     .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
@@ -793,7 +796,7 @@ pub fn compromise_notice_verify(
     signer_public: &[u8],
 ) -> Result<JsValue, JsValue> {
     let notice = trelis_hybrid::recovery::CompromiseNotice::<
-        trelis_primitives::mldsa::MlDsa65Fips204,
+        trelis_primitives::mldsa::DefaultMlDsaScheme,
     >::from_bytes(notice_bytes)
     .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 

@@ -14,6 +14,10 @@ crate-type = ["cdylib", "rlib"]
 default = []
 # Console error panic hook for better WASM debugging
 console_error_panic_hook = ["dep:console_error_panic_hook"]
+# ML-DSA Suite-B (BLAKE3) support
+mldsa-suite-b = ["trelis-primitives/mldsa-suite-b", "trelis-hybrid/mldsa-suite-b"]
+# Use Suite-B as default ML-DSA scheme
+mldsa-suite-b-default = ["mldsa-suite-b", "trelis-primitives/mldsa-suite-b-default", "trelis-hybrid/mldsa-suite-b-default"]
 
 [dependencies]
 trelis-error = { workspace = true }
