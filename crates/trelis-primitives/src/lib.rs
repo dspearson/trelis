@@ -81,6 +81,12 @@ pub mod aead;
 pub mod blake3_kdf;
 pub mod ed448;
 pub mod mldsa65;
+/// ML-DSA-B-65 (PQC-Suite-B BLAKE3 variant) signature primitives.
+///
+/// This module provides ML-DSA-B-65 signatures using BLAKE3 instead of SHA-3/SHAKE.
+/// **Note:** ML-DSA-B-65 is NOT compatible with standard ML-DSA-65 (FIPS 204).
+#[cfg(feature = "mldsa-suite-b")]
+pub mod mldsa65b;
 pub mod random;
 pub mod x448;
 
@@ -144,6 +150,8 @@ pub use blake3_kdf::{
 };
 pub use ed448::{Ed448Signature, Ed448SigningKey, Ed448VerifyingKey};
 pub use mldsa65::{MlDsa65Signature, MlDsa65SigningKey, MlDsa65VerifyingKey};
+#[cfg(feature = "mldsa-suite-b")]
+pub use mldsa65b::{MlDsa65BSignature, MlDsa65BSigningKey, MlDsa65BVerifyingKey};
 pub use random::{fill_bytes, generate_bytes};
 pub use trelis_error::{CryptoError, Result};
 pub use x448::{X448Public, X448Secret, X448SharedSecret};

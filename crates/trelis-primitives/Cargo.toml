@@ -25,6 +25,10 @@ expose-internals = []
 # Unix: mlock(2), Windows: VirtualLock
 mlock = ["std", "libc", "windows-sys"]
 
+# ML-DSA-B-65: PQC-Suite-B variant with BLAKE3 (faster, experimental)
+# Provides MlDsa65B* types separate from standard MlDsa65* (FIPS 204)
+mldsa-suite-b = ["ml-dsa"]
+
 [dependencies]
 trelis-error.workspace = true
 blake3.workspace = true
@@ -42,6 +46,8 @@ ntrulp = { workspace = true, optional = true }
 # Memory locking (optional, for mlock feature)
 libc = { workspace = true, optional = true }
 windows-sys = { workspace = true, optional = true }
+# ML-DSA-B (PQC-Suite-B BLAKE3 variant)
+ml-dsa = { workspace = true, optional = true }
 
 # Post-quantum KEM - C FFI (native Unix/Linux only)
 # Excluded on Windows (MSVC issues) and WASM (no C FFI)
