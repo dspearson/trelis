@@ -12,8 +12,8 @@
 //! // Using the trait explicitly
 //! let sk = Ed448Standard::generate()?;
 //! let vk = Ed448Standard::verifying_key(&sk);
-//! let sig = Ed448Standard::sign(&sk, b"message");
-//! assert!(Ed448Standard::verify(&vk, b"message", &sig).is_ok());
+//! let sig = Ed448Standard::sign(&sk, b"message")?;
+//! assert!(Ed448Standard::verify(&vk, b"message", &sig));
 //! ```
 
 use trelis_error::Result;
@@ -22,6 +22,8 @@ use trelis_error::Result;
 ///
 /// This trait allows generic code to work with different Ed448 implementations
 /// (Standard SHAKE256 or experimental BLAKE3) without knowing which variant is being used.
+///
+/// The API is designed to be consistent with [`MlDsaScheme`] for easier generic programming.
 pub trait Ed448Scheme: Sized + Clone + 'static {
     /// The signing key type for this scheme.
     type SigningKey: Clone;
@@ -40,14 +42,17 @@ pub trait Ed448Scheme: Sized + Clone + 'static {
     /// Generates a new random signing key.
     fn generate() -> Result<Self::SigningKey>;
 
-    /// Creates a signing key from a seed.
-    fn from_seed(seed: [u8; 57]) -> Self::SigningKey;
+    /// Generates a signing key deterministically from a 57-byte seed.
+    ///
+    /// This is used for recovery key derivation where the same seed must
+    /// always produce the same key.
+    fn generate_from_seed(seed: &[u8; 57]) -> Result<Self::SigningKey>;
 
     /// Derives the verifying key from a signing key.
     fn verifying_key(sk: &Self::SigningKey) -> Self::VerifyingKey;
 
     /// Signs a message.
-    fn sign(sk: &Self::SigningKey, message: &[u8]) -> Self::Signature;
+    fn sign(sk: &Self::SigningKey, message: &[u8]) -> Result<Self::Signature>;
 
     /// Signs a message with a context string.
     fn sign_with_context(
@@ -57,7 +62,7 @@ pub trait Ed448Scheme: Sized + Clone + 'static {
     ) -> Result<Self::Signature>;
 
     /// Verifies a signature on a message.
-    fn verify(vk: &Self::VerifyingKey, message: &[u8], signature: &Self::Signature) -> Result<()>;
+    fn verify(vk: &Self::VerifyingKey, message: &[u8], signature: &Self::Signature) -> bool;
 
     /// Verifies a signature with a context string.
     fn verify_with_context(
@@ -65,7 +70,13 @@ pub trait Ed448Scheme: Sized + Clone + 'static {
         message: &[u8],
         context: &[u8],
         signature: &Self::Signature,
-    ) -> Result<()>;
+    ) -> bool;
+
+    /// Serializes a signing key to bytes.
+    fn signing_key_to_bytes(sk: &Self::SigningKey) -> [u8; 57];
+
+    /// Deserializes a signing key from bytes.
+    fn signing_key_from_bytes(bytes: &[u8]) -> Result<Self::SigningKey>;
 
     /// Serializes a verifying key to bytes.
     fn verifying_key_to_bytes(vk: &Self::VerifyingKey) -> [u8; 57];
@@ -108,16 +119,16 @@ impl Ed448Scheme for Ed448Standard {
         Ed448SigningKey::generate()
     }
 
-    fn from_seed(seed: [u8; 57]) -> Self::SigningKey {
-        Ed448SigningKey::from_seed(seed)
+    fn generate_from_seed(seed: &[u8; 57]) -> Result<Self::SigningKey> {
+        Ok(Ed448SigningKey::from_seed(*seed))
     }
 
     fn verifying_key(sk: &Self::SigningKey) -> Self::VerifyingKey {
         sk.verifying_key()
     }
 
-    fn sign(sk: &Self::SigningKey, message: &[u8]) -> Self::Signature {
-        sk.sign(message)
+    fn sign(sk: &Self::SigningKey, message: &[u8]) -> Result<Self::Signature> {
+        Ok(sk.sign(message))
     }
 
     fn sign_with_context(
@@ -128,8 +139,8 @@ impl Ed448Scheme for Ed448Standard {
         sk.sign_with_context(message, context)
     }
 
-    fn verify(vk: &Self::VerifyingKey, message: &[u8], signature: &Self::Signature) -> Result<()> {
-        vk.verify(message, signature)
+    fn verify(vk: &Self::VerifyingKey, message: &[u8], signature: &Self::Signature) -> bool {
+        vk.verify(message, signature).is_ok()
     }
 
     fn verify_with_context(
@@ -137,8 +148,25 @@ impl Ed448Scheme for Ed448Standard {
         message: &[u8],
         context: &[u8],
         signature: &Self::Signature,
-    ) -> Result<()> {
-        vk.verify_with_context(message, context, signature)
+    ) -> bool {
+        vk.verify_with_context(message, context, signature).is_ok()
+    }
+
+    fn signing_key_to_bytes(sk: &Self::SigningKey) -> [u8; 57] {
+        *sk.seed()
+    }
+
+    fn signing_key_from_bytes(bytes: &[u8]) -> Result<Self::SigningKey> {
+        use trelis_error::CryptoError;
+        if bytes.len() != 57 {
+            return Err(CryptoError::InvalidKeyLength {
+                expected: 57,
+                actual: bytes.len(),
+            });
+        }
+        let mut seed = [0u8; 57];
+        seed.copy_from_slice(bytes);
+        Ok(Ed448SigningKey::from_seed(seed))
     }
 
     fn verifying_key_to_bytes(vk: &Self::VerifyingKey) -> [u8; 57] {
@@ -191,16 +219,16 @@ impl Ed448Scheme for Ed448SuiteB {
         Ed448BSigningKey::generate()
     }
 
-    fn from_seed(seed: [u8; 57]) -> Self::SigningKey {
-        Ed448BSigningKey::from_seed(seed)
+    fn generate_from_seed(seed: &[u8; 57]) -> Result<Self::SigningKey> {
+        Ok(Ed448BSigningKey::from_seed(*seed))
     }
 
     fn verifying_key(sk: &Self::SigningKey) -> Self::VerifyingKey {
         sk.verifying_key()
     }
 
-    fn sign(sk: &Self::SigningKey, message: &[u8]) -> Self::Signature {
-        sk.sign(message)
+    fn sign(sk: &Self::SigningKey, message: &[u8]) -> Result<Self::Signature> {
+        Ok(sk.sign(message))
     }
 
     fn sign_with_context(
@@ -211,8 +239,8 @@ impl Ed448Scheme for Ed448SuiteB {
         sk.sign_with_context(message, context)
     }
 
-    fn verify(vk: &Self::VerifyingKey, message: &[u8], signature: &Self::Signature) -> Result<()> {
-        vk.verify(message, signature)
+    fn verify(vk: &Self::VerifyingKey, message: &[u8], signature: &Self::Signature) -> bool {
+        vk.verify(message, signature).is_ok()
     }
 
     fn verify_with_context(
@@ -220,8 +248,25 @@ impl Ed448Scheme for Ed448SuiteB {
         message: &[u8],
         context: &[u8],
         signature: &Self::Signature,
-    ) -> Result<()> {
-        vk.verify_with_context(message, context, signature)
+    ) -> bool {
+        vk.verify_with_context(message, context, signature).is_ok()
+    }
+
+    fn signing_key_to_bytes(sk: &Self::SigningKey) -> [u8; 57] {
+        *sk.seed()
+    }
+
+    fn signing_key_from_bytes(bytes: &[u8]) -> Result<Self::SigningKey> {
+        use trelis_error::CryptoError;
+        if bytes.len() != 57 {
+            return Err(CryptoError::InvalidKeyLength {
+                expected: 57,
+                actual: bytes.len(),
+            });
+        }
+        let mut seed = [0u8; 57];
+        seed.copy_from_slice(bytes);
+        Ok(Ed448BSigningKey::from_seed(seed))
     }
 
     fn verifying_key_to_bytes(vk: &Self::VerifyingKey) -> [u8; 57] {
@@ -268,21 +313,27 @@ mod tests {
         let vk = S::verifying_key(&sk);
 
         let message = b"Hello, Ed448!";
-        let signature = S::sign(&sk, message);
+        let signature = S::sign(&sk, message).unwrap();
 
-        assert!(S::verify(&vk, message, &signature).is_ok());
-        assert!(S::verify(&vk, b"wrong message", &signature).is_err());
+        assert!(S::verify(&vk, message, &signature));
+        assert!(!S::verify(&vk, b"wrong message", &signature));
     }
 
-    fn test_scheme_serialization<S: Ed448Scheme>() {
+    fn test_scheme_serialisation<S: Ed448Scheme>() {
         let sk = S::generate().unwrap();
         let vk = S::verifying_key(&sk);
-        let sig = S::sign(&sk, b"test");
+        let sig = S::sign(&sk, b"test").unwrap();
+
+        // Round-trip signing key
+        let sk_bytes = S::signing_key_to_bytes(&sk);
+        let sk2 = S::signing_key_from_bytes(&sk_bytes).unwrap();
+        let vk2 = S::verifying_key(&sk2);
+        assert!(S::verifying_key_to_bytes(&vk) == S::verifying_key_to_bytes(&vk2));
 
         // Round-trip verifying key
         let vk_bytes = S::verifying_key_to_bytes(&vk);
-        let vk2 = S::verifying_key_from_bytes(&vk_bytes).unwrap();
-        assert!(vk == vk2);
+        let vk3 = S::verifying_key_from_bytes(&vk_bytes).unwrap();
+        assert!(vk == vk3);
 
         // Round-trip signature
         let sig_bytes = S::signature_to_bytes(&sig);
@@ -290,12 +341,12 @@ mod tests {
         assert!(sig == sig2);
     }
 
-    fn test_scheme_from_seed<S: Ed448Scheme>() {
+    fn test_scheme_generate_from_seed<S: Ed448Scheme>() {
         let seed = [0x42u8; 57];
 
         // Same seed produces identical keys
-        let sk1 = S::from_seed(seed);
-        let sk2 = S::from_seed(seed);
+        let sk1 = S::generate_from_seed(&seed).unwrap();
+        let sk2 = S::generate_from_seed(&seed).unwrap();
         assert_eq!(
             S::verifying_key_to_bytes(&S::verifying_key(&sk1)),
             S::verifying_key_to_bytes(&S::verifying_key(&sk2))
@@ -303,7 +354,7 @@ mod tests {
 
         // Different seeds produce different keys
         let seed2 = [0x43u8; 57];
-        let sk3 = S::from_seed(seed2);
+        let sk3 = S::generate_from_seed(&seed2).unwrap();
         assert_ne!(
             S::verifying_key_to_bytes(&S::verifying_key(&sk1)),
             S::verifying_key_to_bytes(&S::verifying_key(&sk3))
@@ -311,9 +362,9 @@ mod tests {
 
         // Seeded key can sign and verify
         let message = b"Seeded key test";
-        let sig = S::sign(&sk1, message);
+        let sig = S::sign(&sk1, message).unwrap();
         let vk = S::verifying_key(&sk1);
-        assert!(S::verify(&vk, message, &sig).is_ok());
+        assert!(S::verify(&vk, message, &sig));
     }
 
     #[test]
@@ -322,13 +373,13 @@ mod tests {
     }
 
     #[test]
-    fn test_standard_serialization() {
-        test_scheme_serialization::<Ed448Standard>();
+    fn test_standard_serialisation() {
+        test_scheme_serialisation::<Ed448Standard>();
     }
 
     #[test]
-    fn test_standard_from_seed() {
-        test_scheme_from_seed::<Ed448Standard>();
+    fn test_standard_generate_from_seed() {
+        test_scheme_generate_from_seed::<Ed448Standard>();
     }
 
     #[cfg(feature = "ed448-suite-b")]
@@ -339,14 +390,14 @@ mod tests {
 
     #[cfg(feature = "ed448-suite-b")]
     #[test]
-    fn test_suiteb_serialization() {
-        test_scheme_serialization::<Ed448SuiteB>();
+    fn test_suiteb_serialisation() {
+        test_scheme_serialisation::<Ed448SuiteB>();
     }
 
     #[cfg(feature = "ed448-suite-b")]
     #[test]
-    fn test_suiteb_from_seed() {
-        test_scheme_from_seed::<Ed448SuiteB>();
+    fn test_suiteb_generate_from_seed() {
+        test_scheme_generate_from_seed::<Ed448SuiteB>();
     }
 
     #[cfg(feature = "ed448-suite-b")]
@@ -355,10 +406,10 @@ mod tests {
         // Ensure standard and Suite-B produce different outputs from same seed
         let seed = [0x42u8; 57];
 
-        let std_sk = Ed448Standard::from_seed(seed);
+        let std_sk = Ed448Standard::generate_from_seed(&seed).unwrap();
         let std_vk = Ed448Standard::verifying_key(&std_sk);
 
-        let suiteb_sk = Ed448SuiteB::from_seed(seed);
+        let suiteb_sk = Ed448SuiteB::generate_from_seed(&seed).unwrap();
         let suiteb_vk = Ed448SuiteB::verifying_key(&suiteb_sk);
 
         // Same seed should produce different public keys due to different hash

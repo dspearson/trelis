@@ -356,8 +356,8 @@ impl<S: MlDsaScheme> HybridSigningPublicKey<S> {
         let ed448_valid = self.ed448.verify(message, &signature.ed448).is_ok();
         let mldsa_valid = S::verify(&self.mldsa, message, &signature.mldsa);
 
-        // Both must be valid
-        ed448_valid && mldsa_valid
+        // Both must be valid - use bitwise AND to prevent short-circuit timing leak
+        ed448_valid & mldsa_valid
     }
 
     /// Verifies a hybrid signature with a context string.
@@ -384,7 +384,8 @@ impl<S: MlDsaScheme> HybridSigningPublicKey<S> {
             .is_ok();
         let mldsa_valid = S::verify_with_context(&self.mldsa, message, context, &signature.mldsa);
 
-        ed448_valid && mldsa_valid
+        // Use bitwise AND to avoid short-circuit timing leak
+        ed448_valid & mldsa_valid
     }
 }
 
@@ -462,7 +463,10 @@ impl<S: MlDsaScheme> HybridSignature<S> {
 
 impl<S: MlDsaScheme> PartialEq for HybridSignature<S> {
     fn eq(&self, other: &Self) -> bool {
-        self.ed448.ct_eq(&other.ed448).into() && self.mldsa == other.mldsa
+        // Use bitwise AND to avoid short-circuit timing leak
+        let ed448_eq: bool = self.ed448.ct_eq(&other.ed448).into();
+        let mldsa_eq: bool = self.mldsa == other.mldsa;
+        ed448_eq & mldsa_eq
     }
 }
 
