@@ -31,6 +31,12 @@ mldsa-suite-b = ["ml-dsa"]
 # Use Suite-B as the default ML-DSA variant (requires mldsa-suite-b)
 mldsa-suite-b-default = ["mldsa-suite-b"]
 
+# Ed448-B: Experimental variant with BLAKE3 (faster, non-standard)
+# Provides Ed448B* types separate from standard Ed448* (RFC 8032)
+ed448-suite-b = []
+# Use Suite-B as the default Ed448 variant (requires ed448-suite-b)
+ed448-suite-b-default = ["ed448-suite-b"]
+
 [dependencies]
 trelis-error.workspace = true
 blake3.workspace = true
@@ -73,3 +79,8 @@ serde_json.workspace = true
 name = "sntrup761_benchmark"
 harness = false
 required-features = ["std", "wasm"]
+
+[[bench]]
+name = "signature_benchmark"
+harness = false
+required-features = ["mldsa-suite-b", "ed448-suite-b"]

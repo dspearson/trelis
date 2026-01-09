@@ -80,6 +80,16 @@ extern crate std;
 pub mod aead;
 pub mod blake3_kdf;
 pub mod ed448;
+/// Ed448-B (experimental BLAKE3 variant) signature primitives.
+///
+/// This module provides Ed448-B signatures using BLAKE3 instead of SHAKE256.
+/// **Note:** Ed448-B is NOT compatible with standard Ed448 (RFC 8032).
+#[cfg(feature = "ed448-suite-b")]
+pub mod ed448b;
+/// Ed448 scheme abstraction trait and implementations.
+///
+/// Provides [`Ed448Scheme`] trait for generic code over Ed448 variants.
+pub mod ed448_scheme;
 /// ML-DSA scheme abstraction trait and implementations.
 ///
 /// Provides [`MlDsaScheme`] trait for generic code over ML-DSA variants.
@@ -153,6 +163,11 @@ pub use blake3_kdf::{
     keyed_hash,
 };
 pub use ed448::{Ed448Signature, Ed448SigningKey, Ed448VerifyingKey};
+#[cfg(feature = "ed448-suite-b")]
+pub use ed448_scheme::Ed448SuiteB;
+pub use ed448_scheme::{DefaultEd448Scheme, Ed448Scheme, Ed448Standard};
+#[cfg(feature = "ed448-suite-b")]
+pub use ed448b::{Ed448BSignature, Ed448BSigningKey, Ed448BVerifyingKey};
 #[cfg(feature = "mldsa-suite-b")]
 pub use mldsa::MlDsa65SuiteB;
 pub use mldsa::{DefaultMlDsaScheme, MlDsa65Fips204, MlDsaScheme};
