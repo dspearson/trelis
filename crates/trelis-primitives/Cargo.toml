@@ -64,6 +64,8 @@ hex.workspace = true
 proptest.workspace = true
 criterion.workspace = true
 rayon.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [[bench]]
 name = "sntrup761_benchmark"

@@ -288,6 +288,28 @@ impl MlDsa65BVerifyingKey {
 
         pk.verify_with_context(message, context, &sig)
     }
+
+    /// Verifies a signature without context prefix (internal API).
+    ///
+    /// This method is for compatibility with test vectors that were generated
+    /// using the internal signing API without context string handling.
+    ///
+    /// For normal use, prefer [`verify`] or [`verify_with_context`].
+    #[must_use]
+    pub fn verify_internal(&self, message: &[u8], signature: &MlDsa65BSignature) -> bool {
+        // Decode verifying key
+        let enc: EncodedVerifyingKey<MlDsa65> = self.bytes.into();
+        let pk = VerifyingKey::<MlDsa65>::decode(&enc);
+
+        // Decode signature (can fail for invalid signatures)
+        let sig_enc: EncodedSignature<MlDsa65> = signature.bytes.into();
+        let sig = match Signature::<MlDsa65>::decode(&sig_enc) {
+            Some(sig) => sig,
+            None => return false,
+        };
+
+        pk.verify_internal(&[message], &sig)
+    }
 }
 
 impl PartialEq for MlDsa65BVerifyingKey {
