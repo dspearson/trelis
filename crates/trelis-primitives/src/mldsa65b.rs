@@ -39,8 +39,8 @@
 //! ```
 
 use ml_dsa::{
-    EncodedSignature, EncodedSigningKey, EncodedVerifyingKey, KeyGen, MlDsa65, Signature,
-    SigningKey, VerifyingKey, B32,
+    B32, EncodedSignature, EncodedSigningKey, EncodedVerifyingKey, KeyGen, MlDsa65, Signature,
+    SigningKey, VerifyingKey,
 };
 use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -569,5 +569,48 @@ mod tests {
         let verifying_key = signing_key.verifying_key();
         assert!(verifying_key.verify(message, &sig1));
         assert!(verifying_key.verify(message, &sig2));
+    }
+
+    #[test]
+    fn test_generate_from_seed_deterministic() {
+        let seed = [0x42u8; 32];
+
+        let key1 = MlDsa65BSigningKey::generate_from_seed(&seed).unwrap();
+        let key2 = MlDsa65BSigningKey::generate_from_seed(&seed).unwrap();
+
+        // Same seed should produce identical keys
+        assert_eq!(key1.as_bytes(), key2.as_bytes());
+        assert_eq!(
+            key1.verifying_key().to_bytes(),
+            key2.verifying_key().to_bytes()
+        );
+    }
+
+    #[test]
+    fn test_generate_from_seed_different_seeds() {
+        let seed1 = [0x42u8; 32];
+        let seed2 = [0x43u8; 32];
+
+        let key1 = MlDsa65BSigningKey::generate_from_seed(&seed1).unwrap();
+        let key2 = MlDsa65BSigningKey::generate_from_seed(&seed2).unwrap();
+
+        // Different seeds should produce different keys
+        assert_ne!(key1.as_bytes(), key2.as_bytes());
+        assert_ne!(
+            key1.verifying_key().to_bytes(),
+            key2.verifying_key().to_bytes()
+        );
+    }
+
+    #[test]
+    fn test_generate_from_seed_sign_verify() {
+        let seed = [0xAAu8; 32];
+        let key = MlDsa65BSigningKey::generate_from_seed(&seed).unwrap();
+
+        let message = b"Test message for seeded key";
+        let signature = key.sign(message).unwrap();
+
+        assert!(key.verifying_key().verify(message, &signature));
+        assert!(!key.verifying_key().verify(b"wrong message", &signature));
     }
 }

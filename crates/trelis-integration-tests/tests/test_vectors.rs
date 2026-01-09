@@ -34,6 +34,10 @@ use serde::Deserialize;
 use std::fs;
 use std::path::PathBuf;
 
+// Type alias for explicit ML-DSA scheme selection
+type HybridSigningKeypair =
+    trelis_hybrid::HybridSigningKeypair<trelis_primitives::mldsa::MlDsa65Fips204>;
+
 // =============================================================================
 // Test Vector Loading Infrastructure
 // =============================================================================
@@ -346,8 +350,6 @@ mod hybrid_sig {
 
     #[test]
     fn verify_signature_roundtrip() {
-        use trelis_hybrid::HybridSigningKeypair;
-
         let keypair = HybridSigningKeypair::generate().unwrap();
         let message = b"Test message for signature verification";
 
@@ -1432,7 +1434,6 @@ fn verify_retained_key_size() {
 
 #[test]
 fn verify_device_fingerprint_size() {
-    use trelis_hybrid::HybridSigningKeypair;
     use trelis_multidevice::device_fingerprint;
 
     let keypair = HybridSigningKeypair::generate().unwrap();
@@ -1445,7 +1446,6 @@ fn verify_device_fingerprint_size() {
 
 #[test]
 fn verify_device_approval_roundtrip() {
-    use trelis_hybrid::HybridSigningKeypair;
     use trelis_multidevice::{DeviceApprovalCertificate, device_fingerprint};
 
     let approving_device = HybridSigningKeypair::generate().unwrap();
@@ -1479,7 +1479,6 @@ fn verify_device_approval_roundtrip() {
 
 #[test]
 fn verify_device_revocation_roundtrip() {
-    use trelis_hybrid::HybridSigningKeypair;
     use trelis_multidevice::{DeviceRevocation, RevocationReason};
 
     let user_identity = HybridSigningKeypair::generate().unwrap();
@@ -1513,7 +1512,6 @@ fn verify_device_revocation_roundtrip() {
 
 #[test]
 fn verify_history_key_share_roundtrip() {
-    use trelis_hybrid::HybridSigningKeypair;
     use trelis_multidevice::{HistoryKeyShareMessage, RetainedKey};
 
     let sharing_device = HybridSigningKeypair::generate().unwrap();

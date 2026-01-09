@@ -61,13 +61,17 @@ build-wasm:
 # Test Commands
 # ============================================
 
-# Run all tests
+# Run all tests (including ignored/stress tests)
 test:
-    cargo test --workspace
+    cargo test --workspace -- --include-ignored
 
-# Run tests with output
+# Run tests with output (including ignored/stress tests)
 test-verbose:
-    cargo test --workspace -- --nocapture
+    cargo test --workspace -- --include-ignored --nocapture
+
+# Run tests quickly (skips stress tests)
+test-fast:
+    cargo test --workspace
 
 # Run tests for a specific crate
 test-crate crate:

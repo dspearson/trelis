@@ -181,9 +181,8 @@ impl MlDsaScheme for MlDsa65Fips204 {
 
 #[cfg(feature = "mldsa-suite-b")]
 use crate::mldsa65b::{
-    MlDsa65BSignature, MlDsa65BSigningKey, MlDsa65BVerifyingKey,
-    PUBLIC_KEY_SIZE as SUITEB_PK_SIZE, SECRET_KEY_SIZE as SUITEB_SK_SIZE,
-    SIGNATURE_SIZE as SUITEB_SIG_SIZE,
+    MlDsa65BSignature, MlDsa65BSigningKey, MlDsa65BVerifyingKey, PUBLIC_KEY_SIZE as SUITEB_PK_SIZE,
+    SECRET_KEY_SIZE as SUITEB_SK_SIZE, SIGNATURE_SIZE as SUITEB_SIG_SIZE,
 };
 
 /// ML-DSA-B-65 using PQC-Suite-B (BLAKE3).
@@ -322,6 +321,30 @@ mod tests {
         assert!(sig == sig2);
     }
 
+    fn test_scheme_seeded_keygen<S: MlDsaScheme>() {
+        let seed = [0x42u8; 32];
+
+        // Same seed produces identical keys
+        let sk1 = S::generate_from_seed(&seed).unwrap();
+        let sk2 = S::generate_from_seed(&seed).unwrap();
+        assert_eq!(S::signing_key_to_bytes(&sk1), S::signing_key_to_bytes(&sk2));
+        assert_eq!(
+            S::verifying_key_to_bytes(&S::verifying_key(&sk1)),
+            S::verifying_key_to_bytes(&S::verifying_key(&sk2))
+        );
+
+        // Different seeds produce different keys
+        let seed2 = [0x43u8; 32];
+        let sk3 = S::generate_from_seed(&seed2).unwrap();
+        assert_ne!(S::signing_key_to_bytes(&sk1), S::signing_key_to_bytes(&sk3));
+
+        // Seeded key can sign and verify
+        let message = b"Seeded key test";
+        let sig = S::sign(&sk1, message).unwrap();
+        let vk = S::verifying_key(&sk1);
+        assert!(S::verify(&vk, message, &sig));
+    }
+
     #[test]
     fn test_fips204_roundtrip() {
         test_scheme_roundtrip::<MlDsa65Fips204>();
@@ -330,6 +353,11 @@ mod tests {
     #[test]
     fn test_fips204_serialization() {
         test_scheme_serialization::<MlDsa65Fips204>();
+    }
+
+    #[test]
+    fn test_fips204_seeded_keygen() {
+        test_scheme_seeded_keygen::<MlDsa65Fips204>();
     }
 
     #[cfg(feature = "mldsa-suite-b")]
@@ -342,5 +370,11 @@ mod tests {
     #[test]
     fn test_suiteb_serialization() {
         test_scheme_serialization::<MlDsa65SuiteB>();
+    }
+
+    #[cfg(feature = "mldsa-suite-b")]
+    #[test]
+    fn test_suiteb_seeded_keygen() {
+        test_scheme_seeded_keygen::<MlDsa65SuiteB>();
     }
 }

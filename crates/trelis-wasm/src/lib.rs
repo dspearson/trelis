@@ -21,6 +21,13 @@
 
 use wasm_bindgen::prelude::*;
 
+// Type aliases for explicit ML-DSA scheme selection
+type HybridSigningPublicKey =
+    trelis_hybrid::HybridSigningPublicKey<trelis_primitives::mldsa::MlDsa65Fips204>;
+type HybridSigningKeypair =
+    trelis_hybrid::HybridSigningKeypair<trelis_primitives::mldsa::MlDsa65Fips204>;
+type HybridSignature = trelis_hybrid::HybridSignature<trelis_primitives::mldsa::MlDsa65Fips204>;
+
 /// Initialise the WASM module with better panic handling (optional).
 #[wasm_bindgen(start)]
 pub fn init() {
@@ -323,8 +330,8 @@ pub fn mldsa65_verify(
 /// Object with `public_key` (2,009 bytes)
 #[wasm_bindgen]
 pub fn hybrid_sign_generate() -> Result<JsValue, JsValue> {
-    let keypair = trelis_hybrid::HybridSigningKeypair::generate()
-        .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+    let keypair =
+        HybridSigningKeypair::generate().map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
     let obj = js_sys::Object::new();
     let public_arr = js_sys::Uint8Array::from(keypair.public_key().to_bytes().as_slice());
@@ -347,10 +354,10 @@ pub fn hybrid_sign_generate() -> Result<JsValue, JsValue> {
 /// `true` if both signatures are valid, `false` otherwise
 #[wasm_bindgen]
 pub fn hybrid_verify(public_key: &[u8], message: &[u8], signature: &[u8]) -> Result<bool, JsValue> {
-    let pk = trelis_hybrid::HybridSigningPublicKey::from_bytes(public_key)
+    let pk = HybridSigningPublicKey::from_bytes(public_key)
         .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
-    let sig = trelis_hybrid::HybridSignature::from_bytes(signature)
+    let sig = HybridSignature::from_bytes(signature)
         .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
     Ok(pk.verify(message, &sig))
@@ -695,7 +702,7 @@ pub fn derive_recovery_keypair(seed: &[u8]) -> Result<JsValue, JsValue> {
         .try_into()
         .map_err(|_| JsValue::from_str("Invalid seed"))?;
 
-    let keypair = trelis_hybrid::recovery::derive_recovery_keypair(&seed_arr)
+    let keypair: HybridSigningKeypair = trelis_hybrid::recovery::derive_recovery_keypair(&seed_arr)
         .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
     let obj = js_sys::Object::new();
@@ -722,7 +729,7 @@ pub fn derive_recovery_keypair(seed: &[u8]) -> Result<JsValue, JsValue> {
 /// 32-byte BLAKE3 fingerprint
 #[wasm_bindgen]
 pub fn key_fingerprint(public_key: &[u8]) -> Result<Vec<u8>, JsValue> {
-    let pk = trelis_hybrid::HybridSigningPublicKey::from_bytes(public_key)
+    let pk = HybridSigningPublicKey::from_bytes(public_key)
         .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
     let fingerprint = trelis_hybrid::recovery::key_fingerprint(&pk);
@@ -756,12 +763,13 @@ pub fn compromise_notice_create(
 
     let reason = trelis_hybrid::recovery::CompromiseReason::from_byte(reason);
 
-    let keypair = trelis_hybrid::HybridSigningKeypair::from_bytes(signing_secret)
+    let keypair = HybridSigningKeypair::from_bytes(signing_secret)
         .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
-    let notice =
-        trelis_hybrid::recovery::CompromiseNotice::new(fp, reason, compromised_at, &keypair)
-            .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+    let notice = trelis_hybrid::recovery::CompromiseNotice::<
+        trelis_primitives::mldsa::MlDsa65Fips204,
+    >::new(fp, reason, compromised_at, &keypair)
+    .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
     Ok(notice.to_bytes())
 }
@@ -784,10 +792,12 @@ pub fn compromise_notice_verify(
     notice_bytes: &[u8],
     signer_public: &[u8],
 ) -> Result<JsValue, JsValue> {
-    let notice = trelis_hybrid::recovery::CompromiseNotice::from_bytes(notice_bytes)
-        .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+    let notice = trelis_hybrid::recovery::CompromiseNotice::<
+        trelis_primitives::mldsa::MlDsa65Fips204,
+    >::from_bytes(notice_bytes)
+    .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
-    let signer_pk = trelis_hybrid::HybridSigningPublicKey::from_bytes(signer_public)
+    let signer_pk = HybridSigningPublicKey::from_bytes(signer_public)
         .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
     let valid = notice.verify(&signer_pk).is_ok();
@@ -843,7 +853,7 @@ pub fn x3dh_create_bundle(
     timestamp: u64,
     expiration: u64,
 ) -> Result<Vec<u8>, JsValue> {
-    let id_sign = trelis_hybrid::HybridSigningPublicKey::from_bytes(identity_signing_public)
+    let id_sign = HybridSigningPublicKey::from_bytes(identity_signing_public)
         .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
     let id_kem = trelis_hybrid::HybridKemPublicKey::from_bytes(identity_kem_public)
         .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
@@ -874,7 +884,7 @@ pub fn x3dh_create_bundle(
 /// Signed bundle (7,884 bytes = bundle + 3,423-byte signature)
 #[wasm_bindgen]
 pub fn x3dh_sign_bundle(bundle: &[u8], signing_secret: &[u8]) -> Result<Vec<u8>, JsValue> {
-    let keypair = trelis_hybrid::HybridSigningKeypair::from_bytes(signing_secret)
+    let keypair = HybridSigningKeypair::from_bytes(signing_secret)
         .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
     // Domain-separated signing data
@@ -915,7 +925,7 @@ pub fn x3dh_verify_bundle(signed_bundle: &[u8]) -> Result<JsValue, JsValue> {
     let sig_bytes = &signed_bundle[BUNDLE_SIZE..];
 
     // Parse identity signing key (first 2,009 bytes)
-    let id_sign = trelis_hybrid::HybridSigningPublicKey::from_bytes(&bundle_bytes[..2009])
+    let id_sign = HybridSigningPublicKey::from_bytes(&bundle_bytes[..2009])
         .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
     // Domain-separated signing data
@@ -923,7 +933,7 @@ pub fn x3dh_verify_bundle(signed_bundle: &[u8]) -> Result<JsValue, JsValue> {
     signing_data.extend_from_slice(b"trelis-prekey-bundle-v1");
     signing_data.extend_from_slice(bundle_bytes);
 
-    let signature = trelis_hybrid::HybridSignature::from_bytes(sig_bytes)
+    let signature = HybridSignature::from_bytes(sig_bytes)
         .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
     if !id_sign.verify(&signing_data, &signature) {

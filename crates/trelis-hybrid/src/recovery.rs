@@ -439,7 +439,10 @@ pub fn derive_recovery_keypair<S: MlDsaScheme>(
     let mldsa_secret = S::generate_from_seed(&mldsa_rng_seed)?;
 
     // Construct the hybrid keypair
-    Ok(HybridSigningKeypair::from_components(ed448_secret, mldsa_secret))
+    Ok(HybridSigningKeypair::from_components(
+        ed448_secret,
+        mldsa_secret,
+    ))
 }
 
 #[cfg(test)]

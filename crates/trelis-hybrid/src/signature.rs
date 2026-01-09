@@ -600,7 +600,10 @@ mod tests {
         assert!(recovered.public_key().verify(message, &sig));
 
         // And the public keys match
-        assert_eq!(keypair.public_key().to_bytes(), recovered.public_key().to_bytes());
+        assert_eq!(
+            keypair.public_key().to_bytes(),
+            recovered.public_key().to_bytes()
+        );
     }
 
     // Test with Suite-B variant if available
@@ -624,7 +627,10 @@ mod tests {
             let bytes = keypair.to_bytes();
 
             let recovered = HybridSigningKeypair::<MlDsa65SuiteB>::from_bytes(&bytes).unwrap();
-            assert_eq!(keypair.public_key().to_bytes(), recovered.public_key().to_bytes());
+            assert_eq!(
+                keypair.public_key().to_bytes(),
+                recovered.public_key().to_bytes()
+            );
         }
     }
 }

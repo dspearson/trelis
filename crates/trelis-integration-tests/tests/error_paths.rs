@@ -14,7 +14,12 @@
 
 use trelis_cocoa::CocoaSession;
 use trelis_error::{CryptoError, ErrorCategory};
-use trelis_hybrid::{HybridKemKeypair, HybridSignature, HybridSigningKeypair};
+use trelis_hybrid::HybridKemKeypair;
+
+// Type aliases for explicit ML-DSA scheme selection
+type HybridSigningKeypair =
+    trelis_hybrid::HybridSigningKeypair<trelis_primitives::mldsa::MlDsa65Fips204>;
+type HybridSignature = trelis_hybrid::HybridSignature<trelis_primitives::mldsa::MlDsa65Fips204>;
 use trelis_primitives::{
     AeadKey, Ed448Signature, Ed448SigningKey, MlDsa65Signature, MlDsa65SigningKey, Nonce,
     Sntrup761Ciphertext, Sntrup761SecretKey, X448Public, X448Secret, decrypt, encrypt,

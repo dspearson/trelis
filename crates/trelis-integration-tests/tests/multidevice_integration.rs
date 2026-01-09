@@ -10,7 +10,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::needless_borrow)]
 
 use trelis_error::CryptoError;
-use trelis_hybrid::{HybridKemKeypair, HybridSigningKeypair};
+use trelis_hybrid::HybridKemKeypair;
+
+// Type alias for explicit ML-DSA scheme selection
+type HybridSigningKeypair =
+    trelis_hybrid::HybridSigningKeypair<trelis_primitives::mldsa::MlDsa65Fips204>;
 use trelis_multidevice::{
     DeviceApprovalCertificate, DeviceId, DeviceKeyWrap, DeviceRevocation, FINGERPRINT_SIZE,
     HistoryKeyShareMessage, RetainedKey, RevocationReason, RevocationRekeyEvent, ThreadId,
