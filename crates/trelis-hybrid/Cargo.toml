@@ -15,6 +15,10 @@ alloc = ["trelis-primitives/alloc", "trelis-error/alloc"]
 wasm = ["alloc", "trelis-primitives/wasm"]
 # Expose internal functions for testing
 expose-internals = []
+# Enable ML-DSA-B-65 (PQC-Suite-B BLAKE3 variant) for hybrid signatures
+mldsa-suite-b = ["trelis-primitives/mldsa-suite-b"]
+# Use Suite-B as the default ML-DSA variant (requires mldsa-suite-b)
+mldsa-suite-b-default = ["mldsa-suite-b", "trelis-primitives/mldsa-suite-b-default"]
 
 [dependencies]
 trelis-primitives.workspace = true

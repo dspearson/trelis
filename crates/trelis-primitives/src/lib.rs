@@ -80,6 +80,10 @@ extern crate std;
 pub mod aead;
 pub mod blake3_kdf;
 pub mod ed448;
+/// ML-DSA scheme abstraction trait and implementations.
+///
+/// Provides [`MlDsaScheme`] trait for generic code over ML-DSA variants.
+pub mod mldsa;
 pub mod mldsa65;
 /// ML-DSA-B-65 (PQC-Suite-B BLAKE3 variant) signature primitives.
 ///
@@ -149,6 +153,9 @@ pub use blake3_kdf::{
     keyed_hash,
 };
 pub use ed448::{Ed448Signature, Ed448SigningKey, Ed448VerifyingKey};
+pub use mldsa::{DefaultMlDsaScheme, MlDsa65Fips204, MlDsaScheme};
+#[cfg(feature = "mldsa-suite-b")]
+pub use mldsa::MlDsa65SuiteB;
 pub use mldsa65::{MlDsa65Signature, MlDsa65SigningKey, MlDsa65VerifyingKey};
 #[cfg(feature = "mldsa-suite-b")]
 pub use mldsa65b::{MlDsa65BSignature, MlDsa65BSigningKey, MlDsa65BVerifyingKey};

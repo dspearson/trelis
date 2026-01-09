@@ -63,7 +63,8 @@ use alloc::vec::Vec;
 
 use trelis_error::{CryptoError, Result};
 use trelis_primitives::{
-    Ed448SigningKey, RECOVERY_ED448_CONTEXT, RECOVERY_MLDSA_CONTEXT, derive_key,
+    DefaultMlDsaScheme, Ed448SigningKey, MlDsaScheme, RECOVERY_ED448_CONTEXT,
+    RECOVERY_MLDSA_CONTEXT, derive_key,
 };
 
 use crate::signature::{HybridSignature, HybridSigningKeypair, HybridSigningPublicKey};
@@ -157,7 +158,7 @@ impl CompromiseReason {
 /// Total: 3496 bytes
 /// ```
 #[derive(Clone)]
-pub struct CompromiseNotice {
+pub struct CompromiseNotice<S: MlDsaScheme = DefaultMlDsaScheme> {
     /// BLAKE3 fingerprint of the compromised key.
     pub compromised_fingerprint: [u8; FINGERPRINT_SIZE],
 
@@ -176,10 +177,10 @@ pub struct CompromiseNotice {
     pub signer_fingerprint: [u8; FINGERPRINT_SIZE],
 
     /// Signature over the notice data.
-    pub signature: HybridSignature,
+    pub signature: HybridSignature<S>,
 }
 
-impl CompromiseNotice {
+impl<S: MlDsaScheme> CompromiseNotice<S> {
     /// Size of the fixed portion (before signature).
     const FIXED_SIZE: usize = FINGERPRINT_SIZE + 8 + 1 + FINGERPRINT_SIZE; // 73 bytes
 
@@ -199,7 +200,7 @@ impl CompromiseNotice {
         compromised_fingerprint: [u8; FINGERPRINT_SIZE],
         reason: CompromiseReason,
         compromised_at: u64,
-        signing_key: &HybridSigningKeypair,
+        signing_key: &HybridSigningKeypair<S>,
     ) -> Result<Self> {
         let signer_fingerprint = key_fingerprint(signing_key.public_key());
 
@@ -229,7 +230,7 @@ impl CompromiseNotice {
     /// # Errors
     ///
     /// Returns `SignatureVerificationFailed` if verification fails.
-    pub fn verify(&self, signer_key: &HybridSigningPublicKey) -> Result<()> {
+    pub fn verify(&self, signer_key: &HybridSigningPublicKey<S>) -> Result<()> {
         // Verify the signer fingerprint matches
         let expected_fingerprint = key_fingerprint(signer_key);
         if expected_fingerprint != self.signer_fingerprint {
@@ -360,7 +361,9 @@ impl core::fmt::Debug for CompromiseNotice {
 ///
 /// Uses BLAKE3 hash of the serialised public key.
 #[cfg(feature = "alloc")]
-pub fn key_fingerprint(public_key: &HybridSigningPublicKey) -> [u8; FINGERPRINT_SIZE] {
+pub fn key_fingerprint<S: MlDsaScheme>(
+    public_key: &HybridSigningPublicKey<S>,
+) -> [u8; FINGERPRINT_SIZE] {
     let pk_bytes = public_key.to_bytes();
     blake3::hash(&pk_bytes).into()
 }
@@ -409,7 +412,9 @@ pub const RECOVERY_SEED_SIZE: usize = 32;
 ///
 /// Returns `KeyGenerationFailed` if key generation fails internally.
 #[cfg(any(feature = "std", feature = "wasm"))]
-pub fn derive_recovery_keypair(seed: &[u8; RECOVERY_SEED_SIZE]) -> Result<HybridSigningKeypair> {
+pub fn derive_recovery_keypair(
+    seed: &[u8; RECOVERY_SEED_SIZE],
+) -> Result<HybridSigningKeypair<trelis_primitives::MlDsa65Fips204>> {
     // Derive Ed448 seed (57 bytes) using domain separation
     // We derive two 32-byte blocks and combine them
     // Using a fixed suffix for the second derivation to avoid format! dependency
@@ -429,7 +434,7 @@ pub fn derive_recovery_keypair(seed: &[u8; RECOVERY_SEED_SIZE]) -> Result<Hybrid
     let mldsa_secret = derive_mldsa_from_seed(&mldsa_rng_seed)?;
 
     // Construct the hybrid keypair
-    HybridSigningKeypair::from_components(ed448_secret, mldsa_secret)
+    Ok(HybridSigningKeypair::from_components(ed448_secret, mldsa_secret))
 }
 
 /// Derives an ML-DSA-65 signing key deterministically from a 32-byte seed.
@@ -517,6 +522,11 @@ impl fips204::CryptoRng for DeterministicRng {}
 #[allow(clippy::unwrap_used, clippy::needless_borrow)]
 mod tests {
     use super::*;
+    use trelis_primitives::MlDsa65Fips204;
+
+    // Type aliases for tests - use FIPS 204 (standard) for consistent testing
+    type TestKeypair = HybridSigningKeypair<MlDsa65Fips204>;
+    type TestNotice = CompromiseNotice<MlDsa65Fips204>;
 
     #[test]
     fn test_compromise_reason_roundtrip() {
@@ -553,10 +563,10 @@ mod tests {
     #[cfg(feature = "alloc")]
     #[test]
     fn test_compromise_notice_create() {
-        let signing_key = HybridSigningKeypair::generate().unwrap();
+        let signing_key = TestKeypair::generate().unwrap();
         let compromised_fp = [0xAAu8; 32];
 
-        let notice = CompromiseNotice::new(
+        let notice = TestNotice::new(
             compromised_fp,
             CompromiseReason::DeviceTheft,
             1704067200,
@@ -573,10 +583,10 @@ mod tests {
     #[cfg(feature = "alloc")]
     #[test]
     fn test_compromise_notice_self_signed() {
-        let signing_key = HybridSigningKeypair::generate().unwrap();
+        let signing_key = TestKeypair::generate().unwrap();
         let self_fingerprint = key_fingerprint(&signing_key.public_key());
 
-        let notice = CompromiseNotice::new(
+        let notice = TestNotice::new(
             self_fingerprint,
             CompromiseReason::KeyExfiltration,
             1704067200,
@@ -590,9 +600,9 @@ mod tests {
     #[cfg(feature = "alloc")]
     #[test]
     fn test_compromise_notice_verify() {
-        let signing_key = HybridSigningKeypair::generate().unwrap();
+        let signing_key = TestKeypair::generate().unwrap();
 
-        let notice = CompromiseNotice::new(
+        let notice = TestNotice::new(
             [0xAAu8; 32],
             CompromiseReason::MalwareExposure,
             1704067200,
@@ -604,16 +614,16 @@ mod tests {
         assert!(notice.verify(&signing_key.public_key()).is_ok());
 
         // Verify with wrong key should fail
-        let other_key = HybridSigningKeypair::generate().unwrap();
+        let other_key = TestKeypair::generate().unwrap();
         assert!(notice.verify(&other_key.public_key()).is_err());
     }
 
     #[cfg(feature = "alloc")]
     #[test]
     fn test_compromise_notice_serialisation() {
-        let signing_key = HybridSigningKeypair::generate().unwrap();
+        let signing_key = TestKeypair::generate().unwrap();
 
-        let notice = CompromiseNotice::new(
+        let notice = TestNotice::new(
             [0xBBu8; 32],
             CompromiseReason::ServerBreach,
             1704067200,
@@ -639,7 +649,7 @@ mod tests {
     #[cfg(feature = "alloc")]
     #[test]
     fn test_key_fingerprint_deterministic() {
-        let keypair = HybridSigningKeypair::generate().unwrap();
+        let keypair = TestKeypair::generate().unwrap();
         let fp1 = key_fingerprint(&keypair.public_key());
         let fp2 = key_fingerprint(&keypair.public_key());
 
@@ -649,8 +659,8 @@ mod tests {
     #[cfg(feature = "alloc")]
     #[test]
     fn test_key_fingerprint_unique() {
-        let keypair1 = HybridSigningKeypair::generate().unwrap();
-        let keypair2 = HybridSigningKeypair::generate().unwrap();
+        let keypair1 = TestKeypair::generate().unwrap();
+        let keypair2 = TestKeypair::generate().unwrap();
 
         let fp1 = key_fingerprint(&keypair1.public_key());
         let fp2 = key_fingerprint(&keypair2.public_key());
@@ -710,7 +720,7 @@ mod tests {
         let compromised_fingerprint = [0xCCu8; 32];
 
         // Create a compromise notice signed by recovery key
-        let notice = CompromiseNotice::new(
+        let notice = TestNotice::new(
             compromised_fingerprint,
             CompromiseReason::KeyExfiltration,
             1704067200,

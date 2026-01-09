@@ -28,6 +28,8 @@ mlock = ["std", "libc", "windows-sys"]
 # ML-DSA-B-65: PQC-Suite-B variant with BLAKE3 (faster, experimental)
 # Provides MlDsa65B* types separate from standard MlDsa65* (FIPS 204)
 mldsa-suite-b = ["ml-dsa"]
+# Use Suite-B as the default ML-DSA variant (requires mldsa-suite-b)
+mldsa-suite-b-default = ["mldsa-suite-b"]
 
 [dependencies]
 trelis-error.workspace = true
