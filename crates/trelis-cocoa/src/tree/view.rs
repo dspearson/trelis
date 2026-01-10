@@ -160,6 +160,88 @@ impl PartialTreeView {
     pub fn path_is_complete(&self) -> bool {
         self.our_path().iter().all(|idx| self.contains(idx))
     }
+
+    /// Grows the tree by one level to accommodate more members.
+    ///
+    /// When the tree grows:
+    /// - Tree depth increases by 1
+    /// - All existing nodes move down one level (depth increases by 1)
+    /// - The old root becomes the left child of the new root
+    /// - Leaf positions remain the same (just at a deeper level)
+    ///
+    /// # Example
+    ///
+    /// Before (depth 2, capacity 4 leaves):
+    /// ```text
+    ///        (0,0)         <- root
+    ///       /     \
+    ///    (1,0)   (1,1)     <- internal
+    ///    /  \    /  \
+    ///  (2,0)(2,1)(2,2)(2,3) <- leaves
+    /// ```
+    ///
+    /// After grow (depth 3, capacity 8 leaves):
+    /// ```text
+    ///              (0,0)            <- NEW root
+    ///            /       \
+    ///        (1,0)       (1,1)      <- old root becomes (1,0), (1,1) is blank
+    ///       /     \      /    \
+    ///    (2,0)   (2,1) (2,2) (2,3)  <- old internals, (2,2) and (2,3) are blank
+    ///    /  \    /  \   ...
+    ///  old leaves at depth 3       <- old leaves at new depth
+    /// ```
+    pub fn grow_tree(&mut self) {
+        use alloc::collections::BTreeMap;
+
+        let old_depth = self.tree_depth;
+        let new_depth = old_depth + 1;
+
+        // Remap all existing nodes to new indices (depth + 1)
+        let mut new_nodes = BTreeMap::new();
+
+        for (_, mut node) in core::mem::take(&mut self.nodes) {
+            // Increase depth by 1 (position stays the same)
+            let old_index = node.index;
+            let new_index = NodeIndex::new(old_index.depth + 1, old_index.position);
+            node.index = new_index;
+            new_nodes.insert(new_index.to_linear(), node);
+        }
+
+        self.nodes = new_nodes;
+        self.tree_depth = new_depth;
+
+        // Update our leaf index
+        self.our_leaf = NodeIndex::leaf(new_depth, self.our_leaf.position);
+    }
+
+    /// Grows the tree if needed to accommodate a given member count.
+    ///
+    /// Returns true if the tree was grown, false otherwise.
+    pub fn grow_if_needed(&mut self, member_count: u32) -> bool {
+        let required_depth = Self::depth_for_members(member_count);
+        if required_depth > self.tree_depth {
+            self.grow_tree();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Returns the maximum number of leaves this tree can hold.
+    #[must_use]
+    pub fn capacity(&self) -> u32 {
+        if self.tree_depth == 0 {
+            1
+        } else {
+            1 << self.tree_depth
+        }
+    }
+
+    /// Returns true if the tree is at capacity and needs to grow.
+    #[must_use]
+    pub fn needs_growth(&self, member_count: u32) -> bool {
+        member_count > self.capacity()
+    }
 }
 
 #[cfg(feature = "alloc")]
@@ -464,5 +546,143 @@ mod tests {
         // Remove one node
         view.remove(&NodeIndex::new(1, 0));
         assert!(!view.path_is_complete());
+    }
+
+    #[test]
+    fn test_capacity() {
+        // depth 0 = 1 leaf
+        let view = PartialTreeView::new(0, 0);
+        assert_eq!(view.capacity(), 1);
+
+        // depth 1 = 2 leaves
+        let view = PartialTreeView::new(0, 1);
+        assert_eq!(view.capacity(), 2);
+
+        // depth 2 = 4 leaves
+        let view = PartialTreeView::new(0, 2);
+        assert_eq!(view.capacity(), 4);
+
+        // depth 3 = 8 leaves
+        let view = PartialTreeView::new(0, 3);
+        assert_eq!(view.capacity(), 8);
+    }
+
+    #[test]
+    fn test_needs_growth() {
+        let view = PartialTreeView::new(0, 2); // capacity 4
+
+        assert!(!view.needs_growth(1));
+        assert!(!view.needs_growth(4));
+        assert!(view.needs_growth(5)); // needs 5, capacity is 4
+        assert!(view.needs_growth(8));
+    }
+
+    #[test]
+    fn test_grow_tree_depth() {
+        let mut view = PartialTreeView::new(0, 2);
+        assert_eq!(view.tree_depth(), 2);
+        assert_eq!(view.capacity(), 4);
+
+        view.grow_tree();
+
+        assert_eq!(view.tree_depth(), 3);
+        assert_eq!(view.capacity(), 8);
+    }
+
+    #[test]
+    fn test_grow_tree_updates_our_leaf() {
+        let mut view = PartialTreeView::new(3, 2);
+        assert_eq!(view.our_leaf(), NodeIndex::leaf(2, 3));
+
+        view.grow_tree();
+
+        // Same position, deeper level
+        assert_eq!(view.our_leaf(), NodeIndex::leaf(3, 3));
+    }
+
+    #[test]
+    fn test_grow_tree_remaps_nodes() {
+        let mut view = PartialTreeView::new(0, 2);
+
+        // Add nodes at original positions
+        view.insert(TreeNode::new_blank(NodeIndex::new(2, 0))); // leaf
+        view.insert(TreeNode::new_blank(NodeIndex::new(1, 0))); // internal
+        view.insert(TreeNode::new_blank(NodeIndex::new(0, 0))); // root
+
+        assert_eq!(view.len(), 3);
+        assert!(view.contains(&NodeIndex::new(2, 0)));
+        assert!(view.contains(&NodeIndex::new(1, 0)));
+        assert!(view.contains(&NodeIndex::new(0, 0)));
+
+        view.grow_tree();
+
+        // All nodes should be at depth + 1
+        assert_eq!(view.len(), 3);
+        assert!(view.contains(&NodeIndex::new(3, 0))); // was (2, 0)
+        assert!(view.contains(&NodeIndex::new(2, 0))); // was (1, 0)
+        assert!(view.contains(&NodeIndex::new(1, 0))); // was (0, 0) - old root
+
+        // Old indices should be gone
+        assert!(!view.contains(&NodeIndex::new(0, 0))); // new root position is empty
+    }
+
+    #[test]
+    fn test_grow_if_needed_grows() {
+        let mut view = PartialTreeView::new(0, 2); // capacity 4
+        assert_eq!(view.tree_depth(), 2);
+
+        let grew = view.grow_if_needed(5);
+        assert!(grew);
+        assert_eq!(view.tree_depth(), 3);
+        assert_eq!(view.capacity(), 8);
+    }
+
+    #[test]
+    fn test_grow_if_needed_no_growth() {
+        let mut view = PartialTreeView::new(0, 2); // capacity 4
+        assert_eq!(view.tree_depth(), 2);
+
+        let grew = view.grow_if_needed(4);
+        assert!(!grew);
+        assert_eq!(view.tree_depth(), 2);
+    }
+
+    #[test]
+    fn test_grow_tree_multiple_times() {
+        let mut view = PartialTreeView::new(1, 1); // depth 1, capacity 2
+        view.insert(TreeNode::new_blank(NodeIndex::new(1, 1))); // our leaf
+
+        assert_eq!(view.tree_depth(), 1);
+        assert_eq!(view.our_leaf(), NodeIndex::leaf(1, 1));
+
+        // Grow once
+        view.grow_tree();
+        assert_eq!(view.tree_depth(), 2);
+        assert_eq!(view.our_leaf(), NodeIndex::leaf(2, 1));
+        assert!(view.contains(&NodeIndex::new(2, 1)));
+
+        // Grow again
+        view.grow_tree();
+        assert_eq!(view.tree_depth(), 3);
+        assert_eq!(view.our_leaf(), NodeIndex::leaf(3, 1));
+        assert!(view.contains(&NodeIndex::new(3, 1)));
+    }
+
+    #[test]
+    fn test_grow_tree_preserves_node_state() {
+        let mut view = PartialTreeView::new(0, 1);
+
+        // Insert a node with unmerged leaves
+        let mut node = TreeNode::new_blank(NodeIndex::new(1, 0));
+        node.state.add_unmerged_leaf([0x42u8; 32]);
+        view.insert(node);
+
+        view.grow_tree();
+
+        // Check that the node at the new position still has the unmerged leaf
+        let moved_node = view.get(&NodeIndex::new(2, 0)).unwrap();
+        let leaves = moved_node.state.unmerged_leaves().unwrap();
+        assert_eq!(leaves.len(), 1);
+        assert!(leaves.contains(&[0x42u8; 32]));
     }
 }

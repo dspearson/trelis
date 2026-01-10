@@ -509,4 +509,133 @@ mod tests {
         assert_eq!(session.member_count(), 10);
         assert_eq!(session.epoch_number(), 0);
     }
+
+    #[test]
+    fn test_two_members_same_epoch_secret() {
+        let group_id = [0x42u8; 32];
+        let epoch_secret = [0xABu8; 32];
+        let transcript = [0x00u8; 32];
+
+        // Member 1 creates the group
+        let mut member1 = CocoaSession::create_group(
+            group_id,
+            [0x01u8; 32],
+            HybridKemKeypair::generate().unwrap(),
+            2,
+            &epoch_secret,
+        )
+        .unwrap();
+
+        // Member 2 joins with the same epoch secret (simulating welcome)
+        let member2 = CocoaSession::join_group(
+            group_id,
+            [0x02u8; 32],
+            HybridKemKeypair::generate().unwrap(),
+            1,
+            1, // depth 1 for 2 members
+            2,
+            &epoch_secret,
+            transcript,
+        );
+
+        // Both should derive the same message keys
+        let plaintext = b"Hello from member 1";
+        let encrypted = member1.encrypt(plaintext).unwrap();
+        let decrypted = member2.decrypt(&encrypted).unwrap();
+
+        assert_eq!(&decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_epoch_synchronisation() {
+        let group_id = [0x42u8; 32];
+        let epoch_secret = [0xABu8; 32];
+
+        let mut member1 = CocoaSession::create_group(
+            group_id,
+            [0x01u8; 32],
+            HybridKemKeypair::generate().unwrap(),
+            2,
+            &epoch_secret,
+        )
+        .unwrap();
+
+        let mut member2 = CocoaSession::join_group(
+            group_id,
+            [0x02u8; 32],
+            HybridKemKeypair::generate().unwrap(),
+            1,
+            1,
+            2,
+            &epoch_secret,
+            [0x00u8; 32],
+        );
+
+        // Both advance to epoch 1 with the same delta_root
+        let delta_root = [0x11u8; 32];
+        let new_transcript = [0x22u8; 32];
+
+        member1.advance_epoch(&delta_root, new_transcript);
+        member2.advance_epoch(&delta_root, new_transcript);
+
+        // They should still be able to communicate
+        let plaintext = b"Epoch 1 message";
+        let encrypted = member1.encrypt(plaintext).unwrap();
+        let decrypted = member2.decrypt(&encrypted).unwrap();
+
+        assert_eq!(&decrypted, plaintext);
+        assert_eq!(member1.epoch_number(), 1);
+        assert_eq!(member2.epoch_number(), 1);
+    }
+
+    #[test]
+    fn test_tree_depth_for_different_sizes() {
+        // 1 member: depth 0
+        let session = CocoaSession::create_group(
+            [0x42u8; 32],
+            [0x01u8; 32],
+            HybridKemKeypair::generate().unwrap(),
+            1,
+            &[0xABu8; 32],
+        )
+        .unwrap();
+        assert_eq!(session.tree().tree_depth(), 0);
+        assert_eq!(session.tree().capacity(), 1);
+
+        // 2 members: depth 1
+        let session = CocoaSession::create_group(
+            [0x42u8; 32],
+            [0x01u8; 32],
+            HybridKemKeypair::generate().unwrap(),
+            2,
+            &[0xABu8; 32],
+        )
+        .unwrap();
+        assert_eq!(session.tree().tree_depth(), 1);
+        assert_eq!(session.tree().capacity(), 2);
+
+        // 3 members: depth 2 (needs room for 4)
+        let session = CocoaSession::create_group(
+            [0x42u8; 32],
+            [0x01u8; 32],
+            HybridKemKeypair::generate().unwrap(),
+            3,
+            &[0xABu8; 32],
+        )
+        .unwrap();
+        assert_eq!(session.tree().tree_depth(), 2);
+        assert_eq!(session.tree().capacity(), 4);
+
+        // 5 members: depth 3 (needs room for 8)
+        let session = CocoaSession::create_group(
+            [0x42u8; 32],
+            [0x01u8; 32],
+            HybridKemKeypair::generate().unwrap(),
+            5,
+            &[0xABu8; 32],
+        )
+        .unwrap();
+        assert_eq!(session.tree().tree_depth(), 3);
+        assert_eq!(session.tree().capacity(), 8);
+    }
 }

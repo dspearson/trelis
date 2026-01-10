@@ -149,6 +149,52 @@ fn derive_welcome_key(shared_secret: &[u8; 32]) -> AeadKey {
     AeadKey::from_bytes(key_bytes)
 }
 
+/// Encrypts welcome information to a recipient's KEM key.
+///
+/// This is used when adding members to encrypt the group state.
+///
+/// # Arguments
+///
+/// * `info` - The information to encrypt (must implement `to_bytes()`)
+/// * `recipient_key` - The recipient's KEM public key
+///
+/// # Returns
+///
+/// A tuple of (encrypted_info, encapsulation bytes).
+#[cfg(all(feature = "alloc", any(feature = "std", feature = "wasm")))]
+pub fn encrypt_welcome_info<T: WelcomeInfoSerialise>(
+    info: &T,
+    recipient_key: &trelis_hybrid::HybridKemPublicKey,
+) -> Result<(Vec<u8>, Vec<u8>)> {
+    // Encapsulate to get shared secret
+    let (shared_secret, encap) = recipient_key.encapsulate()?;
+
+    // Derive AEAD key
+    let aead_key = derive_welcome_key(shared_secret.as_bytes());
+
+    // Generate random nonce
+    let nonce_bytes: [u8; 24] = generate_bytes()?;
+    let nonce = Nonce::from_bytes(nonce_bytes);
+
+    // Serialise and encrypt the info
+    let plaintext = info.to_bytes();
+    let ciphertext = aead::encrypt(&aead_key, &nonce, &plaintext, b"cocoa-welcome-add")?;
+
+    // encrypted_info = nonce (24) || ciphertext
+    let mut encrypted_info = Vec::with_capacity(24 + ciphertext.len());
+    encrypted_info.extend_from_slice(&nonce_bytes);
+    encrypted_info.extend_from_slice(&ciphertext);
+
+    Ok((encrypted_info, encap.to_bytes().to_vec()))
+}
+
+/// Trait for types that can be serialised for welcome encryption.
+#[cfg(feature = "alloc")]
+pub trait WelcomeInfoSerialise {
+    /// Serialises the info to bytes.
+    fn to_bytes(&self) -> Vec<u8>;
+}
+
 /// Processes a welcome message to join a group.
 ///
 /// # Arguments

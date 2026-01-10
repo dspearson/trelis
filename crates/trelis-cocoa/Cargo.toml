@@ -9,11 +9,13 @@ repository.workspace = true
 description = "CoCoA-SA (Concurrent Continuous Group Key Agreement - Server Assisted) for Trelis"
 
 [features]
-default = ["std", "alloc"]
+default = ["std", "alloc", "deterministic-keygen"]
 std = ["alloc", "trelis-primitives/std", "trelis-hybrid/std"]
 alloc = ["trelis-primitives/alloc", "trelis-hybrid/alloc"]
 # WASM target support (browser environment)
 wasm = ["alloc", "trelis-primitives/wasm", "trelis-hybrid/wasm"]
+# Deterministic key generation (required for path derivation)
+deterministic-keygen = ["trelis-primitives/deterministic-keygen", "trelis-hybrid/deterministic-keygen"]
 expose-internals = []
 
 [dependencies]

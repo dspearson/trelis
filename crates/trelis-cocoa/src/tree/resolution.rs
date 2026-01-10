@@ -183,7 +183,10 @@ pub fn resolve_set<T: NodeLookup>(lookup: &T, indices: &[NodeIndex]) -> Resoluti
 ///
 /// * `lookup` - A type implementing [`NodeLookup`] for tree traversal
 /// * `path_node` - A node in the updater's direct path
-/// * `unmerged_fn` - Function to compute unmerged leaves for a node
+/// * `unmerged_fn` - Function to compute unmerged leaves for a node.
+///   Takes a node index and returns a list of leaf indices that have joined
+///   but haven't yet processed an update covering that node. These members
+///   need to receive the encrypted seed directly at their leaf position.
 ///
 /// # Returns
 ///
@@ -194,21 +197,34 @@ pub fn resolve_set<T: NodeLookup>(lookup: &T, indices: &[NodeIndex]) -> Resoluti
 ///
 /// When a member sends an update, they encrypt new path secrets to each Lj
 /// set. Members in each Lj can decrypt and update their view of the tree.
+/// Unmerged members (those who joined but haven't processed an update yet)
+/// need to be included so they can also receive the encrypted secrets.
 #[cfg(feature = "alloc")]
-pub fn compute_lj<T: NodeLookup>(
-    lookup: &T,
-    path_node: NodeIndex,
-    _unmerged_fn: impl Fn(&NodeIndex) -> Vec<NodeIndex>,
-) -> Resolution {
+pub fn compute_lj<T: NodeLookup, F>(lookup: &T, path_node: NodeIndex, unmerged_fn: F) -> Resolution
+where
+    F: Fn(&NodeIndex) -> Vec<NodeIndex>,
+{
     // Get the sibling (co-parent)
     let sibling = match path_node.sibling() {
         Some(s) => s,
         None => return Resolution::empty(), // Root has no sibling
     };
 
-    // Compute resolution of sibling subtree.
-    // In full implementation, would add unmerged leaves here.
-    resolve(lookup, sibling)
+    // Compute resolution of sibling subtree
+    let resolution = resolve(lookup, sibling);
+
+    // Collect unmerged leaves for each node in the resolution
+    // Per spec: Lj = Res(wj) ∪ Unmerged(Res(wj))
+    let mut unmerged = Resolution::empty();
+    for node_idx in resolution.iter() {
+        let unmerged_leaves = unmerged_fn(node_idx);
+        for leaf_idx in unmerged_leaves {
+            unmerged = unmerged.union(Resolution::singleton(leaf_idx));
+        }
+    }
+
+    // Return the union of resolution and unmerged leaves
+    resolution.union(unmerged)
 }
 
 #[cfg(test)]
@@ -532,5 +548,59 @@ mod tests {
         assert_eq!(res.len(), 2);
         assert!(res.nodes.contains(&sibling_left));
         assert!(res.nodes.contains(&sibling_right));
+    }
+
+    #[test]
+    fn test_compute_lj_with_unmerged_leaves() {
+        let mut lookup = RealNodeLookup::new(2);
+
+        // Path node at (1, 0), sibling at (1, 1)
+        let path_node = NodeIndex::new(1, 0);
+        let sibling = NodeIndex::new(1, 1);
+
+        lookup.add_populated(path_node);
+        lookup.add_populated(sibling);
+
+        // Define unmerged leaves for the sibling
+        let unmerged_leaf1 = NodeIndex::new(2, 2);
+        let unmerged_leaf2 = NodeIndex::new(2, 3);
+
+        let res = compute_lj(&lookup, path_node, |node_idx| {
+            if *node_idx == sibling {
+                // Sibling has unmerged leaves
+                vec![unmerged_leaf1, unmerged_leaf2]
+            } else {
+                Vec::new()
+            }
+        });
+
+        // Should return resolution of sibling (1) + unmerged leaves (2) = 3 total
+        assert_eq!(res.len(), 3);
+        assert!(res.nodes.contains(&sibling));
+        assert!(res.nodes.contains(&unmerged_leaf1));
+        assert!(res.nodes.contains(&unmerged_leaf2));
+    }
+
+    #[test]
+    fn test_compute_lj_unmerged_dedup() {
+        let mut lookup = RealNodeLookup::new(2);
+
+        let path_node = NodeIndex::new(1, 0);
+        let sibling = NodeIndex::new(1, 1);
+
+        lookup.add_populated(path_node);
+        lookup.add_populated(sibling);
+
+        // Same unmerged leaf returned for multiple resolution nodes
+        let unmerged_leaf = NodeIndex::new(2, 2);
+
+        let res = compute_lj(&lookup, path_node, |_| {
+            vec![unmerged_leaf]
+        });
+
+        // Should deduplicate: sibling (1) + unmerged (1) = 2 total
+        assert_eq!(res.len(), 2);
+        assert!(res.nodes.contains(&sibling));
+        assert!(res.nodes.contains(&unmerged_leaf));
     }
 }
