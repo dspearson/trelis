@@ -37,6 +37,10 @@ ed448-blake3 = []
 # Use BLAKE3 as the default Ed448 variant (requires ed448-blake3)
 ed448-blake3-default = ["ed448-blake3"]
 
+# SIMD-accelerated polynomial operations (experimental)
+# Uses the `wide` crate for portable SIMD on stable Rust
+simd = ["wide"]
+
 [dependencies]
 trelis-error.workspace = true
 blake3.workspace = true
@@ -58,6 +62,8 @@ ntrulp = { workspace = true }
 # Memory locking (optional, for mlock feature)
 libc = { workspace = true, optional = true }
 windows-sys = { workspace = true, optional = true }
+# SIMD acceleration (optional, for simd feature)
+wide = { version = "0.7", optional = true }
 
 # Post-quantum KEM - C FFI (native Unix/Linux only)
 # Excluded on Windows (MSVC issues) and WASM (no C FFI)

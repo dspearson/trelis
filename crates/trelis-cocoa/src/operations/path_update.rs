@@ -417,13 +417,13 @@ pub fn find_our_resolution_node(
     // Walk up until we find the common ancestor
     while our_path_node != updater_path_node {
         match our_path_node.depth.cmp(&updater_path_node.depth) {
-            std::cmp::Ordering::Less => {
+            core::cmp::Ordering::Less => {
                 updater_path_node = updater_path_node.parent()?;
             }
-            std::cmp::Ordering::Greater => {
+            core::cmp::Ordering::Greater => {
                 our_path_node = our_path_node.parent()?;
             }
-            std::cmp::Ordering::Equal => {
+            core::cmp::Ordering::Equal => {
                 // Same depth, different nodes - go up both
                 our_path_node = our_path_node.parent()?;
                 updater_path_node = updater_path_node.parent()?;
