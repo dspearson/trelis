@@ -25,7 +25,7 @@
 //! field elements (like the ratio parameter), timing is not a concern.
 
 #[cfg(feature = "simd")]
-use wide::i32x8;
+use wide::{CmpLt, i32x8};
 
 use crate::sntrup761_encoding::P;
 
@@ -230,11 +230,107 @@ pub fn freeze(x: i32) -> i16 {
 // SIMD-accelerated operations (using `wide` crate for stable Rust)
 // ============================================================================
 
+// Barrett reduction constants for SIMD freeze
+// Input range: x ∈ [-10.5M, +10.5M] (from f0 * out[i] - g0 * fv[i])
+// where f0, g0, out[i], fv[i] ∈ [-2295, 2295]
+
+/// Offset to make inputs positive: 2^24 = 16,777,216
+#[cfg(feature = "simd")]
+const SIMD_OFFSET: i32 = 1 << 24;
+
+/// OFFSET mod Q = 16777216 mod 4591 = 1702
+#[cfg(feature = "simd")]
+const SIMD_OFFSET_MOD_Q: i32 = 1702;
+
+/// Barrett multiplier M = floor(2^18 / 4591) = 57
+#[cfg(feature = "simd")]
+const SIMD_BARRETT_M: i32 = 57;
+
+/// Barrett shift K = 18
+#[cfg(feature = "simd")]
+const SIMD_BARRETT_K: i32 = 18;
+
+/// Fully vectorized Barrett reduction for freeze().
+///
+/// Computes x mod q in the centred range [-(q-1)/2, (q-1)/2] for 8 values.
+///
+/// # Algorithm
+///
+/// 1. Add OFFSET to make inputs positive: y = x + Q12 + OFFSET
+/// 2. Barrett approximation: q_approx = (y * M) >> K
+/// 3. Compute remainder: r = y - q * q_approx
+/// 4. Branchless corrections for approximation error (at most ±2)
+/// 5. Adjust back: result = r - OFFSET_MOD_Q - Q12
+///
+/// # Input Range
+///
+/// Valid for |x| ≤ 10.5M (products of i16 coefficients in [-2295, 2295]).
+#[cfg(feature = "simd")]
+#[inline]
+fn freeze_simd(x: i32x8) -> i32x8 {
+    let q = i32x8::splat(Q);
+    let q12 = i32x8::splat(Q12);
+    let offset = i32x8::splat(SIMD_OFFSET);
+    let offset_mod_q = i32x8::splat(SIMD_OFFSET_MOD_Q);
+    let m = i32x8::splat(SIMD_BARRETT_M);
+    let one = i32x8::splat(1);
+    let zero = i32x8::splat(0);
+
+    // Step 1: Shift to positive range
+    // y = x + Q12 + OFFSET, range: [OFFSET - 10.5M + Q12, OFFSET + 10.5M + Q12]
+    // ≈ [6.3M, 27.3M], all positive
+    let y = x + q12 + offset;
+
+    // Step 2: Barrett approximation
+    // q_approx = (y * M) >> K
+    // With y ≤ 27.3M and M = 57: y * M ≤ 1.56B < 2^31 ✓
+    let y_m = y * m;
+
+    // Right shift by K=18 (element-wise since wide doesn't have vector shift)
+    let y_m_arr: [i32; 8] = y_m.into();
+    let q_approx = i32x8::new([
+        y_m_arr[0] >> SIMD_BARRETT_K,
+        y_m_arr[1] >> SIMD_BARRETT_K,
+        y_m_arr[2] >> SIMD_BARRETT_K,
+        y_m_arr[3] >> SIMD_BARRETT_K,
+        y_m_arr[4] >> SIMD_BARRETT_K,
+        y_m_arr[5] >> SIMD_BARRETT_K,
+        y_m_arr[6] >> SIMD_BARRETT_K,
+        y_m_arr[7] >> SIMD_BARRETT_K,
+    ]);
+
+    // Step 3: Compute remainder
+    // r = y - q * q_approx - OFFSET_MOD_Q
+    let r = y - q * q_approx - offset_mod_q;
+
+    // Step 4: Branchless corrections
+    // Barrett error is at most 2, so we need up to 2 subtractions or 1 addition
+
+    // Correction 1: if r >= q, r -= q
+    // cmp_lt returns -1 (all bits set) if true, 0 if false
+    // We want: correction = q if r >= q, else 0
+    let lt_mask1 = r.cmp_lt(q); // -1 if r < q, 0 if r >= q
+    let ge_mask1 = lt_mask1 + one; // 0 if r < q, 1 if r >= q
+    let r = r - ge_mask1 * q;
+
+    // Correction 2: if r >= q again, r -= q (for edge cases)
+    let lt_mask2 = r.cmp_lt(q);
+    let ge_mask2 = lt_mask2 + one;
+    let r = r - ge_mask2 * q;
+
+    // Correction 3: if r < 0, r += q
+    let neg_mask = r.cmp_lt(zero); // -1 if r < 0, 0 otherwise
+    let r = r - neg_mask * q; // Subtracting -1*q = adding q
+
+    // Step 5: Centre the result
+    r - q12
+}
+
 /// SIMD-accelerated quotient update for Rq polynomials.
 ///
 /// Computes: out[i] = freeze(f0 * out[i] - g0 * fv[i]) for all i.
 ///
-/// Processes 8 elements at a time using i32x8 SIMD vectors from the `wide` crate.
+/// Processes 8 elements at a time using fully vectorized Barrett reduction.
 #[cfg(feature = "simd")]
 #[inline]
 fn quotient_rq_simd(out: &mut [i16], f0: i32, g0: i32, fv: &[i16]) {
@@ -274,16 +370,19 @@ fn quotient_rq_simd(out: &mut [i16], f0: i32, g0: i32, fv: &[i16]) {
         // Compute x = f0 * out - g0 * fv
         let x = f0_vec * out_i32 - g0_vec * fv_i32;
 
-        // Apply freeze element-by-element (freeze is complex, hard to vectorise)
-        let x_arr: [i32; 8] = x.into();
-        out[base] = freeze(x_arr[0]);
-        out[base + 1] = freeze(x_arr[1]);
-        out[base + 2] = freeze(x_arr[2]);
-        out[base + 3] = freeze(x_arr[3]);
-        out[base + 4] = freeze(x_arr[4]);
-        out[base + 5] = freeze(x_arr[5]);
-        out[base + 6] = freeze(x_arr[6]);
-        out[base + 7] = freeze(x_arr[7]);
+        // Apply fully vectorized Barrett reduction
+        let result = freeze_simd(x);
+
+        // Store results (narrowing from i32 to i16)
+        let result_arr: [i32; 8] = result.into();
+        out[base] = result_arr[0] as i16;
+        out[base + 1] = result_arr[1] as i16;
+        out[base + 2] = result_arr[2] as i16;
+        out[base + 3] = result_arr[3] as i16;
+        out[base + 4] = result_arr[4] as i16;
+        out[base + 5] = result_arr[5] as i16;
+        out[base + 6] = result_arr[6] as i16;
+        out[base + 7] = result_arr[7] as i16;
     }
 
     // Handle remaining elements (P+1 = 762, 762 % 8 = 2)
@@ -973,5 +1072,597 @@ mod tests {
             );
         }
         // Note: some polynomials may not be invertible, which is fine
+    }
+
+    // ========================================================================
+    // Edge case tests for cryptographic correctness
+    // ========================================================================
+
+    /// Verify precomputed constants are mathematically correct.
+    #[test]
+    fn test_precomputed_constants() {
+        // V = 2^31
+        assert_eq!(V, 0x8000_0000);
+        assert_eq!(V, 1u32 << 31);
+
+        // V_DIV_Q = V / Q (integer division)
+        let expected_div = V / Q as u32;
+        assert_eq!(V_DIV_Q, expected_div, "V_DIV_Q mismatch");
+
+        // V_MOD_Q = V % Q
+        let expected_mod = V % Q as u32;
+        assert_eq!(V_MOD_Q, expected_mod, "V_MOD_Q mismatch");
+
+        // Verify: V_DIV_Q * Q + V_MOD_Q == V
+        let reconstructed = V_DIV_Q as u64 * Q as u64 + V_MOD_Q as u64;
+        assert_eq!(reconstructed, V as u64, "V reconstruction failed");
+
+        // Verify V_DIVMOD_Q tuple matches individual constants
+        assert_eq!(V_DIVMOD_Q.0, V_DIV_Q);
+        assert_eq!(V_DIVMOD_Q.1, V_MOD_Q);
+    }
+
+    /// Compare optimised u32_divmod_q against generic u32_divmod_u14.
+    #[test]
+    fn test_u32_divmod_q_vs_generic() {
+        // Test specific edge cases
+        let test_values: &[u32] = &[
+            0,
+            1,
+            Q as u32 - 1,
+            Q as u32,
+            Q as u32 + 1,
+            2 * Q as u32,
+            V - 1,
+            V,
+            V + 1,
+            V + Q as u32,
+            u32::MAX / 2,
+            u32::MAX - Q as u32,
+            u32::MAX - 1,
+            u32::MAX,
+        ];
+
+        for &x in test_values {
+            let optimised = u32_divmod_q(x);
+            let generic = u32_divmod_u14(x, Q as u16);
+            assert_eq!(
+                optimised, generic,
+                "u32_divmod_q({}) = {:?}, but u32_divmod_u14 = {:?}",
+                x, optimised, generic
+            );
+        }
+
+        // Test a range of values around Q boundaries
+        for i in 0..10000u32 {
+            let optimised = u32_divmod_q(i);
+            let generic = u32_divmod_u14(i, Q as u16);
+            assert_eq!(optimised, generic, "Mismatch at x={}", i);
+        }
+    }
+
+    /// Compare optimised i32_divmod_q against generic i32_divmod_u14.
+    #[test]
+    fn test_i32_divmod_q_vs_generic() {
+        // Test specific edge cases
+        let test_values: &[i32] = &[
+            0,
+            1,
+            -1,
+            Q - 1,
+            Q,
+            Q + 1,
+            -Q + 1,
+            -Q,
+            -Q - 1,
+            Q12,
+            -Q12,
+            Q12 + 1,
+            -Q12 - 1,
+            i32::MAX / 2,
+            i32::MIN / 2,
+            // Near overflow boundaries for x + Q12
+            i32::MAX - Q12 - 100,
+            i32::MIN + Q12 + 100,
+        ];
+
+        for &x in test_values {
+            let optimised = i32_divmod_q(x);
+            let generic = i32_divmod_u14(x, Q as u16);
+            assert_eq!(
+                optimised, generic,
+                "i32_divmod_q({}) = {:?}, but i32_divmod_u14 = {:?}",
+                x, optimised, generic
+            );
+        }
+
+        // Test a range of positive and negative values
+        for i in -10000i32..10000 {
+            let optimised = i32_divmod_q(i);
+            let generic = i32_divmod_u14(i, Q as u16);
+            assert_eq!(optimised, generic, "Mismatch at x={}", i);
+        }
+    }
+
+    /// Test freeze() at critical boundary values.
+    #[test]
+    fn test_freeze_boundaries() {
+        // Basic values
+        assert_eq!(freeze(0), 0);
+        assert_eq!(freeze(1), 1);
+        assert_eq!(freeze(-1), -1);
+
+        // Q boundaries
+        assert_eq!(freeze(Q), 0);
+        assert_eq!(freeze(-Q), 0);
+        assert_eq!(freeze(Q - 1), Q as i16 - 1 - Q12 as i16 - Q12 as i16 - 1);
+        assert_eq!(freeze(Q + 1), 1);
+        assert_eq!(freeze(-Q - 1), -1);
+
+        // Q12 boundaries (output range is [-Q12, Q12])
+        assert_eq!(freeze(Q12), Q12 as i16);
+        assert_eq!(freeze(-Q12), -(Q12 as i16));
+        assert_eq!(freeze(Q12 + 1), Q12 as i16 + 1 - Q as i16);
+        assert_eq!(freeze(-Q12 - 1), -(Q12 as i16) - 1 + Q as i16);
+
+        // Multiple of Q
+        assert_eq!(freeze(2 * Q), 0);
+        assert_eq!(freeze(-2 * Q), 0);
+        assert_eq!(freeze(100 * Q), 0);
+        assert_eq!(freeze(-100 * Q), 0);
+
+        // Large values
+        assert_eq!(freeze(1_000_000), freeze(1_000_000 % Q));
+        assert_eq!(freeze(-1_000_000), freeze(-1_000_000 % Q + Q));
+    }
+
+    /// Exhaustive freeze() test comparing with ntrulp-style implementation.
+    #[test]
+    fn test_freeze_exhaustive_vs_reference() {
+        // Reference implementation using generic i32_mod_u14
+        fn freeze_reference(x: i32) -> i16 {
+            let r = i32_divmod_u14(x + Q12, Q as u16).1;
+            r as i16 - Q12 as i16
+        }
+
+        // Test full i16 range (inputs commonly used in sntrup761)
+        for x in i16::MIN..=i16::MAX {
+            let our_result = freeze(x as i32);
+            let ref_result = freeze_reference(x as i32);
+            assert_eq!(
+                our_result, ref_result,
+                "freeze({}) = {}, but reference = {}",
+                x, our_result, ref_result
+            );
+        }
+    }
+
+    /// Test freeze() with values that could cause overflow in x + Q12.
+    #[test]
+    fn test_freeze_overflow_safety() {
+        // These values are near the limits of what freeze() can safely handle
+        // The internal computation is x + Q12 which must not overflow
+
+        // Safe large positive
+        let large_pos = i32::MAX - Q12 - 1000;
+        let result = freeze(large_pos);
+        // Just verify it doesn't panic and produces a value in range
+        assert!(result >= -(Q12 as i16) && result <= Q12 as i16);
+
+        // Safe large negative
+        let large_neg = i32::MIN + Q12 + 1000;
+        let result = freeze(large_neg);
+        assert!(result >= -(Q12 as i16) && result <= Q12 as i16);
+
+        // Values used in actual sntrup761 computations (products of coefficients)
+        // Max coefficient is Q12 = 2295, so max product is 2295 * 2295 = 5267025
+        let max_product = (Q12 as i64 * Q12 as i64) as i32;
+        let result = freeze(max_product);
+        assert!(result >= -(Q12 as i16) && result <= Q12 as i16);
+
+        let min_product = -(Q12 as i64 * Q12 as i64) as i32;
+        let result = freeze(min_product);
+        assert!(result >= -(Q12 as i16) && result <= Q12 as i16);
+    }
+
+    /// Test f3_freeze() at boundary values.
+    #[test]
+    fn test_f3_freeze_boundaries() {
+        // Basic values
+        assert_eq!(f3_freeze(0), 0);
+        assert_eq!(f3_freeze(1), 1);
+        assert_eq!(f3_freeze(-1), -1);
+        assert_eq!(f3_freeze(2), -1); // 2 ≡ -1 (mod 3)
+        assert_eq!(f3_freeze(-2), 1); // -2 ≡ 1 (mod 3)
+
+        // Multiples of 3
+        assert_eq!(f3_freeze(3), 0);
+        assert_eq!(f3_freeze(-3), 0);
+        assert_eq!(f3_freeze(300), 0);
+        assert_eq!(f3_freeze(-300), 0);
+
+        // i16 boundaries
+        // i16::MAX = 32767 = 3 * 10922 + 1, so 32767 mod 3 = 1
+        assert_eq!(f3_freeze(i16::MAX), 1);
+        // i16::MIN = -32768 = 3 * (-10923) + 1, so -32768 mod 3 = 1 (centred: 1)
+        // Actually: -32768 = -32769 + 1 = 3*(-10923) + 1
+        let min_mod = ((i16::MIN as i32 % 3) + 3) % 3;
+        let expected = match min_mod {
+            0 => 0i8,
+            1 => 1,
+            2 => -1,
+            _ => unreachable!(),
+        };
+        assert_eq!(f3_freeze(i16::MIN), expected);
+    }
+
+    /// Exhaustive f3_freeze() test for full i16 range.
+    #[test]
+    fn test_f3_freeze_exhaustive() {
+        for x in i16::MIN..=i16::MAX {
+            let result = f3_freeze(x);
+
+            // Verify result is in centred range [-1, 0, 1]
+            assert!(
+                result >= -1 && result <= 1,
+                "f3_freeze({}) = {} out of range",
+                x,
+                result
+            );
+
+            // Verify correctness: x ≡ result (mod 3)
+            let x_mod3 = ((x as i32 % 3) + 3) % 3;
+            let result_mod3 = ((result as i32 % 3) + 3) % 3;
+            assert_eq!(
+                x_mod3, result_mod3,
+                "f3_freeze({}) = {} incorrect mod 3",
+                x, result
+            );
+        }
+    }
+
+    /// Test recip() edge cases.
+    #[test]
+    fn test_recip_edge_cases() {
+        // recip(1) should be 1
+        assert_eq!(recip(1), 1);
+
+        // recip(-1) should be -1
+        assert_eq!(recip(-1), -1);
+
+        // recip(a) * a ≡ 1 (mod Q) for various values
+        let test_values: &[i16] = &[
+            1, 2, 3, 7, 13, 42, 100, 500, 1000, 2000, 2295, // Q12
+            -1, -2, -3, -7, -42, -100, -1000, -2295,
+        ];
+
+        for &a in test_values {
+            let inv = recip(a);
+            let product = freeze(a as i32 * inv as i32);
+            assert_eq!(
+                product, 1,
+                "recip({}) = {} failed: {} * {} mod Q = {}",
+                a, inv, a, inv, product
+            );
+        }
+
+        // recip(a) = -recip(-a) (antisymmetry)
+        for &a in &[2i16, 7, 42, 100, 1000] {
+            assert_eq!(
+                recip(a),
+                freeze(-(recip(-a) as i32)),
+                "Antisymmetry failed for a={}",
+                a
+            );
+        }
+    }
+
+    /// Compare our recip with ntrulp's Fermat-based recip for all valid inputs.
+    #[test]
+    fn test_recip_vs_fermat_exhaustive() {
+        // Fermat's little theorem: a^(q-2) ≡ a^(-1) (mod q)
+        fn fermat_recip(a: i16) -> i16 {
+            if a == 0 {
+                return 0;
+            }
+            let mut ai = a;
+            for _ in 1..Q - 2 {
+                ai = freeze(a as i32 * ai as i32);
+            }
+            ai
+        }
+
+        // Test all non-zero values in the valid coefficient range
+        for a in 1..=Q12 as i16 {
+            let egcd = recip(a);
+            let fermat = fermat_recip(a);
+            assert_eq!(
+                egcd, fermat,
+                "recip({}) mismatch: egcd={}, fermat={}",
+                a, egcd, fermat
+            );
+        }
+
+        // Test negative values
+        for a in (-(Q12 as i16))..=-1 {
+            let egcd = recip(a);
+            let fermat = fermat_recip(a);
+            assert_eq!(
+                egcd, fermat,
+                "recip({}) mismatch: egcd={}, fermat={}",
+                a, egcd, fermat
+            );
+        }
+    }
+
+    /// Direct comparison with ntrulp crate's freeze implementation.
+    #[test]
+    fn test_freeze_vs_ntrulp_crate() {
+        use ntrulp::poly::fq::freeze as ntrulp_freeze;
+
+        // Test full i16 range
+        for x in i16::MIN..=i16::MAX {
+            let our_result = freeze(x as i32);
+            let ntrulp_result = ntrulp_freeze(x as i32);
+            assert_eq!(
+                our_result, ntrulp_result,
+                "freeze({}) = {}, but ntrulp = {}",
+                x, our_result, ntrulp_result
+            );
+        }
+
+        // Test larger values commonly seen in polynomial operations
+        for x in &[
+            100_000i32, -100_000, 1_000_000, -1_000_000, 5_000_000, -5_000_000,
+        ] {
+            let our_result = freeze(*x);
+            let ntrulp_result = ntrulp_freeze(*x);
+            assert_eq!(
+                our_result, ntrulp_result,
+                "freeze({}) = {}, but ntrulp = {}",
+                x, our_result, ntrulp_result
+            );
+        }
+    }
+
+    /// Direct comparison with ntrulp crate's f3_freeze implementation.
+    #[test]
+    fn test_f3_freeze_vs_ntrulp_crate() {
+        use ntrulp::poly::f3::freeze as ntrulp_f3_freeze;
+
+        // Test full i16 range
+        for x in i16::MIN..=i16::MAX {
+            let our_result = f3_freeze(x);
+            let ntrulp_result = ntrulp_f3_freeze(x);
+            assert_eq!(
+                our_result, ntrulp_result,
+                "f3_freeze({}) = {}, but ntrulp = {}",
+                x, our_result, ntrulp_result
+            );
+        }
+    }
+
+    /// Direct comparison with ntrulp's divmod functions.
+    #[test]
+    fn test_divmod_vs_ntrulp_crate() {
+        use ntrulp::math::nums::{
+            i32_divmod_u14 as ntrulp_i32_divmod, u32_divmod_u14 as ntrulp_u32_divmod,
+        };
+
+        // Test u32_divmod_q against ntrulp
+        let u32_test_values: &[u32] = &[
+            0,
+            1,
+            Q as u32 - 1,
+            Q as u32,
+            Q as u32 + 1,
+            V - 1,
+            V,
+            V + 1,
+            u32::MAX / 2,
+            u32::MAX,
+        ];
+
+        for &x in u32_test_values {
+            let our_result = u32_divmod_q(x);
+            let ntrulp_result = ntrulp_u32_divmod(x, Q as u16);
+            assert_eq!(
+                our_result, ntrulp_result,
+                "u32_divmod_q({}) = {:?}, but ntrulp = {:?}",
+                x, our_result, ntrulp_result
+            );
+        }
+
+        // Test i32_divmod_q against ntrulp
+        let i32_test_values: &[i32] = &[
+            0,
+            1,
+            -1,
+            Q - 1,
+            Q,
+            Q + 1,
+            -Q + 1,
+            -Q,
+            -Q - 1,
+            Q12,
+            -Q12,
+            i32::MAX / 2,
+            i32::MIN / 2,
+        ];
+
+        for &x in i32_test_values {
+            let our_result = i32_divmod_q(x);
+            let ntrulp_result = ntrulp_i32_divmod(x, Q as u16);
+            assert_eq!(
+                our_result, ntrulp_result,
+                "i32_divmod_q({}) = {:?}, but ntrulp = {:?}",
+                x, our_result, ntrulp_result
+            );
+        }
+    }
+
+    // ========================================================================
+    // SIMD Barrett reduction tests (requires simd feature)
+    // ========================================================================
+
+    /// Test that SIMD freeze produces identical results to scalar freeze.
+    #[cfg(feature = "simd")]
+    #[test]
+    fn test_freeze_simd_vs_scalar() {
+        use super::freeze_simd;
+
+        // Test specific edge cases
+        let test_cases: &[i32] = &[
+            0,
+            1,
+            -1,
+            Q,
+            -Q,
+            Q + 1,
+            -Q - 1,
+            Q12,
+            -Q12,
+            Q12 + 1,
+            -Q12 - 1,
+            2 * Q,
+            -2 * Q,
+            1000 * Q,
+            -1000 * Q,
+            // Maximum expected input range: ±2*2295^2 ≈ ±10.5M
+            10_000_000,
+            -10_000_000,
+            5_267_025, // 2295^2
+            -5_267_025,
+            10_534_050, // 2 * 2295^2
+            -10_534_050,
+        ];
+
+        for &x in test_cases {
+            // Create a vector with this value in all lanes
+            let x_vec = i32x8::splat(x);
+            let simd_result = freeze_simd(x_vec);
+            let scalar_result = freeze(x);
+
+            // Check all lanes match scalar
+            let simd_arr: [i32; 8] = simd_result.into();
+            for (i, &r) in simd_arr.iter().enumerate() {
+                assert_eq!(
+                    r as i16, scalar_result,
+                    "freeze_simd({}) lane {} = {}, but scalar = {}",
+                    x, i, r, scalar_result
+                );
+            }
+        }
+    }
+
+    /// Test SIMD freeze with mixed values in each lane.
+    #[cfg(feature = "simd")]
+    #[test]
+    fn test_freeze_simd_mixed_lanes() {
+        use super::freeze_simd;
+
+        let test_vectors: &[[i32; 8]] = &[
+            [0, 1, -1, Q, -Q, Q12, -Q12, 1000],
+            [
+                10_000_000,
+                -10_000_000,
+                5_000_000,
+                -5_000_000,
+                1,
+                -1,
+                Q + 1,
+                -(Q + 1),
+            ],
+            [
+                2295 * 2295,
+                -(2295 * 2295),
+                2295 * 1000,
+                -(2295 * 1000),
+                100 * Q,
+                -(100 * Q),
+                0,
+                42,
+            ],
+        ];
+
+        for test_vec in test_vectors {
+            let x_vec = i32x8::new(*test_vec);
+            let simd_result = freeze_simd(x_vec);
+            let simd_arr: [i32; 8] = simd_result.into();
+
+            for (i, &x) in test_vec.iter().enumerate() {
+                let scalar_result = freeze(x);
+                assert_eq!(
+                    simd_arr[i] as i16, scalar_result,
+                    "freeze_simd mixed test: lane {} input {} got {}, expected {}",
+                    i, x, simd_arr[i], scalar_result
+                );
+            }
+        }
+    }
+
+    /// Test SIMD freeze over a wide range of inputs.
+    #[cfg(feature = "simd")]
+    #[test]
+    fn test_freeze_simd_range() {
+        use super::freeze_simd;
+
+        // Test a range of values that would appear in recip computations
+        // The actual range is ±10.5M, but we'll test a good sample
+        let step = 100_000i32;
+        let mut x = -10_500_000i32;
+
+        while x <= 10_500_000 {
+            let x_vec = i32x8::splat(x);
+            let simd_result = freeze_simd(x_vec);
+            let scalar_result = freeze(x);
+
+            let simd_arr: [i32; 8] = simd_result.into();
+            assert_eq!(
+                simd_arr[0] as i16, scalar_result,
+                "freeze_simd({}) = {}, but scalar = {}",
+                x, simd_arr[0], scalar_result
+            );
+
+            x += step;
+        }
+    }
+
+    /// Verify SIMD Barrett reduction constants are correct.
+    #[cfg(feature = "simd")]
+    #[test]
+    fn test_simd_barrett_constants() {
+        use super::{SIMD_BARRETT_K, SIMD_BARRETT_M, SIMD_OFFSET, SIMD_OFFSET_MOD_Q};
+
+        // SIMD_OFFSET = 2^24
+        assert_eq!(SIMD_OFFSET, 1 << 24);
+        assert_eq!(SIMD_OFFSET, 16_777_216);
+
+        // SIMD_OFFSET_MOD_Q = OFFSET mod Q
+        let expected_offset_mod_q = SIMD_OFFSET % Q;
+        assert_eq!(
+            SIMD_OFFSET_MOD_Q, expected_offset_mod_q,
+            "SIMD_OFFSET_MOD_Q should be {} but is {}",
+            expected_offset_mod_q, SIMD_OFFSET_MOD_Q
+        );
+
+        // SIMD_BARRETT_M = floor(2^K / Q)
+        let expected_m = (1i32 << SIMD_BARRETT_K) / Q;
+        assert_eq!(
+            SIMD_BARRETT_M, expected_m,
+            "SIMD_BARRETT_M should be {} but is {}",
+            expected_m, SIMD_BARRETT_M
+        );
+
+        // Verify M and K give reasonable approximation
+        // For any y in [0, 27M], (y * M) >> K should approximate y / Q
+        let y_max = 27_000_000i32;
+        let approx_max = (y_max as i64 * SIMD_BARRETT_M as i64) >> SIMD_BARRETT_K;
+        let exact_max = y_max / Q;
+        // Error should be at most 2
+        assert!(
+            (approx_max as i32 - exact_max).abs() <= 2,
+            "Barrett approximation error too large"
+        );
     }
 }

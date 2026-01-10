@@ -57,9 +57,10 @@ pub enum NodeState {
 
     /// Blank node (member removed or position never filled).
     Blank {
-        /// Unmerged leaves - leaves that haven't processed through this node.
-        /// Critical for correct resolution computation.
-        unmerged_leaves: Vec<UserId>,
+        /// Unmerged leaf positions - leaves that haven't processed an update through this node.
+        /// Critical for correct resolution computation. Stores leaf positions (not UserId)
+        /// so they can be directly used in compute_lj() for resolution set computation.
+        unmerged_leaves: Vec<u32>,
     },
 }
 
@@ -121,21 +122,35 @@ impl NodeState {
         }
     }
 
-    /// Returns the unmerged leaves for blank nodes.
+    /// Returns the unmerged leaf positions for blank nodes.
     #[must_use]
-    pub fn unmerged_leaves(&self) -> Option<&[UserId]> {
+    pub fn unmerged_leaves(&self) -> Option<&[u32]> {
         match self {
             Self::Blank { unmerged_leaves } => Some(unmerged_leaves),
             Self::Populated(_) => None,
         }
     }
 
-    /// Adds an unmerged leaf to a blank node.
-    pub fn add_unmerged_leaf(&mut self, user_id: UserId) {
+    /// Adds an unmerged leaf position to a blank node.
+    ///
+    /// When a member joins the group, they should be marked as unmerged on all
+    /// nodes in the path from their leaf to the root. This ensures they receive
+    /// encrypted path secrets when other members send updates.
+    pub fn add_unmerged_leaf(&mut self, leaf_position: u32) {
         if let Self::Blank { unmerged_leaves } = self {
-            if !unmerged_leaves.contains(&user_id) {
-                unmerged_leaves.push(user_id);
+            if !unmerged_leaves.contains(&leaf_position) {
+                unmerged_leaves.push(leaf_position);
             }
+        }
+    }
+
+    /// Removes an unmerged leaf position from a blank node.
+    ///
+    /// Called when a member processes an update that covers this node,
+    /// indicating they now have the current key material.
+    pub fn remove_unmerged_leaf(&mut self, leaf_position: u32) {
+        if let Self::Blank { unmerged_leaves } = self {
+            unmerged_leaves.retain(|&pos| pos != leaf_position);
         }
     }
 }
@@ -210,17 +225,24 @@ mod tests {
     #[test]
     fn test_unmerged_leaves() {
         let mut state = NodeState::blank();
-        let user1 = [1u8; 32];
-        let user2 = [2u8; 32];
+        let leaf1 = 0u32;
+        let leaf2 = 1u32;
 
-        state.add_unmerged_leaf(user1);
-        state.add_unmerged_leaf(user2);
-        state.add_unmerged_leaf(user1); // Duplicate
+        state.add_unmerged_leaf(leaf1);
+        state.add_unmerged_leaf(leaf2);
+        state.add_unmerged_leaf(leaf1); // Duplicate
 
         let leaves = state.unmerged_leaves().unwrap();
         assert_eq!(leaves.len(), 2);
-        assert!(leaves.contains(&user1));
-        assert!(leaves.contains(&user2));
+        assert!(leaves.contains(&leaf1));
+        assert!(leaves.contains(&leaf2));
+
+        // Test removal
+        state.remove_unmerged_leaf(leaf1);
+        let leaves = state.unmerged_leaves().unwrap();
+        assert_eq!(leaves.len(), 1);
+        assert!(!leaves.contains(&leaf1));
+        assert!(leaves.contains(&leaf2));
     }
 
     #[test]
@@ -357,8 +379,8 @@ mod tests {
         let mut node = create_populated_node(NodeIndex::new(1, 2));
 
         // Adding unmerged leaf to populated node should be a no-op
-        let user_id = [0x99u8; 32];
-        node.state.add_unmerged_leaf(user_id);
+        let leaf_pos = 5u32;
+        node.state.add_unmerged_leaf(leaf_pos);
 
         // Should still be populated, unmerged_leaves should be None
         assert!(node.state.is_populated());

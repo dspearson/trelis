@@ -6,7 +6,6 @@
 
 use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 
-use trelis_cocoa::UserId;
 use trelis_cocoa::tree::{NodeIndex, NodeState, PartialTreeView, Resolution, TreeNode};
 
 /// Benchmark Resolution union operation.
@@ -192,41 +191,39 @@ fn bench_node_index_linear(c: &mut Criterion) {
 fn bench_unmerged_leaves(c: &mut Criterion) {
     let mut group = c.benchmark_group("unmerged_leaves");
 
-    for count in [2, 4, 8, 16, 32] {
+    for count in [2u32, 4, 8, 16, 32] {
         let mut state = NodeState::blank();
 
-        // Add some unmerged leaves
+        // Add some unmerged leaves (leaf positions, not user IDs)
         for i in 0..count {
-            let mut user_id = [0u8; 32];
-            user_id[0] = i as u8;
-            state.add_unmerged_leaf(user_id);
+            state.add_unmerged_leaf(i);
         }
 
         // Benchmark adding a new leaf (includes contains check)
-        let new_user: UserId = [0xFFu8; 32];
+        let new_leaf_pos: u32 = 0xFF;
 
-        group.bench_with_input(BenchmarkId::new("add_new", count), &new_user, |b, user| {
-            b.iter(|| {
-                let mut s = state.clone();
-                s.add_unmerged_leaf(black_box(*user));
-                black_box(s)
-            })
-        });
+        group.bench_with_input(
+            BenchmarkId::new("add_new", count),
+            &new_leaf_pos,
+            |b, leaf_pos| {
+                b.iter(|| {
+                    let mut s = state.clone();
+                    s.add_unmerged_leaf(black_box(*leaf_pos));
+                    black_box(s)
+                })
+            },
+        );
 
         // Benchmark adding a duplicate (worst case - must check all)
-        let existing_user: UserId = {
-            let mut id = [0u8; 32];
-            id[0] = (count - 1) as u8;
-            id
-        };
+        let existing_leaf_pos: u32 = count - 1;
 
         group.bench_with_input(
             BenchmarkId::new("add_duplicate", count),
-            &existing_user,
-            |b, user| {
+            &existing_leaf_pos,
+            |b, leaf_pos| {
                 b.iter(|| {
                     let mut s = state.clone();
-                    s.add_unmerged_leaf(black_box(*user));
+                    s.add_unmerged_leaf(black_box(*leaf_pos));
                     black_box(s)
                 })
             },

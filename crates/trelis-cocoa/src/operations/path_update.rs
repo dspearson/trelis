@@ -374,18 +374,31 @@ pub fn apply_path_updates(
     let remaining_path = path_updates.len() - decrypt_level;
     let path_seeds = derive_path_seeds(&seed, remaining_path);
 
-    // Verify public keys match
+    // Verify public keys match and validate parent hash constraints
     for (i, path_seed) in path_seeds.iter().enumerate() {
         let expected_keypair = derive_node_keypair(path_seed);
         let update_level = decrypt_level + i;
 
         if update_level < path_updates.len() {
+            let update = &path_updates[update_level];
             let expected_pk = expected_keypair.public_key().to_bytes();
-            let actual_pk = path_updates[update_level].public_key.to_bytes();
+            let actual_pk = update.public_key.to_bytes();
 
             if expected_pk != actual_pk {
                 return Err(CryptoError::SignatureVerificationFailed);
             }
+
+            // Verify parent hash constraints
+            // Leaf nodes (level 0) must have zero parent hashes
+            if update_level == 0 {
+                let (h1, h2) = update.parent_hash;
+                if h1 != [0u8; 32] || h2 != [0u8; 32] {
+                    return Err(CryptoError::SignatureVerificationFailed);
+                }
+            }
+            // Note: Full parent hash verification (h1, h2) for non-leaf nodes requires
+            // sibling labels and resolution keys from tree state. This verification
+            // should be performed at the tree sync layer where full context is available.
         }
     }
 

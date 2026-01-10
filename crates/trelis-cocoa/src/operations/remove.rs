@@ -208,8 +208,21 @@ fn compute_remove_resolution_sets_and_keys(
     let mut resolution_keys = Vec::with_capacity(path.len());
 
     for path_node in path {
-        // Compute Lj = Res(sibling(path_node))
-        let resolution = compute_lj(session.tree(), *path_node, |_| Vec::new());
+        // Compute Lj = Res(sibling(path_node)) ∪ Unmerged(Res(sibling))
+        let resolution = compute_lj(session.tree(), *path_node, |node_idx| {
+            // Query unmerged leaf positions and convert to NodeIndex
+            session
+                .tree()
+                .get(node_idx)
+                .and_then(|node| node.state.unmerged_leaves())
+                .map(|leaf_positions| {
+                    leaf_positions
+                        .iter()
+                        .map(|&pos| NodeIndex::leaf(tree_depth, pos))
+                        .collect()
+                })
+                .unwrap_or_default()
+        });
 
         // Collect (node, key) pairs, excluding the removed member
         let mut nodes = Vec::new();
@@ -406,7 +419,13 @@ pub fn process_remove(
     };
 
     // Update tree with new public keys from path updates
-    update_tree_from_path_updates(session, &commit.path_updates);
+    // Note: We use the remover's ID (session's user_id) since they created the commit
+    update_tree_from_path_updates(
+        session,
+        &commit.path_updates,
+        &commit.signature,
+        *session.our_user_id(),
+    );
 
     // Update transcript hash
     let new_transcript = h3_transcript_hash(session.transcript_hash(), &commit.round_hash);
@@ -464,8 +483,12 @@ fn convert_path_updates_to_node_updates(
 
 /// Updates the tree with new public keys from path updates.
 #[cfg(feature = "alloc")]
-#[allow(clippy::expect_used)] // Placeholder: signature generation will be refactored
-fn update_tree_from_path_updates(session: &mut CocoaSession, path_updates: &[PathUpdate]) {
+fn update_tree_from_path_updates(
+    session: &mut CocoaSession,
+    path_updates: &[PathUpdate],
+    commit_signature: &HybridSignature,
+    updater_id: crate::UserId,
+) {
     use crate::tree::{TreeNode, UpdateOrigin};
 
     for pu in path_updates {
@@ -478,20 +501,14 @@ fn update_tree_from_path_updates(session: &mut CocoaSession, path_updates: &[Pat
                 .and_then(|node| node.state.public_key())
                 .cloned();
 
-            // Create a placeholder signature for the update
-            // In a full implementation, the signature would come from the commit
-            let identity =
-                trelis_hybrid::HybridIdentityKeypair::generate().expect("identity generation");
-            let signature = identity.sign(b"remove-update").expect("signing");
-
-            // Create new node with updated key
+            // Create new node with updated key using actual commit signature
             let new_node = TreeNode::new_populated(
                 pu.node_index,
                 public_key,
                 predecessor_key,
                 pu.parent_hash,
-                [0u8; 32], // Updater ID would come from commit
-                signature,
+                updater_id,
+                commit_signature.clone(),
                 *session.transcript_hash(),
                 [0u8; 32], // Confirmation tag
                 UpdateOrigin {

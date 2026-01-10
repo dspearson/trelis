@@ -190,6 +190,16 @@ pub fn create_update(
 ///
 /// For each node in the path, computes the resolution of its sibling subtree
 /// and collects the public keys for encryption.
+///
+/// # Resolution Set Computation
+///
+/// Per CoCoA paper: Lj = Res(sibling(path_node)) ∪ Unmerged(Res(sibling(path_node)))
+///
+/// Currently, unmerged leaves tracking is implemented in the tree (see `NodeState::add_unmerged_leaf`)
+/// but not yet integrated into the add/update operations. For correct sender/receiver agreement:
+/// - When adding a member, call `tree.add_unmerged_leaf()` on all path nodes
+/// - When processing an update that covers a node, clear that member's unmerged status
+/// - This function will then include unmerged members in resolution sets automatically
 #[cfg(feature = "alloc")]
 fn compute_resolution_sets_and_keys(
     session: &CocoaSession,
@@ -198,9 +208,27 @@ fn compute_resolution_sets_and_keys(
     let mut resolution_sets = Vec::with_capacity(path.len());
     let mut resolution_keys = Vec::with_capacity(path.len());
 
+    let tree_depth = session.tree().tree_depth();
+
     for path_node in path {
-        // Compute Lj = Res(sibling(path_node))
-        let resolution = compute_lj(session.tree(), *path_node, |_| Vec::new());
+        // Compute Lj = Res(sibling(path_node)) ∪ Unmerged(Res(sibling))
+        // The unmerged_fn queries unmerged leaf positions for each node in the resolution
+        // and converts them to NodeIndex values at leaf depth.
+        let resolution = compute_lj(session.tree(), *path_node, |node_idx| {
+            // Query unmerged leaf positions from the node's state
+            session
+                .tree()
+                .get(node_idx)
+                .and_then(|node| node.state.unmerged_leaves())
+                .map(|leaf_positions| {
+                    // Convert leaf positions to NodeIndex at leaf depth
+                    leaf_positions
+                        .iter()
+                        .map(|&pos| NodeIndex::leaf(tree_depth, pos))
+                        .collect()
+                })
+                .unwrap_or_default()
+        });
 
         // Collect public keys from resolution nodes
         let keys: Vec<HybridKemPublicKey> = resolution
@@ -430,7 +458,18 @@ pub fn process_update(
     }
 
     // Update tree with new public keys from path updates
-    update_tree_from_path_updates(session, &commit.path_updates, commit.updater_leaf_position);
+    // Note: We derive a simple updater ID from leaf position for now
+    // A full implementation would include the updater's identity in the commit
+    let updater_id = {
+        let mut id = [0u8; 32];
+        id[0..4].copy_from_slice(&commit.updater_leaf_position.to_le_bytes());
+        id
+    };
+    update_tree_from_path_updates(session, &commit.path_updates, &commit.signature, updater_id);
+
+    // Clear our unmerged status from the updater's path nodes
+    // Since we successfully decrypted this update, we now have current key material
+    clear_unmerged_on_path(session, commit.updater_leaf_position);
 
     // Advance epoch with the derived delta_root
     session.advance_epoch(&delta_root, new_transcript);
@@ -485,11 +524,11 @@ fn convert_path_updates_to_node_updates(
 
 /// Updates the tree with new public keys from path updates.
 #[cfg(feature = "alloc")]
-#[allow(clippy::expect_used)] // Placeholder: signature generation will be refactored
 fn update_tree_from_path_updates(
     session: &mut CocoaSession,
     path_updates: &[PathUpdate],
-    updater_leaf_position: u32,
+    commit_signature: &HybridSignature,
+    updater_id: crate::UserId,
 ) {
     use crate::tree::{TreeNode, UpdateOrigin};
 
@@ -503,20 +542,14 @@ fn update_tree_from_path_updates(
                 .and_then(|node| node.state.public_key())
                 .cloned();
 
-            // Create identity and signature for the update origin
-            // Note: In a full implementation, these would come from the commit
-            let identity =
-                trelis_hybrid::HybridIdentityKeypair::generate().expect("identity generation");
-            let signature = identity.sign(b"update").expect("signing");
-
-            // Create new node with updated key
+            // Create new node with updated key using actual commit signature
             let new_node = TreeNode::new_populated(
                 pu.node_index,
                 public_key,
                 predecessor_key,
                 pu.parent_hash,
-                [updater_leaf_position as u8; 32], // Simplified updater ID
-                signature,
+                updater_id,
+                commit_signature.clone(),
                 *session.transcript_hash(),
                 [0u8; 32], // Confirmation tag stored at node level
                 UpdateOrigin {
@@ -530,10 +563,37 @@ fn update_tree_from_path_updates(
             session.tree_mut().insert(new_node);
         }
     }
+}
 
-    // If the update was from ourselves, we need to update our leaf node too
-    if updater_leaf_position == session.our_leaf_position() {
-        // Our leaf was already updated by the path updates
+/// Clears our unmerged status from nodes in an updater's path.
+///
+/// When we successfully process an update from another member, we've received
+/// and decrypted the path secrets. This means we should no longer be marked
+/// as unmerged on those path nodes.
+///
+/// # Arguments
+///
+/// * `session` - The session with the tree to update
+/// * `updater_leaf_position` - The leaf position of the member who sent the update
+#[cfg(feature = "alloc")]
+fn clear_unmerged_on_path(session: &mut CocoaSession, updater_leaf_position: u32) {
+    let tree_depth = session.tree().tree_depth();
+    let updater_leaf = NodeIndex::leaf(tree_depth, updater_leaf_position);
+    let our_position = session.our_leaf_position();
+
+    // Walk from updater's leaf to root and clear our unmerged status
+    let mut current = updater_leaf;
+    loop {
+        session
+            .tree_mut()
+            .remove_unmerged_leaf(&current, our_position);
+
+        // Move to parent
+        if let Some(parent) = current.parent() {
+            current = parent;
+        } else {
+            break; // Reached root
+        }
     }
 }
 
@@ -670,16 +730,21 @@ mod tests {
         let result = process_update(&mut session2, &commit, member1_identity.public_key());
 
         // The test verifies the basic flow works - even if decryption fails due to
-        // the simplified key setup, we verify signature verification succeeds
+        // the simplified key setup, we verify signature verification succeeds.
+        //
+        // Known limitation: Decryption may fail because:
+        // 1. Tree views aren't fully synchronised (session2 doesn't have session1's key at position 0)
+        // 2. Unmerged tracking isn't populated (see compute_resolution_sets_and_keys)
+        // For proper multi-party tests, see integration tests with synchronised tree state.
         match result {
             Ok(()) => {
                 // Full success - epoch should advance
                 assert_eq!(session2.epoch_number(), initial_epoch + 1);
             }
             Err(trelis_error::CryptoError::DecryptionFailed) => {
-                // Expected: session2 might not have the right key to decrypt
-                // because we haven't set up the tree structure properly for
-                // seed distribution. This is acceptable for this unit test.
+                // Test limitation: session2's tree view doesn't have session1's public key,
+                // so session1 couldn't encrypt to session2. This is expected given the
+                // minimal setup in this unit test.
             }
             Err(e) => {
                 // Unexpected error

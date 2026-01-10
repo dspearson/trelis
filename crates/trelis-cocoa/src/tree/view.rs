@@ -13,7 +13,6 @@ use alloc::vec::Vec;
 use super::path::{copath, path_to_root};
 use super::resolution::NodeLookup;
 use super::{NodeIndex, NodeState, TreeNode};
-use crate::UserId;
 
 /// A partial view of the ratchet tree.
 ///
@@ -138,10 +137,22 @@ impl PartialTreeView {
         }
     }
 
-    /// Adds an unmerged leaf to a node.
-    pub fn add_unmerged_leaf(&mut self, node_index: &NodeIndex, user_id: UserId) {
+    /// Adds an unmerged leaf position to a node.
+    ///
+    /// When a member joins, call this on all blank nodes in the path from
+    /// their leaf to the root. This ensures resolution sets include them.
+    pub fn add_unmerged_leaf(&mut self, node_index: &NodeIndex, leaf_position: u32) {
         if let Some(node) = self.get_mut(node_index) {
-            node.state.add_unmerged_leaf(user_id);
+            node.state.add_unmerged_leaf(leaf_position);
+        }
+    }
+
+    /// Removes an unmerged leaf position from a node.
+    ///
+    /// Called when a member processes an update covering this node.
+    pub fn remove_unmerged_leaf(&mut self, node_index: &NodeIndex, leaf_position: u32) {
+        if let Some(node) = self.get_mut(node_index) {
+            node.state.remove_unmerged_leaf(leaf_position);
         }
     }
 
@@ -356,15 +367,16 @@ mod tests {
         let node = TreeNode::new_blank(NodeIndex::new(1, 0));
         view.insert(node);
 
-        // Use get_mut to add an unmerged leaf
+        // Use get_mut to add an unmerged leaf position
         if let Some(n) = view.get_mut(&NodeIndex::new(1, 0)) {
-            n.state.add_unmerged_leaf([0x42u8; 32]);
+            n.state.add_unmerged_leaf(3); // Leaf position 3
         }
 
         // Verify the modification persisted
         let retrieved = view.get(&NodeIndex::new(1, 0)).unwrap();
         let leaves = retrieved.state.unmerged_leaves().unwrap();
         assert_eq!(leaves.len(), 1);
+        assert!(leaves.contains(&3));
     }
 
     #[test]
@@ -468,13 +480,13 @@ mod tests {
         let node = TreeNode::new_blank(NodeIndex::new(1, 0));
         view.insert(node);
 
-        let user_id = [0x42u8; 32];
-        view.add_unmerged_leaf(&NodeIndex::new(1, 0), user_id);
+        let leaf_pos = 3u32;
+        view.add_unmerged_leaf(&NodeIndex::new(1, 0), leaf_pos);
 
         let retrieved = view.get(&NodeIndex::new(1, 0)).unwrap();
         let leaves = retrieved.state.unmerged_leaves().unwrap();
         assert_eq!(leaves.len(), 1);
-        assert!(leaves.contains(&user_id));
+        assert!(leaves.contains(&leaf_pos));
     }
 
     #[test]
@@ -482,11 +494,31 @@ mod tests {
         let mut view = PartialTreeView::new(0, 2);
 
         // Adding to non-existent node should be a no-op
-        let user_id = [0x42u8; 32];
-        view.add_unmerged_leaf(&NodeIndex::new(1, 0), user_id);
+        let leaf_pos = 3u32;
+        view.add_unmerged_leaf(&NodeIndex::new(1, 0), leaf_pos);
 
         // Nothing should happen, no crash
         assert!(view.is_empty());
+    }
+
+    #[test]
+    fn test_remove_unmerged_leaf() {
+        let mut view = PartialTreeView::new(0, 2);
+        let node = TreeNode::new_blank(NodeIndex::new(1, 0));
+        view.insert(node);
+
+        // Add two unmerged leaves
+        view.add_unmerged_leaf(&NodeIndex::new(1, 0), 3);
+        view.add_unmerged_leaf(&NodeIndex::new(1, 0), 5);
+
+        // Remove one
+        view.remove_unmerged_leaf(&NodeIndex::new(1, 0), 3);
+
+        let retrieved = view.get(&NodeIndex::new(1, 0)).unwrap();
+        let leaves = retrieved.state.unmerged_leaves().unwrap();
+        assert_eq!(leaves.len(), 1);
+        assert!(!leaves.contains(&3));
+        assert!(leaves.contains(&5));
     }
 
     #[test]
@@ -672,9 +704,9 @@ mod tests {
     fn test_grow_tree_preserves_node_state() {
         let mut view = PartialTreeView::new(0, 1);
 
-        // Insert a node with unmerged leaves
+        // Insert a node with unmerged leaf position
         let mut node = TreeNode::new_blank(NodeIndex::new(1, 0));
-        node.state.add_unmerged_leaf([0x42u8; 32]);
+        node.state.add_unmerged_leaf(3); // Leaf position 3
         view.insert(node);
 
         view.grow_tree();
@@ -683,6 +715,6 @@ mod tests {
         let moved_node = view.get(&NodeIndex::new(2, 0)).unwrap();
         let leaves = moved_node.state.unmerged_leaves().unwrap();
         assert_eq!(leaves.len(), 1);
-        assert!(leaves.contains(&[0x42u8; 32]));
+        assert!(leaves.contains(&3));
     }
 }

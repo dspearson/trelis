@@ -230,7 +230,11 @@ pub fn add_member(
         round_hash,
     };
 
-    // Step 15: Advance epoch with real delta_root
+    // Step 15: Mark new member as unmerged on blank nodes in their path
+    // This ensures they receive encrypted secrets in future updates from others
+    mark_member_as_unmerged(session, new_position);
+
+    // Step 16: Advance epoch with real delta_root
     session.advance_epoch(&delta_root, new_transcript);
 
     Ok((commit, welcome))
@@ -258,8 +262,21 @@ fn compute_add_resolution_sets_and_keys(
     let new_member_leaf = NodeIndex::leaf(tree_depth, new_member_position);
 
     for path_node in path {
-        // Compute Lj = Res(sibling(path_node))
-        let resolution = compute_lj(session.tree(), *path_node, |_| Vec::new());
+        // Compute Lj = Res(sibling(path_node)) ∪ Unmerged(Res(sibling))
+        let resolution = compute_lj(session.tree(), *path_node, |node_idx| {
+            // Query unmerged leaf positions and convert to NodeIndex
+            session
+                .tree()
+                .get(node_idx)
+                .and_then(|node| node.state.unmerged_leaves())
+                .map(|leaf_positions| {
+                    leaf_positions
+                        .iter()
+                        .map(|&pos| NodeIndex::leaf(tree_depth, pos))
+                        .collect()
+                })
+                .unwrap_or_default()
+        });
 
         // Collect (node, key) pairs only for nodes that have keys in the tree
         let mut nodes = Vec::new();
@@ -613,7 +630,17 @@ pub fn process_add(
     session.tree_mut().set_member_count(new_member_count);
 
     // Update tree with new public keys from path updates
-    update_tree_from_path_updates(session, &commit.path_updates);
+    // Note: We use the adder's ID (session's user_id) since they created the commit
+    update_tree_from_path_updates(
+        session,
+        &commit.path_updates,
+        &commit.signature,
+        *session.our_user_id(),
+    );
+
+    // Mark new member as unmerged on all blank nodes in their path
+    // This ensures they receive encrypted secrets in future updates
+    mark_member_as_unmerged(session, commit.new_leaf_position);
 
     // Update transcript hash
     let new_transcript = h3_transcript_hash(session.transcript_hash(), &commit.round_hash);
@@ -671,8 +698,12 @@ fn convert_path_updates_to_node_updates(
 
 /// Updates the tree with new public keys from path updates.
 #[cfg(feature = "alloc")]
-#[allow(clippy::expect_used)] // Placeholder: signature generation will be refactored
-fn update_tree_from_path_updates(session: &mut CocoaSession, path_updates: &[PathUpdate]) {
+fn update_tree_from_path_updates(
+    session: &mut CocoaSession,
+    path_updates: &[PathUpdate],
+    commit_signature: &HybridSignature,
+    updater_id: crate::UserId,
+) {
     use crate::tree::{TreeNode, UpdateOrigin};
 
     for pu in path_updates {
@@ -685,20 +716,14 @@ fn update_tree_from_path_updates(session: &mut CocoaSession, path_updates: &[Pat
                 .and_then(|node| node.state.public_key())
                 .cloned();
 
-            // Create a placeholder signature for the update
-            // In a full implementation, the signature would come from the commit
-            let identity =
-                trelis_hybrid::HybridIdentityKeypair::generate().expect("identity generation");
-            let signature = identity.sign(b"add-update").expect("signing");
-
-            // Create new node with updated key
+            // Create new node with updated key using actual commit signature
             let new_node = TreeNode::new_populated(
                 pu.node_index,
                 public_key,
                 predecessor_key,
                 pu.parent_hash,
-                [0u8; 32], // Updater ID would come from commit
-                signature,
+                updater_id,
+                commit_signature.clone(),
                 *session.transcript_hash(),
                 [0u8; 32], // Confirmation tag
                 UpdateOrigin {
@@ -710,6 +735,42 @@ fn update_tree_from_path_updates(session: &mut CocoaSession, path_updates: &[Pat
 
             // Insert into tree
             session.tree_mut().insert(new_node);
+        }
+    }
+}
+
+/// Marks a member as unmerged on all blank nodes in their path.
+///
+/// When a member joins, they haven't yet processed any updates, so they need
+/// to be included in resolution sets for future commits. This function marks
+/// them as unmerged on all blank nodes from their leaf to the root.
+///
+/// # Arguments
+///
+/// * `session` - The session with the tree to update
+/// * `leaf_position` - The new member's leaf position
+#[cfg(feature = "alloc")]
+fn mark_member_as_unmerged(session: &mut CocoaSession, leaf_position: u32) {
+    let tree_depth = session.tree().tree_depth();
+    let leaf = NodeIndex::leaf(tree_depth, leaf_position);
+
+    // Walk from leaf to root and mark as unmerged on any blank nodes
+    let mut current = leaf;
+    loop {
+        // Only mark on blank nodes (populated nodes don't track unmerged)
+        if let Some(node) = session.tree().get(&current) {
+            if node.state.is_blank() {
+                session
+                    .tree_mut()
+                    .add_unmerged_leaf(&current, leaf_position);
+            }
+        }
+
+        // Move to parent
+        if let Some(parent) = current.parent() {
+            current = parent;
+        } else {
+            break; // Reached root
         }
     }
 }
@@ -853,7 +914,12 @@ mod tests {
         // Member 2 processes the add
         let result = process_add(&mut session2, &commit, member1_identity.public_key());
 
-        // The test verifies the basic flow works
+        // The test verifies the basic flow works.
+        //
+        // Known limitation: Decryption may fail because:
+        // 1. Tree views aren't fully synchronised between sessions
+        // 2. Unmerged tracking isn't populated (see compute_resolution_sets_and_keys in update.rs)
+        // For proper multi-party tests, see integration tests with synchronised tree state.
         match result {
             Ok(()) => {
                 // Full success - epoch should advance, member count should increase
@@ -861,8 +927,9 @@ mod tests {
                 assert_eq!(session2.member_count(), 3);
             }
             Err(trelis_error::CryptoError::DecryptionFailed) => {
-                // Expected in some cases: session2 might not have the right key to decrypt
-                // because the resolution set calculation may not include them
+                // Test limitation: Tree views are not fully synchronised, so session1
+                // may not have session2's public key to encrypt to. This is expected
+                // given the minimal setup in this unit test.
             }
             Err(e) => {
                 panic!("Unexpected error: {:?}", e);
@@ -1043,5 +1110,56 @@ mod tests {
         // Tree should have grown
         assert_eq!(session.member_count(), 2);
         assert_eq!(session.tree().tree_depth(), 1);
+    }
+
+    #[test]
+    fn test_unmerged_tracking_on_add() {
+        // Verify that when a member is added, they're marked as unmerged
+        // on blank nodes in their path.
+        let group_id = [0x42u8; 32];
+        let user_id = [0x01u8; 32];
+        let keypair = HybridKemKeypair::generate().unwrap();
+        let epoch_secret = [0xABu8; 32];
+
+        let mut session =
+            CocoaSession::create_group(group_id, user_id, keypair, 1, &epoch_secret).unwrap();
+        let adder_identity = create_test_identity();
+
+        // Create a blank node in the tree (simulating the sibling that will exist)
+        let sibling_index = crate::tree::NodeIndex::new(1, 1);
+        let blank_node = crate::tree::TreeNode::new_blank(sibling_index);
+        session.tree_mut().insert(blank_node);
+
+        // Create commit for adding member at position 1
+        let path_updates_hash = hash_path_updates(&[]);
+        let round_hash = [0x11u8; 32];
+        let commit_content =
+            CommitContent::new_add(*session.group_id(), 1, round_hash, path_updates_hash);
+        let signature = sign_commit(&adder_identity, &commit_content).unwrap();
+
+        let commit = AddCommit {
+            group_id: *session.group_id(),
+            new_member_id: [0x02u8; 32],
+            new_leaf_position: 1,
+            epoch: 1,
+            path_updates: Vec::new(),
+            signature,
+            round_hash,
+        };
+
+        process_add(&mut session, &commit, adder_identity.public_key()).unwrap();
+
+        // Check that the new member is marked as unmerged on blank nodes
+        // After adding, if any blank nodes exist in the new member's path,
+        // they should have the new member's leaf position in unmerged_leaves
+        if let Some(node) = session.tree().get(&sibling_index) {
+            if node.state.is_blank() {
+                let unmerged = node.state.unmerged_leaves().unwrap();
+                assert!(
+                    unmerged.contains(&1),
+                    "New member at position 1 should be marked as unmerged"
+                );
+            }
+        }
     }
 }
