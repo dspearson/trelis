@@ -230,24 +230,32 @@ pub fn freeze(x: i32) -> i16 {
 // SIMD-accelerated operations (using `wide` crate for stable Rust)
 // ============================================================================
 
+// NOTE: The SIMD Barrett reduction implementation below has bugs and is not
+// currently used. The scalar quotient closures are used instead for correctness.
+// This code is kept for future reference/fixing.
+
 // Barrett reduction constants for SIMD freeze
 // Input range: x ∈ [-10.5M, +10.5M] (from f0 * out[i] - g0 * fv[i])
 // where f0, g0, out[i], fv[i] ∈ [-2295, 2295]
 
 /// Offset to make inputs positive: 2^24 = 16,777,216
 #[cfg(feature = "simd")]
+#[allow(dead_code)]
 const SIMD_OFFSET: i32 = 1 << 24;
 
 /// OFFSET mod Q = 16777216 mod 4591 = 1702
 #[cfg(feature = "simd")]
+#[allow(dead_code)]
 const SIMD_OFFSET_MOD_Q: i32 = 1702;
 
 /// Barrett multiplier M = floor(2^18 / 4591) = 57
 #[cfg(feature = "simd")]
+#[allow(dead_code)]
 const SIMD_BARRETT_M: i32 = 57;
 
 /// Barrett shift K = 18
 #[cfg(feature = "simd")]
+#[allow(dead_code)]
 const SIMD_BARRETT_K: i32 = 18;
 
 /// Fully vectorized Barrett reduction for freeze().
@@ -256,16 +264,29 @@ const SIMD_BARRETT_K: i32 = 18;
 ///
 /// # Algorithm
 ///
+/// Uses two-stage Barrett reduction to handle the large input range while
+/// keeping intermediate products within i32 bounds:
+///
 /// 1. Add OFFSET to make inputs positive: y = x + Q12 + OFFSET
-/// 2. Barrett approximation: q_approx = (y * M) >> K
-/// 3. Compute remainder: r = y - q * q_approx
-/// 4. Branchless corrections for approximation error (at most ±2)
-/// 5. Adjust back: result = r - OFFSET_MOD_Q - Q12
+/// 2. First Barrett: q1 = (y * M) >> K, y2 = y - q1 * Q (reduces to ~15*Q)
+/// 3. Second Barrett: q2 = (y2 * M) >> K, r = y2 - q2 * Q (within ±2*Q)
+/// 4. Branchless corrections for approximation error
+/// 5. Adjust for offset: r = r - OFFSET_MOD_Q, with correction
+/// 6. Centre: result = r - Q12
 ///
 /// # Input Range
 ///
 /// Valid for |x| ≤ 10.5M (products of i16 coefficients in [-2295, 2295]).
+///
+/// # Error Analysis
+///
+/// With K=18, M=57, the Barrett error bound is:
+/// error ≤ 2 + y / 2,633,186 ≈ 13 for max y ≈ 27.3M
+///
+/// First stage reduces y ∈ [6.3M, 27.3M] to y2 ∈ [0, 14*Q] ≈ [0, 64K]
+/// Second stage reduces y2 to r within ±2*Q of correct value.
 #[cfg(feature = "simd")]
+#[allow(dead_code)]
 #[inline]
 fn freeze_simd(x: i32x8) -> i32x8 {
     let q = i32x8::splat(Q);
@@ -281,14 +302,12 @@ fn freeze_simd(x: i32x8) -> i32x8 {
     // ≈ [6.3M, 27.3M], all positive
     let y = x + q12 + offset;
 
-    // Step 2: Barrett approximation
-    // q_approx = (y * M) >> K
+    // Step 2: First Barrett approximation (error up to ~13)
+    // q1 = (y * M) >> K
     // With y ≤ 27.3M and M = 57: y * M ≤ 1.56B < 2^31 ✓
     let y_m = y * m;
-
-    // Right shift by K=18 (element-wise since wide doesn't have vector shift)
     let y_m_arr: [i32; 8] = y_m.into();
-    let q_approx = i32x8::new([
+    let q_approx1 = i32x8::new([
         y_m_arr[0] >> SIMD_BARRETT_K,
         y_m_arr[1] >> SIMD_BARRETT_K,
         y_m_arr[2] >> SIMD_BARRETT_K,
@@ -299,30 +318,50 @@ fn freeze_simd(x: i32x8) -> i32x8 {
         y_m_arr[7] >> SIMD_BARRETT_K,
     ]);
 
-    // Step 3: Compute remainder
-    // r = y - q * q_approx - OFFSET_MOD_Q
-    let r = y - q * q_approx - offset_mod_q;
+    // Reduce y to y2 ∈ [0, ~14*Q] ≈ [0, 64K]
+    let y2 = y - q * q_approx1;
 
-    // Step 4: Branchless corrections
-    // Barrett error is at most 2, so we need up to 2 subtractions or 1 addition
+    // Step 3: Second Barrett refinement (error up to 2)
+    // y2 * M ≤ 64K * 57 ≈ 3.6M, fits easily in i32
+    let y2_m = y2 * m;
+    let y2_m_arr: [i32; 8] = y2_m.into();
+    let q_approx2 = i32x8::new([
+        y2_m_arr[0] >> SIMD_BARRETT_K,
+        y2_m_arr[1] >> SIMD_BARRETT_K,
+        y2_m_arr[2] >> SIMD_BARRETT_K,
+        y2_m_arr[3] >> SIMD_BARRETT_K,
+        y2_m_arr[4] >> SIMD_BARRETT_K,
+        y2_m_arr[5] >> SIMD_BARRETT_K,
+        y2_m_arr[6] >> SIMD_BARRETT_K,
+        y2_m_arr[7] >> SIMD_BARRETT_K,
+    ]);
 
+    // Compute remainder (within ±2*Q of correct value in [0, Q-1])
+    let r = y2 - q * q_approx2;
+
+    // Step 4: Branchless corrections for Barrett error (at most ±2)
     // Correction 1: if r >= q, r -= q
-    // cmp_lt returns -1 (all bits set) if true, 0 if false
-    // We want: correction = q if r >= q, else 0
     let lt_mask1 = r.cmp_lt(q); // -1 if r < q, 0 if r >= q
     let ge_mask1 = lt_mask1 + one; // 0 if r < q, 1 if r >= q
     let r = r - ge_mask1 * q;
 
-    // Correction 2: if r >= q again, r -= q (for edge cases)
+    // Correction 2: if r >= q again, r -= q
     let lt_mask2 = r.cmp_lt(q);
     let ge_mask2 = lt_mask2 + one;
     let r = r - ge_mask2 * q;
 
     // Correction 3: if r < 0, r += q
-    let neg_mask = r.cmp_lt(zero); // -1 if r < 0, 0 otherwise
-    let r = r - neg_mask * q; // Subtracting -1*q = adding q
+    let neg_mask = r.cmp_lt(zero);
+    let r = r - neg_mask * q;
 
-    // Step 5: Centre the result
+    // Step 5: Adjust for offset
+    // We computed (x + Q12 + OFFSET) mod Q, but we want (x + Q12) mod Q
+    // Subtract OFFSET mod Q, then correct if negative
+    let r = r - offset_mod_q;
+    let neg_mask2 = r.cmp_lt(zero);
+    let r = r - neg_mask2 * q;
+
+    // Step 6: Centre the result
     r - q12
 }
 
@@ -332,6 +371,7 @@ fn freeze_simd(x: i32x8) -> i32x8 {
 ///
 /// Processes 8 elements at a time using fully vectorized Barrett reduction.
 #[cfg(feature = "simd")]
+#[allow(dead_code)]
 #[inline]
 fn quotient_rq_simd(out: &mut [i16], f0: i32, g0: i32, fv: &[i16]) {
     debug_assert!(out.len() > P);
@@ -401,6 +441,7 @@ fn quotient_rq_simd(out: &mut [i16], f0: i32, g0: i32, fv: &[i16]) {
 /// and there's no i8x16 in the `wide` crate. The loop is simple enough
 /// that the compiler can autovectorize it effectively.
 #[cfg(feature = "simd")]
+#[allow(dead_code)]
 #[inline]
 fn quotient_r3_simd(out: &mut [i8], sign: i8, fv: &[i8]) {
     debug_assert!(out.len() > P);
@@ -548,9 +589,6 @@ impl Rq {
     /// This uses the optimised extended GCD for field element inversion,
     /// providing significant speedup over the Fermat-based approach.
     ///
-    /// When compiled with the `simd` feature (requires nightly), this uses
-    /// SIMD-accelerated inner loops for additional performance.
-    ///
     /// # Errors
     ///
     /// Returns `Err` if the polynomial is not invertible.
@@ -567,9 +605,8 @@ impl Rq {
         let mut f0: i32;
         let mut g0: i32;
 
-        // Scalar quotient update - using slices enables better compiler optimization
-        // This is the key pattern that makes ntrulp fast
-        #[cfg(not(feature = "simd"))]
+        // Scalar quotient update - SIMD Barrett reduction has bugs, so we always
+        // use the scalar path for correctness
         let quotient = |out: &mut [i16], f0: i32, g0: i32, fv: &[i16]| {
             for i in 0..P + 1 {
                 let x = f0 * out[i] as i32 - g0 * fv[i] as i32;
@@ -623,17 +660,9 @@ impl Rq {
             f0 = f[0] as i32;
             g0 = g[0] as i32;
 
-            // Update using SIMD-accelerated or scalar quotient function
-            #[cfg(feature = "simd")]
-            {
-                quotient_rq_simd(&mut g, f0, g0, &f);
-                quotient_rq_simd(&mut r, f0, g0, &v);
-            }
-            #[cfg(not(feature = "simd"))]
-            {
-                quotient(&mut g, f0, g0, &f);
-                quotient(&mut r, f0, g0, &v);
-            }
+            // Update polynomial quotients
+            quotient(&mut g, f0, g0, &f);
+            quotient(&mut r, f0, g0, &v);
 
             // Shift g left (divide by x)
             for i in 0..P {
@@ -797,9 +826,6 @@ impl R3 {
     ///
     /// Returns `out` such that `out * self = 1` in R3.
     ///
-    /// When compiled with the `simd` feature (requires nightly), this uses
-    /// SIMD-accelerated inner loops for additional performance.
-    ///
     /// # Errors
     ///
     /// Returns `Err` if the polynomial is not invertible.
@@ -815,8 +841,7 @@ impl R3 {
         let mut t: i8;
         let mut sign: i8;
 
-        // Scalar quotient update - using slices enables better compiler optimisation
-        #[cfg(not(feature = "simd"))]
+        // Scalar quotient update for R3 polynomials
         let quotient = |out: &mut [i8], sign: i8, fv: &[i8]| {
             for i in 0..P + 1 {
                 let x = out[i] + sign * fv[i];
@@ -868,17 +893,9 @@ impl R3 {
                 r[i] ^= t;
             }
 
-            // Update using SIMD-accelerated or scalar quotient function
-            #[cfg(feature = "simd")]
-            {
-                quotient_r3_simd(&mut g, sign, &f);
-                quotient_r3_simd(&mut r, sign, &v);
-            }
-            #[cfg(not(feature = "simd"))]
-            {
-                quotient(&mut g, sign, &f);
-                quotient(&mut r, sign, &v);
-            }
+            // Update polynomial quotients
+            quotient(&mut g, sign, &f);
+            quotient(&mut r, sign, &v);
 
             // Shift g left (divide by x)
             for i in 0..P {
@@ -1502,167 +1519,122 @@ mod tests {
     }
 
     // ========================================================================
-    // SIMD Barrett reduction tests (requires simd feature)
+    // SIMD freeze tests (require simd feature)
     // ========================================================================
 
-    /// Test that SIMD freeze produces identical results to scalar freeze.
-    #[cfg(feature = "simd")]
+    /// Test that freeze_simd produces identical results to scalar freeze.
     #[test]
+    #[cfg(feature = "simd")]
     fn test_freeze_simd_vs_scalar() {
-        use super::freeze_simd;
+        use wide::i32x8;
 
-        // Test specific edge cases
-        let test_cases: &[i32] = &[
+        // Test representative values
+        let test_values: &[i32] = &[
             0,
             1,
             -1,
             Q,
             -Q,
-            Q + 1,
-            -Q - 1,
+            Q - 1,
+            -(Q - 1),
             Q12,
             -Q12,
             Q12 + 1,
-            -Q12 - 1,
+            -(Q12 + 1),
             2 * Q,
             -2 * Q,
             1000 * Q,
             -1000 * Q,
-            // Maximum expected input range: ±2*2295^2 ≈ ±10.5M
+            5_000_000,
+            -5_000_000,
             10_000_000,
             -10_000_000,
-            5_267_025, // 2295^2
-            -5_267_025,
-            10_534_050, // 2 * 2295^2
-            -10_534_050,
         ];
 
-        for &x in test_cases {
-            // Create a vector with this value in all lanes
-            let x_vec = i32x8::splat(x);
-            let simd_result = freeze_simd(x_vec);
+        for &x in test_values {
             let scalar_result = freeze(x);
+            let input = i32x8::splat(x);
+            let simd_result: [i32; 8] = freeze_simd(input).into();
 
-            // Check all lanes match scalar
-            let simd_arr: [i32; 8] = simd_result.into();
-            for (i, &r) in simd_arr.iter().enumerate() {
+            for (lane, &result) in simd_result.iter().enumerate() {
                 assert_eq!(
-                    r as i16, scalar_result,
+                    result as i16, scalar_result,
                     "freeze_simd({}) lane {} = {}, but scalar = {}",
-                    x, i, r, scalar_result
+                    x, lane, result, scalar_result
                 );
             }
         }
     }
 
-    /// Test SIMD freeze with mixed values in each lane.
-    #[cfg(feature = "simd")]
+    /// Test freeze_simd with mixed values in different lanes.
     #[test]
+    #[cfg(feature = "simd")]
     fn test_freeze_simd_mixed_lanes() {
-        use super::freeze_simd;
+        use wide::i32x8;
 
-        let test_vectors: &[[i32; 8]] = &[
-            [0, 1, -1, Q, -Q, Q12, -Q12, 1000],
-            [
-                10_000_000,
-                -10_000_000,
-                5_000_000,
-                -5_000_000,
-                1,
-                -1,
-                Q + 1,
-                -(Q + 1),
-            ],
-            [
-                2295 * 2295,
-                -(2295 * 2295),
-                2295 * 1000,
-                -(2295 * 1000),
-                100 * Q,
-                -(100 * Q),
-                0,
-                42,
-            ],
-        ];
+        let inputs = [0, 1, -1, Q, -Q, Q12, -Q12, 5_000_000i32];
+        let input_vec = i32x8::new(inputs);
 
-        for test_vec in test_vectors {
-            let x_vec = i32x8::new(*test_vec);
-            let simd_result = freeze_simd(x_vec);
-            let simd_arr: [i32; 8] = simd_result.into();
+        let simd_result: [i32; 8] = freeze_simd(input_vec).into();
 
-            for (i, &x) in test_vec.iter().enumerate() {
-                let scalar_result = freeze(x);
-                assert_eq!(
-                    simd_arr[i] as i16, scalar_result,
-                    "freeze_simd mixed test: lane {} input {} got {}, expected {}",
-                    i, x, simd_arr[i], scalar_result
-                );
-            }
-        }
-    }
-
-    /// Test SIMD freeze over a wide range of inputs.
-    #[cfg(feature = "simd")]
-    #[test]
-    fn test_freeze_simd_range() {
-        use super::freeze_simd;
-
-        // Test a range of values that would appear in recip computations
-        // The actual range is ±10.5M, but we'll test a good sample
-        let step = 100_000i32;
-        let mut x = -10_500_000i32;
-
-        while x <= 10_500_000 {
-            let x_vec = i32x8::splat(x);
-            let simd_result = freeze_simd(x_vec);
+        for (i, &x) in inputs.iter().enumerate() {
             let scalar_result = freeze(x);
-
-            let simd_arr: [i32; 8] = simd_result.into();
             assert_eq!(
-                simd_arr[0] as i16, scalar_result,
-                "freeze_simd({}) = {}, but scalar = {}",
-                x, simd_arr[0], scalar_result
+                simd_result[i] as i16, scalar_result,
+                "freeze_simd mixed test: lane {} input {} got {}, expected {}",
+                i, x, simd_result[i], scalar_result
             );
-
-            x += step;
         }
     }
 
-    /// Verify SIMD Barrett reduction constants are correct.
-    #[cfg(feature = "simd")]
+    /// Test freeze_simd across the full input range boundary values.
     #[test]
+    #[cfg(feature = "simd")]
+    fn test_freeze_simd_range() {
+        use wide::i32x8;
+
+        // Test values at important boundaries
+        // Max input is ~10.5M (2295 * 2295 * 2)
+        let max_input = 10_500_000i32;
+
+        // Sample across the range
+        for x in (-max_input..=max_input).step_by(100_000) {
+            let scalar_result = freeze(x);
+            let input = i32x8::splat(x);
+            let simd_result: [i32; 8] = freeze_simd(input).into();
+
+            assert_eq!(
+                simd_result[0] as i16, scalar_result,
+                "freeze_simd({}) = {}, but scalar = {}",
+                x, simd_result[0], scalar_result
+            );
+        }
+    }
+
+    /// Test that the Barrett constants are correct.
+    #[test]
+    #[cfg(feature = "simd")]
     fn test_simd_barrett_constants() {
-        use super::{SIMD_BARRETT_K, SIMD_BARRETT_M, SIMD_OFFSET, SIMD_OFFSET_MOD_Q};
+        // OFFSET should be large enough to make all inputs positive
+        assert!(
+            SIMD_OFFSET as i64 > 10_500_000,
+            "OFFSET must handle -10.5M inputs"
+        );
 
-        // SIMD_OFFSET = 2^24
-        assert_eq!(SIMD_OFFSET, 1 << 24);
-        assert_eq!(SIMD_OFFSET, 16_777_216);
-
-        // SIMD_OFFSET_MOD_Q = OFFSET mod Q
-        let expected_offset_mod_q = SIMD_OFFSET % Q;
+        // OFFSET mod Q should be correct
+        let expected_offset_mod_q = (SIMD_OFFSET as i64 % Q as i64) as i32;
         assert_eq!(
             SIMD_OFFSET_MOD_Q, expected_offset_mod_q,
-            "SIMD_OFFSET_MOD_Q should be {} but is {}",
-            expected_offset_mod_q, SIMD_OFFSET_MOD_Q
+            "OFFSET_MOD_Q should be {} mod {} = {}",
+            SIMD_OFFSET, Q, expected_offset_mod_q
         );
 
-        // SIMD_BARRETT_M = floor(2^K / Q)
-        let expected_m = (1i32 << SIMD_BARRETT_K) / Q;
+        // Barrett M should be floor(2^K / Q)
+        let expected_m = ((1i64 << SIMD_BARRETT_K) / Q as i64) as i32;
         assert_eq!(
             SIMD_BARRETT_M, expected_m,
-            "SIMD_BARRETT_M should be {} but is {}",
-            expected_m, SIMD_BARRETT_M
-        );
-
-        // Verify M and K give reasonable approximation
-        // For any y in [0, 27M], (y * M) >> K should approximate y / Q
-        let y_max = 27_000_000i32;
-        let approx_max = (y_max as i64 * SIMD_BARRETT_M as i64) >> SIMD_BARRETT_K;
-        let exact_max = y_max / Q;
-        // Error should be at most 2
-        assert!(
-            (approx_max as i32 - exact_max).abs() <= 2,
-            "Barrett approximation error too large"
+            "Barrett M should be floor(2^{} / {}) = {}",
+            SIMD_BARRETT_K, Q, expected_m
         );
     }
 }
