@@ -13,6 +13,8 @@ std = ["alloc", "trelis-primitives/std", "trelis-error/std"]
 alloc = ["trelis-primitives/alloc", "trelis-error/alloc"]
 # WASM target support (browser environment)
 wasm = ["alloc", "trelis-primitives/wasm"]
+# Deterministic key generation from seeds (required for CoCoA path derivation)
+deterministic-keygen = ["trelis-primitives/deterministic-keygen"]
 # Expose internal functions for testing
 expose-internals = []
 # Enable ML-DSA-B-65 (BLAKE3 variant) for hybrid signatures

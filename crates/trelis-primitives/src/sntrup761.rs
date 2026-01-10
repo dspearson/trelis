@@ -110,6 +110,42 @@ impl Sntrup761SecretKey {
         }
     }
 
+    /// Generates a keypair deterministically from a 32-byte seed.
+    ///
+    /// Uses the pure Rust sntrup761 implementation with a BLAKE3-seeded RNG
+    /// to generate deterministic keypairs. The same seed always produces
+    /// the same keypair.
+    ///
+    /// # Arguments
+    ///
+    /// * `seed` - A 32-byte seed value
+    ///
+    /// # Note
+    ///
+    /// This uses the pure Rust implementation (same as WASM backend) rather
+    /// than the C FFI, since the C implementation doesn't support seeded
+    /// key generation.
+    #[cfg(feature = "deterministic-keygen")]
+    #[must_use]
+    pub fn generate_from_seed(seed: &[u8; 32]) -> Self {
+        // Use the pure Rust implementation for deterministic keygen
+        let wasm_sk = crate::sntrup761_wasm::Sntrup761SecretKey::generate_from_seed(seed);
+
+        // Convert to std format
+        let mut bytes = [0u8; SECRET_KEY_SIZE];
+        bytes.copy_from_slice(wasm_sk.as_bytes());
+
+        // Extract public key from secret key structure
+        let pk_start = 2 * 191;
+        let mut public_key_bytes = [0u8; PUBLIC_KEY_SIZE];
+        public_key_bytes.copy_from_slice(&bytes[pk_start..pk_start + PUBLIC_KEY_SIZE]);
+
+        Self {
+            bytes,
+            public_key_bytes,
+        }
+    }
+
     /// Creates a secret key from raw bytes.
     ///
     /// # Note

@@ -49,7 +49,7 @@
 //! ```
 //!
 //! This enables `LockedBox<T>` for secrets that cannot be
-//! swapped to disk. See the `memlock` module for details.
+//! swapped to disc. See the `memlock` module for details.
 
 #![no_std]
 // NOTE: unsafe_code is denied at workspace level (Cargo.toml)
@@ -107,7 +107,7 @@ pub mod mldsa_core;
 pub mod random;
 pub mod x448;
 
-/// Memory locking to prevent secrets from being swapped to disk.
+/// Memory locking to prevent secrets from being swapped to disc.
 ///
 /// This module provides `LockedBox<T>` and related types
 /// for OS-level memory protection using `mlock(2)` on Unix.
@@ -117,7 +117,7 @@ pub mod x448;
 /// ```ignore
 /// use trelis_primitives::memlock::LockedBox;
 ///
-/// // Create a secret key that cannot be swapped to disk
+/// // Create a secret key that cannot be swapped to disc
 /// let secret = LockedBox::new([0u8; 32])?;
 /// // Use secret...
 /// // Automatically zeroized and unlocked on drop
@@ -140,13 +140,28 @@ pub mod sntrup761_encoding;
 /// Optimised field and polynomial arithmetic for sntrup761.
 ///
 /// Provides fast extended GCD for field inversion (O(log q) vs O(q) Fermat).
-#[cfg(any(feature = "wasm", target_os = "windows", target_arch = "wasm32"))]
+#[cfg(any(
+    feature = "wasm",
+    feature = "deterministic-keygen",
+    target_os = "windows",
+    target_arch = "wasm32"
+))]
 pub mod sntrup761_fq;
 /// Optimised polynomial arithmetic for sntrup761 (Karatsuba, NTT).
-#[cfg(any(feature = "wasm", target_os = "windows", target_arch = "wasm32"))]
+#[cfg(any(
+    feature = "wasm",
+    feature = "deterministic-keygen",
+    target_os = "windows",
+    target_arch = "wasm32"
+))]
 pub mod sntrup761_poly;
-/// Pure Rust sntrup761 KEM (WASM builds and Windows).
-#[cfg(any(feature = "wasm", target_os = "windows", target_arch = "wasm32"))]
+/// Pure Rust sntrup761 KEM (WASM builds, Windows, and deterministic keygen).
+#[cfg(any(
+    feature = "wasm",
+    feature = "deterministic-keygen",
+    target_os = "windows",
+    target_arch = "wasm32"
+))]
 pub mod sntrup761_wasm;
 
 // Re-export key types for convenience

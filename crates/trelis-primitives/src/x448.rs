@@ -76,6 +76,42 @@ impl X448Secret {
         Ok(Self { bytes })
     }
 
+    /// Generates a secret key deterministically from a 32-byte seed.
+    ///
+    /// Uses BLAKE3 derive_key to expand the seed to 56 bytes, then applies
+    /// RFC 7748 clamping. The same seed always produces the same key.
+    ///
+    /// # Arguments
+    ///
+    /// * `seed` - A 32-byte seed value
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use trelis_primitives::x448::X448Secret;
+    ///
+    /// let seed = [0x42u8; 32];
+    /// let key1 = X448Secret::generate_from_seed(&seed);
+    /// let key2 = X448Secret::generate_from_seed(&seed);
+    ///
+    /// assert_eq!(key1.as_bytes(), key2.as_bytes());
+    /// ```
+    #[cfg(feature = "deterministic-keygen")]
+    #[must_use]
+    pub fn generate_from_seed(seed: &[u8; 32]) -> Self {
+        let mut bytes = [0u8; SECRET_KEY_SIZE];
+        let derived = blake3::derive_key("trelis-x448-keygen", seed);
+        // Use BLAKE3 XOF to get 56 bytes from 32-byte derived key
+        let mut hasher = blake3::Hasher::new_derive_key("trelis-x448-expand");
+        hasher.update(&derived);
+        let mut reader = hasher.finalize_xof();
+        reader.fill(&mut bytes);
+        // Apply clamping as per RFC 7748
+        bytes[0] &= 0xFC;
+        bytes[55] |= 0x80;
+        Self { bytes }
+    }
+
     /// Creates a secret key from raw bytes.
     ///
     /// Note: The bytes are clamped as per RFC 7748.
@@ -116,18 +152,18 @@ impl X448Secret {
     /// # Errors
     ///
     /// Returns `DecapsulationFailed` if:
-    /// - The public key is a low-order point (defense-in-depth)
+    /// - The public key is a low-order point (defence-in-depth)
     /// - The result is the all-zeros point (identity element)
     ///
     /// # Security Note
     ///
     /// X448 is designed to be "safe" against small-subgroup attacks via scalar
-    /// clamping (RFC 7748). The low-order point check is defense-in-depth and
+    /// clamping (RFC 7748). The low-order point check is defence-in-depth and
     /// not strictly required by the specification.
     pub fn diffie_hellman(&self, their_public: &X448Public) -> Result<X448SharedSecret> {
         let their_point = MontgomeryPoint(their_public.bytes);
 
-        // Defense-in-depth: reject low-order public keys.
+        // Defence-in-depth: reject low-order public keys.
         // X448's scalar clamping already protects against small-subgroup attacks,
         // but explicitly rejecting these points provides an extra layer of safety.
         if their_point.is_low_order() {
@@ -363,7 +399,7 @@ mod tests {
     fn test_low_order_points_rejected() {
         // Test that known low-order points are rejected.
         // The zero point is the most common low-order point, already tested above.
-        // This test verifies the is_low_order() check works as defense-in-depth.
+        // This test verifies the is_low_order() check works as defence-in-depth.
         let secret = X448Secret::generate().unwrap();
 
         // Point (1, 0) is also low-order on Montgomery curves
@@ -448,5 +484,53 @@ mod tests {
             shared_expected.as_slice()
         );
         assert_eq!(bob_shared.as_bytes().as_slice(), shared_expected.as_slice());
+    }
+
+    #[test]
+    #[cfg(feature = "deterministic-keygen")]
+    fn test_generate_from_seed_deterministic() {
+        let seed = [0x42u8; 32];
+        let key1 = X448Secret::generate_from_seed(&seed);
+        let key2 = X448Secret::generate_from_seed(&seed);
+
+        // Same seed should produce same key
+        assert_eq!(key1.as_bytes(), key2.as_bytes());
+    }
+
+    #[test]
+    #[cfg(feature = "deterministic-keygen")]
+    fn test_generate_from_seed_different_seeds() {
+        let seed1 = [0x42u8; 32];
+        let seed2 = [0x43u8; 32];
+        let key1 = X448Secret::generate_from_seed(&seed1);
+        let key2 = X448Secret::generate_from_seed(&seed2);
+
+        // Different seeds should produce different keys
+        assert_ne!(key1.as_bytes(), key2.as_bytes());
+    }
+
+    #[test]
+    #[cfg(feature = "deterministic-keygen")]
+    fn test_generate_from_seed_clamping() {
+        let seed = [0x42u8; 32];
+        let key = X448Secret::generate_from_seed(&seed);
+
+        // Clamping should be applied
+        assert_eq!(key.as_bytes()[0] & 0x03, 0x00);
+        assert_eq!(key.as_bytes()[55] & 0x80, 0x80);
+    }
+
+    #[test]
+    #[cfg(feature = "deterministic-keygen")]
+    fn test_generate_from_seed_dh_works() {
+        let seed1 = [0x42u8; 32];
+        let seed2 = [0x43u8; 32];
+        let alice = X448Secret::generate_from_seed(&seed1);
+        let bob = X448Secret::generate_from_seed(&seed2);
+
+        // DH should work with seeded keys
+        let alice_shared = alice.diffie_hellman(&bob.public_key()).unwrap();
+        let bob_shared = bob.diffie_hellman(&alice.public_key()).unwrap();
+        assert_eq!(alice_shared, bob_shared);
     }
 }

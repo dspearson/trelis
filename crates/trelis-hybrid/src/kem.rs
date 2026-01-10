@@ -99,6 +99,50 @@ impl HybridKemKeypair {
         })
     }
 
+    /// Generates a hybrid KEM keypair deterministically from a 32-byte seed.
+    ///
+    /// Uses BLAKE3 derive_key to derive independent seeds for X448 and sntrup761,
+    /// then generates each component deterministically. The same seed always
+    /// produces the same keypair.
+    ///
+    /// # Arguments
+    ///
+    /// * `seed` - A 32-byte seed value
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use trelis_hybrid::kem::HybridKemKeypair;
+    ///
+    /// let seed = [0x42u8; 32];
+    /// let keypair1 = HybridKemKeypair::generate_from_seed(&seed);
+    /// let keypair2 = HybridKemKeypair::generate_from_seed(&seed);
+    ///
+    /// // Same seed produces same keypair
+    /// assert_eq!(keypair1.to_bytes(), keypair2.to_bytes());
+    /// ```
+    #[cfg(feature = "deterministic-keygen")]
+    #[must_use]
+    pub fn generate_from_seed(seed: &[u8; 32]) -> Self {
+        // Derive independent seeds for each component using BLAKE3
+        let x448_seed = blake3::derive_key("trelis-hybrid-x448", seed);
+        let sntrup_seed = blake3::derive_key("trelis-hybrid-sntrup761", seed);
+
+        let x448_secret = X448Secret::generate_from_seed(&x448_seed);
+        let sntrup_secret = Sntrup761SecretKey::generate_from_seed(&sntrup_seed);
+
+        let public_key = HybridKemPublicKey {
+            x448: x448_secret.public_key(),
+            sntrup: sntrup_secret.public_key(),
+        };
+
+        Self {
+            public_key,
+            x448_secret,
+            sntrup_secret,
+        }
+    }
+
     /// Returns the public key.
     #[must_use]
     pub fn public_key(&self) -> &HybridKemPublicKey {
@@ -112,7 +156,7 @@ impl HybridKemKeypair {
     /// # Security
     ///
     /// The returned bytes contain secret key material and should be
-    /// handled securely (encrypted storage, zeroization after use).
+    /// handled securely (encrypted storage, zeroisation after use).
     #[must_use]
     pub fn to_bytes(&self) -> [u8; SECRET_KEY_SIZE] {
         let mut bytes = [0u8; SECRET_KEY_SIZE];
@@ -516,5 +560,44 @@ mod tests {
 
         assert_eq!(ss1, ss1_dec);
         assert_eq!(ss2, ss2_dec);
+    }
+
+    #[test]
+    #[cfg(feature = "deterministic-keygen")]
+    fn test_generate_from_seed_deterministic() {
+        let seed = [0x42u8; 32];
+        let keypair1 = HybridKemKeypair::generate_from_seed(&seed);
+        let keypair2 = HybridKemKeypair::generate_from_seed(&seed);
+
+        // Same seed should produce same keypair
+        assert_eq!(keypair1.to_bytes(), keypair2.to_bytes());
+        assert_eq!(
+            keypair1.public_key().to_bytes(),
+            keypair2.public_key().to_bytes()
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "deterministic-keygen")]
+    fn test_generate_from_seed_different_seeds() {
+        let seed1 = [0x42u8; 32];
+        let seed2 = [0x43u8; 32];
+        let keypair1 = HybridKemKeypair::generate_from_seed(&seed1);
+        let keypair2 = HybridKemKeypair::generate_from_seed(&seed2);
+
+        // Different seeds should produce different keypairs
+        assert_ne!(keypair1.to_bytes(), keypair2.to_bytes());
+    }
+
+    #[test]
+    #[cfg(feature = "deterministic-keygen")]
+    fn test_generate_from_seed_kem_works() {
+        let seed = [0x42u8; 32];
+        let keypair = HybridKemKeypair::generate_from_seed(&seed);
+
+        // KEM should work with seeded keys
+        let (ss_enc, encapsulation) = keypair.public_key().encapsulate().unwrap();
+        let ss_dec = keypair.decapsulate(&encapsulation).unwrap();
+        assert_eq!(ss_enc.as_bytes(), ss_dec.as_bytes());
     }
 }

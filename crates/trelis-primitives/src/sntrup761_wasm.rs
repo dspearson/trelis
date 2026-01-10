@@ -33,9 +33,11 @@ use crate::sntrup761_encoding::{
 use crate::sntrup761_poly;
 use trelis_error::{CryptoError, Result};
 
-use ntrulp::poly::r3::R3;
 use ntrulp::rng::{random_small, short_random};
 use rand_core::RngCore;
+
+// Use our optimised R3 for R3::recip (ginv calculation)
+use crate::sntrup761_fq::R3;
 
 // Use OsRng from our random module for cryptographic random generation
 use crate::random::OsRng;
@@ -159,92 +161,134 @@ impl Sntrup761SecretKey {
     /// Panics if key generation fails after `MAX_KEYGEN_ATTEMPTS` attempts,
     /// which indicates a broken RNG.
     pub fn generate() -> Self {
-        let mut rng = OsRng;
-        let mut attempts = 0usize;
+        Self::generate_from_rng(&mut OsRng)
+    }
 
-        // Generate small g and compute ginv
-        let (g_coeffs, ginv_coeffs) = loop {
-            attempts += 1;
-            if attempts > MAX_KEYGEN_ATTEMPTS {
+    /// Generates a keypair deterministically from a 32-byte seed.
+    ///
+    /// Uses BLAKE3 to derive a deterministic RNG from the seed, then generates
+    /// the keypair. The same seed always produces the same keypair.
+    ///
+    /// # Arguments
+    ///
+    /// * `seed` - A 32-byte seed value
+    ///
+    /// # Panics
+    ///
+    /// Panics if key generation fails after `MAX_KEYGEN_ATTEMPTS` attempts,
+    /// which should never happen with a properly seeded RNG.
+    #[cfg(feature = "deterministic-keygen")]
+    #[must_use]
+    pub fn generate_from_seed(seed: &[u8; 32]) -> Self {
+        use crate::random::SeededRng;
+        let mut rng = SeededRng::new(seed, "trelis-sntrup761-keygen");
+        Self::generate_from_rng(&mut rng)
+    }
+
+    /// Generates a keypair using the provided RNG.
+    ///
+    /// This is the core implementation shared by both random and seeded generation.
+    fn generate_from_rng<R: RngCore>(rng: &mut R) -> Self {
+        let mut keygen_attempts = 0usize;
+
+        // Outer loop handles the rare case where f is not invertible mod 3
+        loop {
+            keygen_attempts += 1;
+            if keygen_attempts > MAX_KEYGEN_ATTEMPTS {
                 panic!(
-                    "sntrup761: g generation failed after {} attempts - RNG may be broken",
+                    "sntrup761: keypair generation failed after {} attempts - RNG may be broken",
                     MAX_KEYGEN_ATTEMPTS
                 );
             }
-            let g_coeffs = random_small(&mut rng);
-            let g = R3::from(g_coeffs);
-            if let Ok(ginv) = g.recip() {
-                break (g_coeffs, ginv.coeffs);
-            }
-            // g not invertible, retry
-        };
 
-        // Generate short f with weight W
-        attempts = 0;
-        let f_coeffs = loop {
-            attempts += 1;
-            if attempts > MAX_KEYGEN_ATTEMPTS {
-                panic!(
-                    "sntrup761: f generation failed after {} attempts - RNG may be broken",
-                    MAX_KEYGEN_ATTEMPTS
-                );
-            }
-            if let Ok(short) = short_random(&mut rng) {
-                // Verify it has correct weight
-                let mut f_i8 = [0i8; P];
-                let mut weight = 0usize;
-                for i in 0..P {
-                    f_i8[i] = short[i] as i8;
-                    if f_i8[i] != 0 {
-                        weight += 1;
+            let mut attempts = 0usize;
+
+            // Generate small g and compute ginv
+            let (g_coeffs, ginv_coeffs) = loop {
+                attempts += 1;
+                if attempts > MAX_KEYGEN_ATTEMPTS {
+                    panic!(
+                        "sntrup761: g generation failed after {} attempts - RNG may be broken",
+                        MAX_KEYGEN_ATTEMPTS
+                    );
+                }
+                let g_coeffs = random_small(rng);
+                let g = R3::from(g_coeffs);
+                if let Ok(ginv) = g.recip() {
+                    break (g_coeffs, ginv.coeffs);
+                }
+                // g not invertible, retry
+            };
+
+            // Generate short f with weight W
+            attempts = 0;
+            let f_coeffs = loop {
+                attempts += 1;
+                if attempts > MAX_KEYGEN_ATTEMPTS {
+                    panic!(
+                        "sntrup761: f generation failed after {} attempts - RNG may be broken",
+                        MAX_KEYGEN_ATTEMPTS
+                    );
+                }
+                if let Ok(short) = short_random(rng) {
+                    // Verify it has correct weight
+                    let mut f_i8 = [0i8; P];
+                    let mut weight = 0usize;
+                    for i in 0..P {
+                        f_i8[i] = short[i] as i8;
+                        if f_i8[i] != 0 {
+                            weight += 1;
+                        }
+                    }
+                    if weight == W {
+                        break f_i8;
                     }
                 }
-                if weight == W {
-                    break f_i8;
+            };
+
+            // Compute public key: h = (1/3f) * g in Rq
+            // Use ntrulp's Rq for polynomial inversion (faster than our implementation)
+            let f_r3 = ntrulp::poly::r3::R3::from(f_coeffs);
+            let f_rq = f_r3.rq_from_r3();
+
+            // Compute 1/(3f) in Rq
+            // If f is not invertible mod 3, retry with new g and f.
+            // This is extremely rare with properly generated f.
+            let finv = match f_rq.recip::<3>() {
+                Ok(inv) => inv,
+                Err(_) => {
+                    // f not invertible mod 3, retry entire keypair generation
+                    continue;
                 }
-            }
-        };
+            };
 
-        // Compute public key: h = (1/3f) * g in Rq
-        let f_rq = R3::from(f_coeffs).rq_from_r3();
+            // h = finv * g using Karatsuba (major speedup)
+            let h_coeffs = rq_mult_r3_karatsuba(&finv.coeffs, &g_coeffs);
 
-        // Compute 1/(3f) in Rq
-        // If f is not invertible mod 3, regenerate the entire keypair.
-        // This is extremely rare with properly generated f.
-        let finv = match f_rq.recip::<3>() {
-            Ok(inv) => inv,
-            Err(_) => {
-                // f not invertible mod 3, regenerate entire keypair
-                return Self::generate();
-            }
-        };
+            // Encode public key
+            let pk_bytes = rq_encode(&h_coeffs);
 
-        // h = finv * g using Karatsuba (major speedup)
-        let h_coeffs = rq_mult_r3_karatsuba(&finv.coeffs, &g_coeffs);
+            // Generate random rho for implicit rejection
+            let mut rho = [0u8; SMALL_BYTES];
+            rng.fill_bytes(&mut rho);
 
-        // Encode public key
-        let pk_bytes = rq_encode(&h_coeffs);
+            // Compute pk cache = SHA-512(4 || pk)[0:32]
+            let pk_cache = hash_pk_cache(&pk_bytes);
 
-        // Generate random rho for implicit rejection
-        let mut rho = [0u8; SMALL_BYTES];
-        rng.fill_bytes(&mut rho);
+            // Assemble secret key: f || ginv || pk || rho || cache
+            let mut bytes = [0u8; SECRET_KEY_SIZE];
+            let f_enc = small_encode(&f_coeffs);
+            let ginv_enc = small_encode(&ginv_coeffs);
 
-        // Compute pk cache = SHA-512(4 || pk)[0:32]
-        let pk_cache = hash_pk_cache(&pk_bytes);
+            bytes[0..SMALL_BYTES].copy_from_slice(&f_enc);
+            bytes[SMALL_BYTES..2 * SMALL_BYTES].copy_from_slice(&ginv_enc);
+            bytes[2 * SMALL_BYTES..2 * SMALL_BYTES + RQ_BYTES].copy_from_slice(&pk_bytes);
+            bytes[2 * SMALL_BYTES + RQ_BYTES..2 * SMALL_BYTES + RQ_BYTES + SMALL_BYTES]
+                .copy_from_slice(&rho);
+            bytes[SECRET_KEY_SIZE - 32..].copy_from_slice(&pk_cache);
 
-        // Assemble secret key: f || ginv || pk || rho || cache
-        let mut bytes = [0u8; SECRET_KEY_SIZE];
-        let f_enc = small_encode(&f_coeffs);
-        let ginv_enc = small_encode(&ginv_coeffs);
-
-        bytes[0..SMALL_BYTES].copy_from_slice(&f_enc);
-        bytes[SMALL_BYTES..2 * SMALL_BYTES].copy_from_slice(&ginv_enc);
-        bytes[2 * SMALL_BYTES..2 * SMALL_BYTES + RQ_BYTES].copy_from_slice(&pk_bytes);
-        bytes[2 * SMALL_BYTES + RQ_BYTES..2 * SMALL_BYTES + RQ_BYTES + SMALL_BYTES]
-            .copy_from_slice(&rho);
-        bytes[SECRET_KEY_SIZE - 32..].copy_from_slice(&pk_cache);
-
-        Self { bytes }
+            return Self { bytes };
+        }
     }
 
     /// Creates a secret key from raw bytes.
@@ -716,5 +760,41 @@ mod tests {
     fn test_invalid_ciphertext_length() {
         let result = Sntrup761Ciphertext::from_bytes(&[0u8; 100]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "deterministic-keygen")]
+    fn test_generate_from_seed_deterministic() {
+        let seed = [0x42u8; 32];
+        let sk1 = Sntrup761SecretKey::generate_from_seed(&seed);
+        let sk2 = Sntrup761SecretKey::generate_from_seed(&seed);
+
+        // Same seed should produce same key
+        assert_eq!(sk1.as_bytes(), sk2.as_bytes());
+    }
+
+    #[test]
+    #[cfg(feature = "deterministic-keygen")]
+    fn test_generate_from_seed_different_seeds() {
+        let seed1 = [0x42u8; 32];
+        let seed2 = [0x43u8; 32];
+        let sk1 = Sntrup761SecretKey::generate_from_seed(&seed1);
+        let sk2 = Sntrup761SecretKey::generate_from_seed(&seed2);
+
+        // Different seeds should produce different keys
+        assert_ne!(sk1.as_bytes(), sk2.as_bytes());
+    }
+
+    #[test]
+    #[cfg(feature = "deterministic-keygen")]
+    fn test_generate_from_seed_kem_works() {
+        let seed = [0x42u8; 32];
+        let sk = Sntrup761SecretKey::generate_from_seed(&seed);
+        let pk = sk.public_key();
+
+        // KEM should work with seeded keys
+        let (ss_enc, ct) = pk.encapsulate();
+        let ss_dec = sk.decapsulate(&ct).unwrap();
+        assert_eq!(ss_enc.as_bytes(), ss_dec.as_bytes());
     }
 }

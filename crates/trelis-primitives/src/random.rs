@@ -150,6 +150,86 @@ impl rand_core::RngCore for OsRng {
 
 impl rand_core::CryptoRng for OsRng {}
 
+/// A deterministic RNG seeded with BLAKE3.
+///
+/// This RNG uses BLAKE3 in XOF (extendable output function) mode to generate
+/// deterministic random bytes from a 32-byte seed. The same seed always
+/// produces the same sequence of bytes.
+///
+/// # Security
+///
+/// This is intended for deterministic key derivation, NOT for general-purpose
+/// random number generation. For cryptographic randomness, use [`OsRng`].
+///
+/// # Example
+///
+/// ```
+/// use trelis_primitives::random::SeededRng;
+/// use rand_core::RngCore;
+///
+/// let seed = [0x42u8; 32];
+/// let mut rng1 = SeededRng::new(&seed, "my-context");
+/// let mut rng2 = SeededRng::new(&seed, "my-context");
+///
+/// let mut buf1 = [0u8; 32];
+/// let mut buf2 = [0u8; 32];
+/// rng1.fill_bytes(&mut buf1);
+/// rng2.fill_bytes(&mut buf2);
+///
+/// // Same seed + context = same output
+/// assert_eq!(buf1, buf2);
+/// ```
+pub struct SeededRng {
+    reader: blake3::OutputReader,
+}
+
+impl SeededRng {
+    /// Creates a new deterministic RNG from a seed and context.
+    ///
+    /// The context string provides domain separation, ensuring that the same
+    /// seed used in different contexts produces different output.
+    ///
+    /// # Arguments
+    ///
+    /// * `seed` - A 32-byte seed value
+    /// * `context` - A context string for domain separation
+    #[must_use]
+    pub fn new(seed: &[u8; 32], context: &str) -> Self {
+        let mut hasher = blake3::Hasher::new_derive_key(context);
+        hasher.update(seed);
+        Self {
+            reader: hasher.finalize_xof(),
+        }
+    }
+}
+
+impl rand_core::RngCore for SeededRng {
+    fn next_u32(&mut self) -> u32 {
+        let mut bytes = [0u8; 4];
+        self.reader.fill(&mut bytes);
+        u32::from_le_bytes(bytes)
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        let mut bytes = [0u8; 8];
+        self.reader.fill(&mut bytes);
+        u64::from_le_bytes(bytes)
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        self.reader.fill(dest);
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> core::result::Result<(), rand_core::Error> {
+        self.reader.fill(dest);
+        Ok(())
+    }
+}
+
+// SeededRng is deterministic, not cryptographically random, but it's suitable
+// for deterministic key derivation where the seed has sufficient entropy.
+impl rand_core::CryptoRng for SeededRng {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -257,5 +337,71 @@ mod tests {
         // Should succeed with empty buffer
         let mut buffer: [u8; 0] = [];
         fill_bytes(&mut buffer).unwrap();
+    }
+
+    #[test]
+    fn test_seeded_rng_deterministic() {
+        use rand_core::RngCore;
+
+        let seed = [0x42u8; 32];
+        let mut rng1 = SeededRng::new(&seed, "test-context");
+        let mut rng2 = SeededRng::new(&seed, "test-context");
+
+        let mut buf1 = [0u8; 64];
+        let mut buf2 = [0u8; 64];
+        rng1.fill_bytes(&mut buf1);
+        rng2.fill_bytes(&mut buf2);
+
+        // Same seed + context = same output
+        assert_eq!(buf1, buf2);
+    }
+
+    #[test]
+    fn test_seeded_rng_different_seeds() {
+        use rand_core::RngCore;
+
+        let seed1 = [0x42u8; 32];
+        let seed2 = [0x43u8; 32];
+        let mut rng1 = SeededRng::new(&seed1, "test-context");
+        let mut rng2 = SeededRng::new(&seed2, "test-context");
+
+        let mut buf1 = [0u8; 32];
+        let mut buf2 = [0u8; 32];
+        rng1.fill_bytes(&mut buf1);
+        rng2.fill_bytes(&mut buf2);
+
+        // Different seeds = different output
+        assert_ne!(buf1, buf2);
+    }
+
+    #[test]
+    fn test_seeded_rng_different_contexts() {
+        use rand_core::RngCore;
+
+        let seed = [0x42u8; 32];
+        let mut rng1 = SeededRng::new(&seed, "context-a");
+        let mut rng2 = SeededRng::new(&seed, "context-b");
+
+        let mut buf1 = [0u8; 32];
+        let mut buf2 = [0u8; 32];
+        rng1.fill_bytes(&mut buf1);
+        rng2.fill_bytes(&mut buf2);
+
+        // Same seed, different context = different output
+        assert_ne!(buf1, buf2);
+    }
+
+    #[test]
+    fn test_seeded_rng_next_u32_u64() {
+        use rand_core::RngCore;
+
+        let seed = [0x42u8; 32];
+        let mut rng1 = SeededRng::new(&seed, "test");
+        let mut rng2 = SeededRng::new(&seed, "test");
+
+        // Should produce same sequence
+        assert_eq!(rng1.next_u32(), rng2.next_u32());
+        assert_eq!(rng1.next_u64(), rng2.next_u64());
+        assert_eq!(rng1.next_u32(), rng2.next_u32());
     }
 }
