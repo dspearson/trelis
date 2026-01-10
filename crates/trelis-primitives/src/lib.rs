@@ -198,14 +198,18 @@ pub use memlock::{
 // This allows dependent crates (like trelis-hybrid) to use `Sntrup761*` types
 // without caring about the underlying implementation.
 
-/// sntrup761 types using the C FFI backend (native Unix/Linux).
-#[cfg(all(not(target_os = "windows"), not(target_arch = "wasm32")))]
+/// sntrup761 types using the C FFI backend (native Unix/Linux with std).
+#[cfg(all(
+    feature = "std",
+    not(target_os = "windows"),
+    not(target_arch = "wasm32")
+))]
 pub use sntrup761::{
     Sntrup761Ciphertext, Sntrup761PublicKey, Sntrup761SecretKey, Sntrup761SharedSecret,
 };
 
-/// sntrup761 types using the pure Rust backend (Windows and WASM).
-#[cfg(any(target_os = "windows", target_arch = "wasm32"))]
+/// sntrup761 types using the pure Rust backend (Windows, WASM, or no-std).
+#[cfg(any(target_os = "windows", target_arch = "wasm32", not(feature = "std")))]
 pub use sntrup761_wasm::{
     Sntrup761Ciphertext, Sntrup761PublicKey, Sntrup761SecretKey, Sntrup761SharedSecret,
 };

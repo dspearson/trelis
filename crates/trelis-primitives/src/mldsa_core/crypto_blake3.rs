@@ -7,6 +7,7 @@ use hybrid_array::Array;
 const TINY_SQUEEZE_MAX: usize = 128;
 const TINY_PREFETCH: usize = 1024;
 // Threshold for parallel hashing (rayon) - must match upstream
+#[cfg(feature = "std")]
 const PAR_RAYON_BYTES: usize = 128 * 1024;
 
 #[derive(Debug)]
