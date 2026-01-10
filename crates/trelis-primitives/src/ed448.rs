@@ -130,13 +130,44 @@ impl Ed448SigningKey {
     ///
     /// # Errors
     ///
-    /// Returns `InvalidSignature` if the context string is invalid.
+    /// Returns `InvalidContextLength` if the context exceeds 255 bytes,
+    /// or `InvalidSignature` if signing fails.
     pub fn sign_with_context(&self, message: &[u8], context: &[u8]) -> Result<Ed448Signature> {
+        if context.len() > 255 {
+            return Err(CryptoError::InvalidContextLength {
+                actual: context.len(),
+                max: 255,
+            });
+        }
         let sk = self.inner_signing_key();
         let sig = sk
             .sign_ctx(context, message)
             .map_err(|_| CryptoError::InvalidSignature)?;
         Ok(Ed448Signature { inner: sig })
+    }
+
+    /// Wraps this signing key in a `GuardedBox` for enhanced memory protection.
+    ///
+    /// The returned `GuardedBox` provides:
+    /// - Guard pages before and after the key to detect buffer overflows
+    /// - Memory locking to prevent swapping to disk (if privileges allow)
+    /// - Automatic zeroization on drop
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let sk = Ed448SigningKey::generate()?;
+    /// let guarded = sk.into_guarded()?;
+    /// guarded.protect_readonly()?; // Optional: make read-only after init
+    /// let sig = guarded.sign(message);
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `MemlockError` if memory allocation or protection fails.
+    #[cfg(feature = "mlock")]
+    pub fn into_guarded(self) -> crate::memlock::Result<crate::memlock::GuardedBox<Self>> {
+        crate::memlock::GuardedBox::new(self)
     }
 }
 
@@ -203,18 +234,25 @@ impl Ed448VerifyingKey {
     /// # Arguments
     ///
     /// * `message` - The message that was signed.
-    /// * `context` - The context string used during signing.
+    /// * `context` - The context string used during signing (max 255 bytes).
     /// * `signature` - The signature to verify.
     ///
     /// # Errors
     ///
-    /// Returns `SignatureVerificationFailed` if the signature is invalid.
+    /// Returns `InvalidContextLength` if the context exceeds 255 bytes,
+    /// or `SignatureVerificationFailed` if the signature is invalid.
     pub fn verify_with_context(
         &self,
         message: &[u8],
         context: &[u8],
         signature: &Ed448Signature,
     ) -> Result<()> {
+        if context.len() > 255 {
+            return Err(CryptoError::InvalidContextLength {
+                actual: context.len(),
+                max: 255,
+            });
+        }
         self.inner
             .verify_ctx(&signature.inner, context, message)
             .map_err(|_| CryptoError::SignatureVerificationFailed)
@@ -454,6 +492,25 @@ mod tests {
     }
 
     #[test]
+    fn test_non_canonical_s_scalar_rejected() {
+        // Verify the underlying library correctly rejects non-canonical s scalars.
+        // Byte 56 of s (position 113 in signature) must be 0x00 for valid signatures.
+        let signing_key = Ed448SigningKey::generate().unwrap();
+        let signature = signing_key.sign(b"test");
+        let mut bytes = signature.to_bytes();
+
+        // Modify byte 56 of s scalar (position 113 in full signature)
+        bytes[113] ^= 0x01;
+
+        // Library should reject this as invalid
+        let result = Ed448Signature::from_bytes(&bytes);
+        assert!(
+            result.is_err(),
+            "Non-canonical s scalar (byte 113 modified) should be rejected by library"
+        );
+    }
+
+    #[test]
     fn test_invalid_key_length() {
         let result = Ed448VerifyingKey::from_bytes(&[0u8; 50]);
         assert!(matches!(
@@ -461,6 +518,41 @@ mod tests {
             Err(CryptoError::InvalidKeyLength {
                 expected: 57,
                 actual: 50
+            })
+        ));
+    }
+
+    #[test]
+    fn test_context_length_validation() {
+        let signing_key = Ed448SigningKey::generate().unwrap();
+        let verifying_key = signing_key.verifying_key();
+        let message = b"test message";
+
+        // 255 bytes is the maximum allowed
+        let max_context = vec![0x42u8; 255];
+        let sig = signing_key
+            .sign_with_context(message, &max_context)
+            .unwrap();
+        assert!(
+            verifying_key
+                .verify_with_context(message, &max_context, &sig)
+                .is_ok()
+        );
+
+        // 256 bytes exceeds the maximum
+        let too_long_context = vec![0x42u8; 256];
+        assert!(matches!(
+            signing_key.sign_with_context(message, &too_long_context),
+            Err(CryptoError::InvalidContextLength {
+                actual: 256,
+                max: 255
+            })
+        ));
+        assert!(matches!(
+            verifying_key.verify_with_context(message, &too_long_context, &sig),
+            Err(CryptoError::InvalidContextLength {
+                actual: 256,
+                max: 255
             })
         ));
     }

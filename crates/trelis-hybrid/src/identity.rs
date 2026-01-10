@@ -16,7 +16,7 @@
 //!
 //! // Sign with the identity
 //! let signature = identity.sign(b"message").unwrap();
-//! assert!(identity.public_key().verify(b"message", &signature));
+//! assert!(identity.public_key().verify(b"message", &signature).is_ok());
 //!
 //! // Receive encrypted key material
 //! let (shared_secret, encapsulation) = identity.public_key().kem().encapsulate().unwrap();
@@ -270,22 +270,25 @@ impl HybridIdentityPublicKey {
     /// * `message` - The message that was signed.
     /// * `signature` - The signature to verify.
     ///
-    /// # Returns
+    /// # Errors
     ///
-    /// `true` if the signature is valid, `false` otherwise.
-    #[must_use]
-    pub fn verify(&self, message: &[u8], signature: &HybridSignature) -> bool {
+    /// Returns `SignatureVerificationFailed` if the signature is invalid.
+    pub fn verify(&self, message: &[u8], signature: &HybridSignature) -> Result<()> {
         self.signing.verify(message, signature)
     }
 
     /// Verifies a signature with a context string.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns `SignatureVerificationFailed` if the signature is invalid,
+    /// or `InvalidContextLength` if the context exceeds 255 bytes.
     pub fn verify_with_context(
         &self,
         message: &[u8],
         context: &[u8],
         signature: &HybridSignature,
-    ) -> bool {
+    ) -> Result<()> {
         self.signing
             .verify_with_context(message, context, signature)
     }
@@ -330,7 +333,7 @@ mod tests {
         let message = b"Hello, identity!";
 
         let signature = identity.sign(message).unwrap();
-        assert!(identity.public_key().verify(message, &signature));
+        assert!(identity.public_key().verify(message, &signature).is_ok());
     }
 
     #[test]
@@ -364,6 +367,6 @@ mod tests {
         let identity2 = HybridIdentityKeypair::generate().unwrap();
 
         let signature = identity1.sign(b"test").unwrap();
-        assert!(!identity2.public_key().verify(b"test", &signature));
+        assert!(identity2.public_key().verify(b"test", &signature).is_err());
     }
 }

@@ -15,11 +15,7 @@
 use trelis_cocoa::CocoaSession;
 use trelis_error::{CryptoError, ErrorCategory};
 use trelis_hybrid::HybridKemKeypair;
-
-// Type aliases for explicit ML-DSA scheme selection
-type HybridSigningKeypair =
-    trelis_hybrid::HybridSigningKeypair<trelis_primitives::mldsa::MlDsa65Fips204>;
-type HybridSignature = trelis_hybrid::HybridSignature<trelis_primitives::mldsa::MlDsa65Fips204>;
+use trelis_primitives::mldsa::DefaultMlDsaScheme;
 use trelis_primitives::{
     AeadKey, Ed448Signature, Ed448SigningKey, MlDsa65Signature, MlDsa65SigningKey, Nonce,
     Sntrup761Ciphertext, Sntrup761SecretKey, X448Public, X448Secret, decrypt, encrypt,
@@ -28,6 +24,10 @@ use trelis_wire::{
     decode::{Decoder, DecoderError},
     encode::Encoder,
 };
+
+// Type aliases that explicitly use the default ML-DSA scheme to help type inference
+type HybridSigningKeypair = trelis_hybrid::HybridSigningKeypair<DefaultMlDsaScheme>;
+type HybridSignature = trelis_hybrid::HybridSignature<DefaultMlDsaScheme>;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // AEAD Error Path Tests
@@ -289,7 +289,7 @@ mod mldsa65_errors {
 
         // Verify with wrong public key should fail
         let result = keypair2.verifying_key().verify(message, &signature);
-        assert!(!result);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -302,7 +302,7 @@ mod mldsa65_errors {
 
         // Verify with wrong message should fail
         let result = keypair.verifying_key().verify(message2, &signature);
-        assert!(!result);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -319,7 +319,7 @@ mod mldsa65_errors {
         // from_bytes returns Result
         let modified_sig = MlDsa65Signature::from_bytes(&sig_bytes).unwrap();
         let result = keypair.verifying_key().verify(message, &modified_sig);
-        assert!(!result);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -330,7 +330,7 @@ mod mldsa65_errors {
         // Empty message should work
         let signature = keypair.sign(message).unwrap();
         let result = keypair.verifying_key().verify(message, &signature);
-        assert!(result);
+        assert!(result.is_ok());
     }
 }
 
@@ -351,7 +351,7 @@ mod hybrid_signature_errors {
 
         // Verify with wrong public key should fail
         let result = keypair2.public_key().verify(message, &signature);
-        assert!(!result);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -364,7 +364,7 @@ mod hybrid_signature_errors {
 
         // Verify with wrong message should fail
         let result = keypair.public_key().verify(message2, &signature);
-        assert!(!result);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -375,7 +375,7 @@ mod hybrid_signature_errors {
         // Empty message should work
         let signature = keypair.sign(message).unwrap();
         let result = keypair.public_key().verify(message, &signature);
-        assert!(result);
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -385,7 +385,7 @@ mod hybrid_signature_errors {
 
         let signature = keypair.sign(&message).unwrap();
         let result = keypair.public_key().verify(&message, &signature);
-        assert!(result);
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -398,7 +398,7 @@ mod hybrid_signature_errors {
         let restored = HybridSignature::from_bytes(&bytes).unwrap();
 
         // Should still verify
-        assert!(keypair.public_key().verify(message, &restored));
+        assert!(keypair.public_key().verify(message, &restored).is_ok());
     }
 }
 
@@ -1047,7 +1047,7 @@ mod edge_cases {
 
         let signature = keypair.sign(&large_message).unwrap();
         let result = keypair.public_key().verify(&large_message, &signature);
-        assert!(result);
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -1057,7 +1057,7 @@ mod edge_cases {
 
         let signature = keypair.sign(&message).unwrap();
         let result = keypair.public_key().verify(&message, &signature);
-        assert!(result);
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -1067,7 +1067,7 @@ mod edge_cases {
 
         let signature = keypair.sign(&message).unwrap();
         let result = keypair.public_key().verify(&message, &signature);
-        assert!(result);
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -1078,7 +1078,7 @@ mod edge_cases {
         // Sign and verify many times
         for _ in 0..100 {
             let signature = keypair.sign(message).unwrap();
-            assert!(keypair.public_key().verify(message, &signature));
+            assert!(keypair.public_key().verify(message, &signature).is_ok());
         }
     }
 
@@ -1093,7 +1093,7 @@ mod edge_cases {
         // All keypairs should produce valid signatures
         for kp in &keypairs {
             let sig = kp.sign(message).unwrap();
-            assert!(kp.public_key().verify(message, &sig));
+            assert!(kp.public_key().verify(message, &sig).is_ok());
         }
 
         // Cross-verification should fail
@@ -1101,7 +1101,7 @@ mod edge_cases {
             let sig = keypairs[i].sign(message).unwrap();
             for j in 0..keypairs.len() {
                 if i != j {
-                    assert!(!keypairs[j].public_key().verify(message, &sig));
+                    assert!(keypairs[j].public_key().verify(message, &sig).is_err());
                 }
             }
         }
@@ -1121,7 +1121,7 @@ mod edge_cases {
 
         for pattern in patterns {
             let sig = keypair.sign(&pattern).unwrap();
-            assert!(keypair.public_key().verify(&pattern, &sig));
+            assert!(keypair.public_key().verify(&pattern, &sig).is_ok());
         }
     }
 
@@ -1179,8 +1179,8 @@ mod key_serialization {
         let sig = original.sign(message).unwrap();
 
         // Both should verify
-        assert!(original.public_key().verify(message, &sig));
-        assert!(restored.public_key().verify(message, &sig));
+        assert!(original.public_key().verify(message, &sig).is_ok());
+        assert!(restored.public_key().verify(message, &sig).is_ok());
     }
 
     #[test]
@@ -1206,8 +1206,8 @@ mod key_serialization {
         let restored = HybridSignature::from_bytes(&bytes).unwrap();
 
         // Both should verify
-        assert!(keypair.public_key().verify(message, &sig));
-        assert!(keypair.public_key().verify(message, &restored));
+        assert!(keypair.public_key().verify(message, &sig).is_ok());
+        assert!(keypair.public_key().verify(message, &restored).is_ok());
     }
 }
 

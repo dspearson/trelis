@@ -118,7 +118,7 @@ impl core::fmt::Debug for MessageKey {
 }
 
 /// State for a single epoch.
-#[derive(Debug)]
+#[derive(Debug, Zeroize, ZeroizeOnDrop)]
 pub struct Epoch {
     /// Epoch number (monotonically increasing).
     number: u64,
@@ -209,6 +209,17 @@ impl Epoch {
     #[must_use]
     pub fn message_key_for_counter(&self, counter: u64) -> MessageKey {
         self.secrets.derive_message_key(counter)
+    }
+
+    /// Sets the message counter directly (for deserialization).
+    ///
+    /// This is more efficient than calling `next_message_key()` in a loop,
+    /// and avoids potential overflow issues with large counter values.
+    ///
+    /// Note: Since key derivation is a pure function of the counter,
+    /// there's no need to derive intermediate keys.
+    pub fn set_message_counter(&mut self, counter: u64) {
+        self.message_counter = counter;
     }
 
     /// Computes a confirmation tag for a commit.

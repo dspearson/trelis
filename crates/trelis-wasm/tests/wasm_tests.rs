@@ -1356,8 +1356,7 @@ mod multidevice_tests {
     fn test_thread_settings_create() {
         let thread_id = random_bytes_32().unwrap();
         let settings = thread_settings_create(
-            &thread_id,
-            false, // ephemeral
+            &thread_id, false, // ephemeral
             1234567890,
         )
         .unwrap();

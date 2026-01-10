@@ -1,6 +1,6 @@
-//! ML-DSA-B-65 signature primitives (PQC-Suite-B variant).
+//! ML-DSA-B-65 signature primitives (BLAKE3 variant).
 //!
-//! This module provides ML-DSA-B-65 digital signatures using the PQC-Suite-B
+//! This module provides ML-DSA-B-65 digital signatures using the BLAKE3
 //! variant which replaces SHA-3/SHAKE with BLAKE3 for improved performance.
 //!
 //! **Note:** ML-DSA-B-65 signatures are NOT compatible with standard ML-DSA-65
@@ -38,9 +38,9 @@
 //! assert!(verifying_key.verify(message, &signature));
 //! ```
 
-use ml_dsa::{
-    B32, EncodedSignature, EncodedSigningKey, EncodedVerifyingKey, KeyGen, MlDsa65, Signature,
-    SigningKey, VerifyingKey,
+use crate::mldsa_core::{
+    B32, EncodedSignature, EncodedSigningKey, EncodedVerifyingKey, MlDsa65, Signature,
+    blake3::{KeyGen, SigningKey, VerifyingKey},
 };
 use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -62,7 +62,7 @@ pub const SIGNATURE_SIZE: usize = 3309;
 /// This key is used to create signatures. It contains the secret key material
 /// and is zeroized on drop to prevent key material leakage.
 ///
-/// **Note:** This is the PQC-Suite-B (BLAKE3) variant, NOT compatible with
+/// **Note:** This is the BLAKE3 variant, NOT compatible with
 /// standard ML-DSA-65 (FIPS 204).
 #[derive(Clone, Zeroize, ZeroizeOnDrop)]
 pub struct MlDsa65BSigningKey {
@@ -117,10 +117,8 @@ impl MlDsa65BSigningKey {
         let mut key_bytes = [0u8; SECRET_KEY_SIZE];
         key_bytes.copy_from_slice(bytes);
 
-        // Validate by decoding (always succeeds for correct size, but verifies structure)
-        let enc: EncodedSigningKey<MlDsa65> = key_bytes.into();
-        let _ = SigningKey::<MlDsa65>::decode(&enc);
-
+        // Note: decode can't validate mathematical correctness of the key.
+        // Invalid keys will fail at sign time, not here.
         Ok(Self { bytes: key_bytes })
     }
 
@@ -172,10 +170,14 @@ impl MlDsa65BSigningKey {
     ///
     /// # Errors
     ///
-    /// Returns `InvalidSignature` if the context string is too long or signing fails.
+    /// Returns `InvalidContextLength` if the context exceeds 255 bytes,
+    /// or `InvalidSignature` if signing fails.
     pub fn sign_with_context(&self, message: &[u8], context: &[u8]) -> Result<MlDsa65BSignature> {
         if context.len() > 255 {
-            return Err(CryptoError::InvalidSignature);
+            return Err(CryptoError::InvalidContextLength {
+                actual: context.len(),
+                max: 255,
+            });
         }
 
         let enc: EncodedSigningKey<MlDsa65> = self.bytes.into();
@@ -189,6 +191,30 @@ impl MlDsa65BSigningKey {
             bytes: sig_encoded.into(),
         })
     }
+
+    /// Wraps this signing key in a `GuardedBox` for enhanced memory protection.
+    ///
+    /// The returned `GuardedBox` provides:
+    /// - Guard pages before and after the key to detect buffer overflows
+    /// - Memory locking to prevent swapping to disk (if privileges allow)
+    /// - Automatic zeroization on drop
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let sk = MlDsa65BSigningKey::generate()?;
+    /// let guarded = sk.into_guarded()?;
+    /// guarded.protect_readonly()?; // Optional: make read-only after init
+    /// let sig = guarded.sign(message)?;
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `MemlockError` if memory allocation or protection fails.
+    #[cfg(feature = "mlock")]
+    pub fn into_guarded(self) -> crate::memlock::Result<crate::memlock::GuardedBox<Self>> {
+        crate::memlock::GuardedBox::new(self)
+    }
 }
 
 /// ML-DSA-B-65 verifying key (public key).
@@ -196,7 +222,7 @@ impl MlDsa65BSigningKey {
 /// This key is used to verify signatures created by the corresponding
 /// signing key.
 ///
-/// **Note:** This is the PQC-Suite-B (BLAKE3) variant, NOT compatible with
+/// **Note:** This is the BLAKE3 variant, NOT compatible with
 /// standard ML-DSA-65 (FIPS 204).
 #[derive(Clone)]
 pub struct MlDsa65BVerifyingKey {
@@ -219,23 +245,18 @@ impl MlDsa65BVerifyingKey {
         let mut key_bytes = [0u8; PUBLIC_KEY_SIZE];
         key_bytes.copy_from_slice(bytes);
 
-        // Validate by decoding
-        let enc: EncodedVerifyingKey<MlDsa65> = key_bytes.into();
-        let _ = VerifyingKey::<MlDsa65>::decode(&enc);
-
+        // Note: decode can't validate mathematical correctness of the key.
+        // Invalid keys will fail at verify time, not here.
         Ok(Self { bytes: key_bytes })
     }
 
     /// Creates a verifying key from a fixed-size array.
     ///
-    /// # Errors
-    ///
-    /// Returns `SignatureVerificationFailed` if the bytes don't represent a valid key.
-    pub fn from_array(bytes: [u8; PUBLIC_KEY_SIZE]) -> Result<Self> {
-        // Validate by decoding
-        let enc: EncodedVerifyingKey<MlDsa65> = bytes.into();
-        let _ = VerifyingKey::<MlDsa65>::decode(&enc);
-        Ok(Self { bytes })
+    /// Note: This does not validate the mathematical correctness of the key.
+    /// Invalid keys will fail at verify time, not here.
+    #[must_use]
+    pub fn from_array(bytes: [u8; PUBLIC_KEY_SIZE]) -> Self {
+        Self { bytes }
     }
 
     /// Returns the public key as bytes.
@@ -257,11 +278,10 @@ impl MlDsa65BVerifyingKey {
     /// * `message` - The message that was signed.
     /// * `signature` - The signature to verify.
     ///
-    /// # Returns
+    /// # Errors
     ///
-    /// `true` if the signature is valid, `false` otherwise.
-    #[must_use]
-    pub fn verify(&self, message: &[u8], signature: &MlDsa65BSignature) -> bool {
+    /// Returns `SignatureVerificationFailed` if the signature is invalid.
+    pub fn verify(&self, message: &[u8], signature: &MlDsa65BSignature) -> Result<()> {
         self.verify_with_context(message, &[], signature)
     }
 
@@ -270,21 +290,24 @@ impl MlDsa65BVerifyingKey {
     /// # Arguments
     ///
     /// * `message` - The message that was signed.
-    /// * `context` - The context string used during signing.
+    /// * `context` - The context string used during signing (max 255 bytes).
     /// * `signature` - The signature to verify.
     ///
-    /// # Returns
+    /// # Errors
     ///
-    /// `true` if the signature is valid, `false` otherwise.
-    #[must_use]
+    /// Returns `SignatureVerificationFailed` if the signature is invalid,
+    /// or `InvalidContextLength` if the context exceeds 255 bytes.
     pub fn verify_with_context(
         &self,
         message: &[u8],
         context: &[u8],
         signature: &MlDsa65BSignature,
-    ) -> bool {
+    ) -> Result<()> {
         if context.len() > 255 {
-            return false;
+            return Err(CryptoError::InvalidContextLength {
+                actual: context.len(),
+                max: 255,
+            });
         }
 
         // Decode verifying key
@@ -295,10 +318,14 @@ impl MlDsa65BVerifyingKey {
         let sig_enc: EncodedSignature<MlDsa65> = signature.bytes.into();
         let sig = match Signature::<MlDsa65>::decode(&sig_enc) {
             Some(sig) => sig,
-            None => return false,
+            None => return Err(CryptoError::SignatureVerificationFailed),
         };
 
-        pk.verify_with_context(message, context, &sig)
+        if pk.verify_with_context(message, context, &sig) {
+            Ok(())
+        } else {
+            Err(CryptoError::SignatureVerificationFailed)
+        }
     }
 
     /// Verifies a signature without context prefix (internal API).
@@ -306,7 +333,7 @@ impl MlDsa65BVerifyingKey {
     /// This method is for compatibility with test vectors that were generated
     /// using the internal signing API without context string handling.
     ///
-    /// For normal use, prefer [`verify`] or [`verify_with_context`].
+    /// For normal use, prefer [`Self::verify`] or [`Self::verify_with_context`].
     #[must_use]
     pub fn verify_internal(&self, message: &[u8], signature: &MlDsa65BSignature) -> bool {
         // Decode verifying key
@@ -342,7 +369,7 @@ impl core::fmt::Debug for MlDsa65BVerifyingKey {
 
 /// ML-DSA-B-65 signature.
 ///
-/// **Note:** This is the PQC-Suite-B (BLAKE3) variant, NOT compatible with
+/// **Note:** This is the BLAKE3 variant, NOT compatible with
 /// standard ML-DSA-65 (FIPS 204).
 #[derive(Clone)]
 pub struct MlDsa65BSignature {
@@ -436,7 +463,7 @@ mod tests {
         let message = b"Hello, ML-DSA-B-65!";
         let signature = signing_key.sign(message).unwrap();
 
-        assert!(verifying_key.verify(message, &signature));
+        assert!(verifying_key.verify(message, &signature).is_ok());
     }
 
     #[test]
@@ -456,7 +483,7 @@ mod tests {
         let signature = signing_key.sign(message).unwrap();
 
         let wrong_message = b"wrong message";
-        assert!(!verifying_key.verify(wrong_message, &signature));
+        assert!(verifying_key.verify(wrong_message, &signature).is_err());
     }
 
     #[test]
@@ -469,7 +496,7 @@ mod tests {
         let signature = signing_key1.sign(message).unwrap();
 
         // Verify with wrong key should fail
-        assert!(!verifying_key2.verify(message, &signature));
+        assert!(verifying_key2.verify(message, &signature).is_err());
     }
 
     #[test]
@@ -480,7 +507,7 @@ mod tests {
         let message = b"";
         let signature = signing_key.sign(message).unwrap();
 
-        assert!(verifying_key.verify(message, &signature));
+        assert!(verifying_key.verify(message, &signature).is_ok());
     }
 
     #[test]
@@ -491,7 +518,7 @@ mod tests {
         let message = vec![0xffu8; 10000];
         let signature = signing_key.sign(&message).unwrap();
 
-        assert!(verifying_key.verify(&message, &signature));
+        assert!(verifying_key.verify(&message, &signature).is_ok());
     }
 
     #[test]
@@ -505,13 +532,21 @@ mod tests {
         let signature = signing_key.sign_with_context(message, context).unwrap();
 
         // Verify with same context should succeed
-        assert!(verifying_key.verify_with_context(message, context, &signature));
+        assert!(
+            verifying_key
+                .verify_with_context(message, context, &signature)
+                .is_ok()
+        );
 
         // Verify with wrong context should fail
-        assert!(!verifying_key.verify_with_context(message, b"wrong-context", &signature));
+        assert!(
+            verifying_key
+                .verify_with_context(message, b"wrong-context", &signature)
+                .is_err()
+        );
 
         // Verify without context should fail
-        assert!(!verifying_key.verify(message, &signature));
+        assert!(verifying_key.verify(message, &signature).is_err());
     }
 
     #[test]
@@ -567,8 +602,8 @@ mod tests {
         let sig2 = recovered.sign(message).unwrap();
 
         let verifying_key = signing_key.verifying_key();
-        assert!(verifying_key.verify(message, &sig1));
-        assert!(verifying_key.verify(message, &sig2));
+        assert!(verifying_key.verify(message, &sig1).is_ok());
+        assert!(verifying_key.verify(message, &sig2).is_ok());
     }
 
     #[test]
@@ -610,7 +645,11 @@ mod tests {
         let message = b"Test message for seeded key";
         let signature = key.sign(message).unwrap();
 
-        assert!(key.verifying_key().verify(message, &signature));
-        assert!(!key.verifying_key().verify(b"wrong message", &signature));
+        assert!(key.verifying_key().verify(message, &signature).is_ok());
+        assert!(
+            key.verifying_key()
+                .verify(b"wrong message", &signature)
+                .is_err()
+        );
     }
 }

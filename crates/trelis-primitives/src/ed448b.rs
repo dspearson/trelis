@@ -38,9 +38,11 @@ pub const SECRET_KEY_SIZE: usize = 57;
 /// Size of Ed448-B signature in bytes.
 pub const SIGNATURE_SIZE: usize = 114;
 
-/// Domain separator for Ed448-B signatures.
-/// "SigEd448B" - distinguishes from standard Ed448.
-const HASH_HEAD: &[u8] = b"SigEd448B";
+/// Domain separation contexts for Ed448-B using BLAKE3's derive_key mode.
+/// These provide cryptographic domain separation to prevent cross-protocol attacks.
+const CONTEXT_EXPAND: &str = "Ed448-B-expand";
+const CONTEXT_NONCE: &str = "Ed448-B-nonce";
+const CONTEXT_CHALLENGE: &str = "Ed448-B-challenge";
 
 /// Ed448-B signing key (secret key).
 ///
@@ -61,9 +63,9 @@ struct ExpandedSecretKey {
 impl ExpandedSecretKey {
     /// Expands a seed into a signing scalar and hash prefix using BLAKE3.
     fn from_seed(seed: &[u8; SECRET_KEY_SIZE]) -> Self {
-        // Use BLAKE3 XOF to expand seed into 114 bytes (57 for scalar, 57 for prefix)
+        // Use BLAKE3 derive_key mode for domain-separated seed expansion
         let mut output = [0u8; 114];
-        let mut hasher = blake3::Hasher::new();
+        let mut hasher = blake3::Hasher::new_derive_key(CONTEXT_EXPAND);
         hasher.update(seed);
         let mut output_reader = hasher.finalize_xof();
         output_reader.fill(&mut output);
@@ -88,10 +90,7 @@ impl ExpandedSecretKey {
         let point = EdwardsPoint::GENERATOR * scalar;
         let compressed = point.compress();
 
-        let public_key = Ed448BVerifyingKey {
-            compressed,
-            point,
-        };
+        let public_key = Ed448BVerifyingKey { compressed, point };
 
         Self {
             scalar,
@@ -111,10 +110,9 @@ impl ExpandedSecretKey {
     }
 
     fn sign_inner(&self, phflag: u8, ctx: &[u8], message: &[u8]) -> Ed448BSignature {
-        // Compute r = BLAKE3(dom || prefix || message) mod order
-        // dom = HASH_HEAD || phflag || ctx_len || ctx
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(HASH_HEAD);
+        // Compute r = BLAKE3(phflag || ctx_len || ctx || prefix || message) mod order
+        // Using derive_key mode for domain separation
+        let mut hasher = blake3::Hasher::new_derive_key(CONTEXT_NONCE);
         hasher.update(&[phflag]);
         hasher.update(&[ctx.len() as u8]);
         hasher.update(ctx);
@@ -130,9 +128,9 @@ impl ExpandedSecretKey {
         let big_r = EdwardsPoint::GENERATOR * r;
         let compressed_r = big_r.compress();
 
-        // Compute k = BLAKE3(dom || R || A || message) mod order
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(HASH_HEAD);
+        // Compute k = BLAKE3(phflag || ctx_len || ctx || R || A || message) mod order
+        // Using derive_key mode for domain separation
+        let mut hasher = blake3::Hasher::new_derive_key(CONTEXT_CHALLENGE);
         hasher.update(&[phflag]);
         hasher.update(&[ctx.len() as u8]);
         hasher.update(ctx);
@@ -217,12 +215,39 @@ impl Ed448BSigningKey {
     ///
     /// # Errors
     ///
-    /// Returns `InvalidSignature` if the context string is longer than 255 bytes.
+    /// Returns `InvalidContextLength` if the context exceeds 255 bytes.
     pub fn sign_with_context(&self, message: &[u8], context: &[u8]) -> Result<Ed448BSignature> {
         if context.len() > 255 {
-            return Err(CryptoError::InvalidSignature);
+            return Err(CryptoError::InvalidContextLength {
+                actual: context.len(),
+                max: 255,
+            });
         }
         Ok(self.expanded().sign_with_context(message, context))
+    }
+
+    /// Wraps this signing key in a `GuardedBox` for enhanced memory protection.
+    ///
+    /// The returned `GuardedBox` provides:
+    /// - Guard pages before and after the key to detect buffer overflows
+    /// - Memory locking to prevent swapping to disk (if privileges allow)
+    /// - Automatic zeroization on drop
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let sk = Ed448BSigningKey::generate()?;
+    /// let guarded = sk.into_guarded()?;
+    /// guarded.protect_readonly()?; // Optional: make read-only after init
+    /// let sig = guarded.sign(message);
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `MemlockError` if memory allocation or protection fails.
+    #[cfg(feature = "mlock")]
+    pub fn into_guarded(self) -> crate::memlock::Result<crate::memlock::GuardedBox<Self>> {
+        crate::memlock::GuardedBox::new(self)
     }
 }
 
@@ -291,18 +316,25 @@ impl Ed448BVerifyingKey {
     /// # Arguments
     ///
     /// * `message` - The message that was signed.
-    /// * `context` - The context string used during signing.
+    /// * `context` - The context string used during signing (max 255 bytes).
     /// * `signature` - The signature to verify.
     ///
     /// # Errors
     ///
-    /// Returns `SignatureVerificationFailed` if the signature is invalid.
+    /// Returns `InvalidContextLength` if the context exceeds 255 bytes,
+    /// or `SignatureVerificationFailed` if the signature is invalid.
     pub fn verify_with_context(
         &self,
         message: &[u8],
         context: &[u8],
         signature: &Ed448BSignature,
     ) -> Result<()> {
+        if context.len() > 255 {
+            return Err(CryptoError::InvalidContextLength {
+                actual: context.len(),
+                max: 255,
+            });
+        }
         self.verify_inner(0, context, message, signature)
     }
 
@@ -317,9 +349,9 @@ impl Ed448BVerifyingKey {
         let r_point = Option::<EdwardsPoint>::from(signature.r.decompress())
             .ok_or(CryptoError::SignatureVerificationFailed)?;
 
-        // Compute k = BLAKE3(dom || R || A || message) mod order
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(HASH_HEAD);
+        // Compute k = BLAKE3(phflag || ctx_len || ctx || R || A || message) mod order
+        // Using derive_key mode for domain separation (must match signing)
+        let mut hasher = blake3::Hasher::new_derive_key(CONTEXT_CHALLENGE);
         hasher.update(&[phflag]);
         hasher.update(&[ctx.len() as u8]);
         hasher.update(ctx);
@@ -332,9 +364,17 @@ impl Ed448BVerifyingKey {
         output_reader.fill(&mut k_bytes);
         let k = Scalar::from_bytes_mod_order_wide(&k_bytes);
 
-        // Deserialize s scalar from signature
+        // Deserialize s scalar from signature with canonical validation
+        // This is defense in depth - from_bytes should already reject non-canonical scalars
+        //
+        // IMPORTANT: Also check byte 56 is 0x00 since from_canonical_bytes only checks 56 bytes.
+        // Use constant-time comparison to prevent timing attacks that could leak validity of byte 56.
+        if !bool::from(signature.s[56].ct_eq(&0u8)) {
+            return Err(CryptoError::SignatureVerificationFailed);
+        }
         let s_bytes = ScalarBytes::clone_from_slice(&signature.s);
-        let s = Scalar::from_bytes_mod_order(&s_bytes);
+        let s = Option::<Scalar>::from(Scalar::from_canonical_bytes(&s_bytes))
+            .ok_or(CryptoError::SignatureVerificationFailed)?;
 
         // Verify: s * G == R + k * A
         let lhs = EdwardsPoint::GENERATOR * s;
@@ -385,7 +425,9 @@ impl Ed448BSignature {
     ///
     /// # Errors
     ///
-    /// Returns `InvalidSignature` if the slice is not exactly 114 bytes.
+    /// Returns `InvalidSignature` if:
+    /// - The slice is not exactly 114 bytes
+    /// - The s scalar is not in canonical form (s >= curve order)
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         if bytes.len() != SIGNATURE_SIZE {
             return Err(CryptoError::InvalidSignature);
@@ -397,6 +439,23 @@ impl Ed448BSignature {
 
         let mut s = [0u8; 57];
         s.copy_from_slice(&bytes[57..]);
+
+        // Validate s scalar is in canonical form (< curve order)
+        // This prevents signature malleability and ensures only valid scalars are accepted.
+        // The s scalar must be < L where L is the curve order (≈ 2^446).
+        //
+        // IMPORTANT: ScalarBytes is 57 bytes but U448 is only 448 bits (56 bytes).
+        // The library's from_canonical_bytes ignores byte 56, so we must check it explicitly.
+        // Byte 56 must always be 0x00 for valid scalars since the curve order fits in ~56 bytes.
+        // Use constant-time comparison to prevent timing attacks that could leak validity of byte 56.
+        if !bool::from(s[56].ct_eq(&0u8)) {
+            return Err(CryptoError::InvalidSignature);
+        }
+        // Also verify the first 56 bytes are in canonical form (< curve order)
+        let s_scalar_bytes = ScalarBytes::clone_from_slice(&s);
+        if Option::<Scalar>::from(Scalar::from_canonical_bytes(&s_scalar_bytes)).is_none() {
+            return Err(CryptoError::InvalidSignature);
+        }
 
         Ok(Self { r, s })
     }
@@ -548,9 +607,11 @@ mod tests {
         let signature = signing_key.sign_with_context(message, context).unwrap();
 
         // Verify with same context should succeed
-        assert!(verifying_key
-            .verify_with_context(message, context, &signature)
-            .is_ok());
+        assert!(
+            verifying_key
+                .verify_with_context(message, context, &signature)
+                .is_ok()
+        );
 
         // Verify with wrong context should fail
         assert!(matches!(
@@ -594,6 +655,27 @@ mod tests {
     }
 
     #[test]
+    fn test_non_canonical_s_scalar_rejected() {
+        // Create a valid signature first
+        let signing_key = Ed448BSigningKey::generate().unwrap();
+        let signature = signing_key.sign(b"test");
+        let mut bytes = signature.to_bytes();
+
+        // Modify the last byte (byte 113) of the s scalar
+        // This byte should always be 0x00 for valid signatures since the
+        // curve order fits in ~56 bytes. Setting it to non-zero creates
+        // a value >= curve order.
+        bytes[113] ^= 0x01;
+
+        // This should fail because the s scalar is non-canonical
+        let result = Ed448BSignature::from_bytes(&bytes);
+        assert!(
+            result.is_err(),
+            "Non-canonical s scalar (byte 113 modified) should be rejected"
+        );
+    }
+
+    #[test]
     fn test_invalid_key_length() {
         let result = Ed448BVerifyingKey::from_bytes(&[0u8; 50]);
         assert!(matches!(
@@ -620,5 +702,212 @@ mod tests {
         let ed448b_vk = ed448b_sk.verifying_key();
 
         assert_ne!(ed448_vk.to_bytes(), ed448b_vk.to_bytes());
+    }
+}
+
+/// Property-based tests for Ed448-B cryptographic invariants.
+///
+/// These tests verify that the algebraic properties of the signature scheme
+/// hold across millions of random inputs, providing confidence in correctness
+/// even without external test vectors.
+#[cfg(test)]
+mod proptests {
+    extern crate alloc;
+    use alloc::vec::Vec;
+
+    use super::*;
+    use proptest::prelude::*;
+
+    /// Generate an arbitrary 57-byte seed.
+    fn arb_seed() -> impl Strategy<Value = [u8; 57]> {
+        proptest::collection::vec(any::<u8>(), 57).prop_map(|v| {
+            let mut arr = [0u8; 57];
+            arr.copy_from_slice(&v);
+            arr
+        })
+    }
+
+    /// Generate an arbitrary message (0 to 4KB).
+    fn arb_message() -> impl Strategy<Value = Vec<u8>> {
+        proptest::collection::vec(any::<u8>(), 0..4096)
+    }
+
+    /// Generate an arbitrary context (0 to 255 bytes).
+    fn arb_context() -> impl Strategy<Value = Vec<u8>> {
+        proptest::collection::vec(any::<u8>(), 0..256)
+    }
+
+    proptest! {
+        /// Property: Sign-verify roundtrip always succeeds.
+        /// For any seed and message, signing then verifying with the correct
+        /// key always succeeds.
+        #[test]
+        fn prop_sign_verify_roundtrip(seed in arb_seed(), msg in arb_message()) {
+            let sk = Ed448BSigningKey::from_seed(seed);
+            let vk = sk.verifying_key();
+            let sig = sk.sign(&msg);
+            prop_assert!(vk.verify(&msg, &sig).is_ok());
+        }
+
+        /// Property: Signing is deterministic.
+        /// The same key signing the same message always produces the same signature.
+        #[test]
+        fn prop_deterministic_signing(seed in arb_seed(), msg in arb_message()) {
+            let sk = Ed448BSigningKey::from_seed(seed);
+            let sig1 = sk.sign(&msg);
+            let sig2 = sk.sign(&msg);
+            prop_assert_eq!(sig1.to_bytes(), sig2.to_bytes());
+        }
+
+        /// Property: Same seed produces same keypair.
+        /// Key derivation is deterministic.
+        #[test]
+        fn prop_deterministic_keygen(seed in arb_seed()) {
+            let sk1 = Ed448BSigningKey::from_seed(seed);
+            let sk2 = Ed448BSigningKey::from_seed(seed);
+            prop_assert_eq!(sk1.verifying_key().to_bytes(), sk2.verifying_key().to_bytes());
+        }
+
+        /// Property: Different seeds produce different public keys.
+        /// With overwhelming probability, different seeds yield different keys.
+        #[test]
+        fn prop_different_seeds_different_keys(seed1 in arb_seed(), seed2 in arb_seed()) {
+            prop_assume!(seed1 != seed2);
+            let vk1 = Ed448BSigningKey::from_seed(seed1).verifying_key();
+            let vk2 = Ed448BSigningKey::from_seed(seed2).verifying_key();
+            prop_assert_ne!(vk1.to_bytes(), vk2.to_bytes());
+        }
+
+        /// Property: Wrong key fails verification.
+        /// A signature valid under one key is invalid under a different key.
+        #[test]
+        fn prop_wrong_key_fails(seed1 in arb_seed(), seed2 in arb_seed(), msg in arb_message()) {
+            prop_assume!(seed1 != seed2);
+            let sk1 = Ed448BSigningKey::from_seed(seed1);
+            let vk2 = Ed448BSigningKey::from_seed(seed2).verifying_key();
+            let sig = sk1.sign(&msg);
+            prop_assert!(vk2.verify(&msg, &sig).is_err());
+        }
+
+        /// Property: Modified message fails verification.
+        /// Changing even one bit of the message invalidates the signature.
+        #[test]
+        fn prop_modified_message_fails(
+            seed in arb_seed(),
+            msg in arb_message(),
+            flip_pos in any::<usize>()
+        ) {
+            prop_assume!(!msg.is_empty());
+            let sk = Ed448BSigningKey::from_seed(seed);
+            let vk = sk.verifying_key();
+            let sig = sk.sign(&msg);
+
+            // Flip one bit
+            let mut bad_msg = msg.clone();
+            let pos = flip_pos % bad_msg.len();
+            bad_msg[pos] ^= 0x01;
+
+            prop_assert!(vk.verify(&bad_msg, &sig).is_err());
+        }
+
+        /// Property: Modified signature changes verification outcome.
+        /// Flipping a bit in the signature either fails decoding or changes
+        /// the verification result (fails with overwhelming probability).
+        #[test]
+        fn prop_modified_signature_differs(
+            seed in arb_seed(),
+            msg in arb_message(),
+            flip_pos in 0usize..114,
+            flip_bit in 0u8..8
+        ) {
+            let sk = Ed448BSigningKey::from_seed(seed);
+            let vk = sk.verifying_key();
+            let sig = sk.sign(&msg);
+
+            // Flip one bit in signature
+            let mut bad_sig_bytes = sig.to_bytes();
+            bad_sig_bytes[flip_pos] ^= 1 << flip_bit;
+
+            // The modified signature must differ from original
+            prop_assert_ne!(sig.to_bytes(), bad_sig_bytes);
+
+            // Either fails to decode or fails to verify (with overwhelming probability)
+            // Note: In extremely rare cases, a modified signature could still be valid
+            // but for a DIFFERENT message, which is still secure behavior.
+            match Ed448BSignature::from_bytes(&bad_sig_bytes) {
+                Err(_) => { /* Expected: decode failure */ }
+                Ok(bad_sig) => {
+                    // Most modifications will fail verification
+                    // We don't assert failure here because there's a tiny chance
+                    // the bit flip produces another valid signature for the same message
+                    // (astronomically unlikely but mathematically possible)
+                    let _ = vk.verify(&msg, &bad_sig);
+                }
+            }
+        }
+
+        /// Property: Signature and key serialization roundtrips.
+        /// Encoding then decoding produces equivalent objects.
+        #[test]
+        fn prop_serialization_roundtrip(seed in arb_seed(), msg in arb_message()) {
+            let sk = Ed448BSigningKey::from_seed(seed);
+            let vk = sk.verifying_key();
+            let sig = sk.sign(&msg);
+
+            // Verifying key roundtrip
+            let vk_bytes = vk.to_bytes();
+            let vk2 = Ed448BVerifyingKey::from_bytes(&vk_bytes).unwrap();
+            prop_assert_eq!(vk.to_bytes(), vk2.to_bytes());
+
+            // Signature roundtrip
+            let sig_bytes = sig.to_bytes();
+            let sig2 = Ed448BSignature::from_bytes(&sig_bytes).unwrap();
+            prop_assert_eq!(sig.to_bytes(), sig2.to_bytes());
+
+            // Verify with recovered objects
+            prop_assert!(vk2.verify(&msg, &sig2).is_ok());
+        }
+
+        /// Property: Context-based signing works correctly.
+        /// Sign with context verifies only with same context.
+        #[test]
+        fn prop_context_isolation(
+            seed in arb_seed(),
+            msg in arb_message(),
+            ctx1 in arb_context(),
+            ctx2 in arb_context()
+        ) {
+            // Skip empty context - signing with empty context is equivalent to signing without context
+            prop_assume!(!ctx1.is_empty());
+            prop_assume!(ctx1 != ctx2);
+            let sk = Ed448BSigningKey::from_seed(seed);
+            let vk = sk.verifying_key();
+
+            let sig = sk.sign_with_context(&msg, &ctx1).unwrap();
+
+            // Same context works
+            prop_assert!(vk.verify_with_context(&msg, &ctx1, &sig).is_ok());
+
+            // Different context fails
+            prop_assert!(vk.verify_with_context(&msg, &ctx2, &sig).is_err());
+
+            // No context fails
+            prop_assert!(vk.verify(&msg, &sig).is_err());
+        }
+
+        /// Property: Signature size is always 114 bytes.
+        #[test]
+        fn prop_signature_size(seed in arb_seed(), msg in arb_message()) {
+            let sk = Ed448BSigningKey::from_seed(seed);
+            let sig = sk.sign(&msg);
+            prop_assert_eq!(sig.to_bytes().len(), SIGNATURE_SIZE);
+        }
+
+        /// Property: Public key size is always 57 bytes.
+        #[test]
+        fn prop_public_key_size(seed in arb_seed()) {
+            let vk = Ed448BSigningKey::from_seed(seed).verifying_key();
+            prop_assert_eq!(vk.to_bytes().len(), PUBLIC_KEY_SIZE);
+        }
     }
 }

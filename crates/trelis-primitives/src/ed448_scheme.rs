@@ -2,7 +2,7 @@
 //!
 //! This module provides a trait-based abstraction over different Ed448 variants:
 //! - [`Ed448Standard`]: Standard Ed448 with SHAKE256 (RFC 8032)
-//! - [`Ed448SuiteB`]: Experimental variant with BLAKE3 (requires `ed448-suite-b` feature)
+//! - [`Ed448Blake3`]: Experimental variant with BLAKE3
 //!
 //! # Example
 //!
@@ -23,7 +23,7 @@ use trelis_error::Result;
 /// This trait allows generic code to work with different Ed448 implementations
 /// (Standard SHAKE256 or experimental BLAKE3) without knowing which variant is being used.
 ///
-/// The API is designed to be consistent with [`MlDsaScheme`] for easier generic programming.
+/// The API is designed to be consistent with [`crate::MlDsaScheme`] for easier generic programming.
 pub trait Ed448Scheme: Sized + Clone + 'static {
     /// The signing key type for this scheme.
     type SigningKey: Clone;
@@ -187,13 +187,12 @@ impl Ed448Scheme for Ed448Standard {
 }
 
 // ============================================================================
-// Suite-B Implementation (optional)
+// BLAKE3 Implementation
 // ============================================================================
 
-#[cfg(feature = "ed448-suite-b")]
 use crate::ed448b::{
-    Ed448BSignature, Ed448BSigningKey, Ed448BVerifyingKey, PUBLIC_KEY_SIZE as SUITEB_PK_SIZE,
-    SECRET_KEY_SIZE as SUITEB_SK_SIZE, SIGNATURE_SIZE as SUITEB_SIG_SIZE,
+    Ed448BSignature, Ed448BSigningKey, Ed448BVerifyingKey, PUBLIC_KEY_SIZE as BLAKE3_PK_SIZE,
+    SECRET_KEY_SIZE as BLAKE3_SK_SIZE, SIGNATURE_SIZE as BLAKE3_SIG_SIZE,
 };
 
 /// Ed448-B using BLAKE3 (experimental).
@@ -201,19 +200,17 @@ use crate::ed448b::{
 /// This is an experimental, faster variant with BLAKE3 hashing.
 ///
 /// **Note:** Signatures from this variant are NOT compatible with standard Ed448.
-#[cfg(feature = "ed448-suite-b")]
 #[derive(Clone, Copy, Debug, Default)]
-pub struct Ed448SuiteB;
+pub struct Ed448Blake3;
 
-#[cfg(feature = "ed448-suite-b")]
-impl Ed448Scheme for Ed448SuiteB {
+impl Ed448Scheme for Ed448Blake3 {
     type SigningKey = Ed448BSigningKey;
     type VerifyingKey = Ed448BVerifyingKey;
     type Signature = Ed448BSignature;
 
-    const PUBLIC_KEY_SIZE: usize = SUITEB_PK_SIZE;
-    const SECRET_KEY_SIZE: usize = SUITEB_SK_SIZE;
-    const SIGNATURE_SIZE: usize = SUITEB_SIG_SIZE;
+    const PUBLIC_KEY_SIZE: usize = BLAKE3_PK_SIZE;
+    const SECRET_KEY_SIZE: usize = BLAKE3_SK_SIZE;
+    const SIGNATURE_SIZE: usize = BLAKE3_SIG_SIZE;
 
     fn generate() -> Result<Self::SigningKey> {
         Ed448BSigningKey::generate()
@@ -292,16 +289,16 @@ impl Ed448Scheme for Ed448SuiteB {
 
 /// Default Ed448 scheme based on compile-time feature selection.
 ///
-/// - With `ed448-suite-b-default` feature: uses [`Ed448SuiteB`] (BLAKE3)
+/// - With `ed448-blake3-default` feature: uses [`Ed448Blake3`] (BLAKE3)
 /// - Without that feature (default): uses [`Ed448Standard`] (SHAKE256)
 ///
 /// This allows downstream crates to write generic code that uses the
 /// compile-time selected default without specifying the type explicitly.
-#[cfg(feature = "ed448-suite-b-default")]
-pub type DefaultEd448Scheme = Ed448SuiteB;
+#[cfg(feature = "ed448-blake3-default")]
+pub type DefaultEd448Scheme = Ed448Blake3;
 
 /// Default Ed448 scheme (Standard with SHAKE256).
-#[cfg(not(feature = "ed448-suite-b-default"))]
+#[cfg(not(feature = "ed448-blake3-default"))]
 pub type DefaultEd448Scheme = Ed448Standard;
 
 #[cfg(test)]
@@ -382,40 +379,36 @@ mod tests {
         test_scheme_generate_from_seed::<Ed448Standard>();
     }
 
-    #[cfg(feature = "ed448-suite-b")]
     #[test]
-    fn test_suiteb_roundtrip() {
-        test_scheme_roundtrip::<Ed448SuiteB>();
+    fn test_blake3_roundtrip() {
+        test_scheme_roundtrip::<Ed448Blake3>();
     }
 
-    #[cfg(feature = "ed448-suite-b")]
     #[test]
-    fn test_suiteb_serialisation() {
-        test_scheme_serialisation::<Ed448SuiteB>();
+    fn test_blake3_serialisation() {
+        test_scheme_serialisation::<Ed448Blake3>();
     }
 
-    #[cfg(feature = "ed448-suite-b")]
     #[test]
-    fn test_suiteb_generate_from_seed() {
-        test_scheme_generate_from_seed::<Ed448SuiteB>();
+    fn test_blake3_generate_from_seed() {
+        test_scheme_generate_from_seed::<Ed448Blake3>();
     }
 
-    #[cfg(feature = "ed448-suite-b")]
     #[test]
     fn test_schemes_incompatible() {
-        // Ensure standard and Suite-B produce different outputs from same seed
+        // Ensure standard and BLAKE3 produce different outputs from same seed
         let seed = [0x42u8; 57];
 
         let std_sk = Ed448Standard::generate_from_seed(&seed).unwrap();
         let std_vk = Ed448Standard::verifying_key(&std_sk);
 
-        let suiteb_sk = Ed448SuiteB::generate_from_seed(&seed).unwrap();
-        let suiteb_vk = Ed448SuiteB::verifying_key(&suiteb_sk);
+        let blake3_sk = Ed448Blake3::generate_from_seed(&seed).unwrap();
+        let blake3_vk = Ed448Blake3::verifying_key(&blake3_sk);
 
         // Same seed should produce different public keys due to different hash
         assert_ne!(
             Ed448Standard::verifying_key_to_bytes(&std_vk),
-            Ed448SuiteB::verifying_key_to_bytes(&suiteb_vk)
+            Ed448Blake3::verifying_key_to_bytes(&blake3_vk)
         );
     }
 }

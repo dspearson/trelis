@@ -33,7 +33,7 @@
 //! let signature = signing_key.sign(message).unwrap();
 //!
 //! // Verify the signature
-//! assert!(verifying_key.verify(message, &signature));
+//! assert!(verifying_key.verify(message, &signature).is_ok());
 //! ```
 
 use fips204::ml_dsa_65;
@@ -173,10 +173,14 @@ impl MlDsa65SigningKey {
     ///
     /// # Errors
     ///
-    /// Returns `InvalidSignature` if the context string is too long or signing fails.
+    /// Returns `InvalidContextLength` if the context exceeds 255 bytes,
+    /// or `InvalidSignature` if signing fails.
     pub fn sign_with_context(&self, message: &[u8], context: &[u8]) -> Result<MlDsa65Signature> {
         if context.len() > 255 {
-            return Err(CryptoError::InvalidSignature);
+            return Err(CryptoError::InvalidContextLength {
+                actual: context.len(),
+                max: 255,
+            });
         }
         let sk = ml_dsa_65::PrivateKey::try_from_bytes(self.bytes)
             .expect("key bytes validated in constructor");
@@ -185,6 +189,30 @@ impl MlDsa65SigningKey {
             .try_sign_with_rng(&mut rng, message, context)
             .map_err(|_| CryptoError::InvalidSignature)?;
         Ok(MlDsa65Signature { bytes: sig })
+    }
+
+    /// Wraps this signing key in a `GuardedBox` for enhanced memory protection.
+    ///
+    /// The returned `GuardedBox` provides:
+    /// - Guard pages before and after the key to detect buffer overflows
+    /// - Memory locking to prevent swapping to disk (if privileges allow)
+    /// - Automatic zeroization on drop
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let sk = MlDsa65SigningKey::generate()?;
+    /// let guarded = sk.into_guarded()?;
+    /// guarded.protect_readonly()?; // Optional: make read-only after init
+    /// let sig = guarded.sign(message)?;
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `MemlockError` if memory allocation or protection fails.
+    #[cfg(feature = "mlock")]
+    pub fn into_guarded(self) -> crate::memlock::Result<crate::memlock::GuardedBox<Self>> {
+        crate::memlock::GuardedBox::new(self)
     }
 }
 
@@ -252,16 +280,17 @@ impl MlDsa65VerifyingKey {
     /// * `message` - The message that was signed.
     /// * `signature` - The signature to verify.
     ///
-    /// # Returns
+    /// # Errors
     ///
-    /// `true` if the signature is valid, `false` otherwise.
-    #[must_use]
-    pub fn verify(&self, message: &[u8], signature: &MlDsa65Signature) -> bool {
-        let pk = match ml_dsa_65::PublicKey::try_from_bytes(self.bytes) {
-            Ok(pk) => pk,
-            Err(_) => return false,
-        };
-        pk.verify(message, &signature.bytes, &[])
+    /// Returns `SignatureVerificationFailed` if the signature is invalid.
+    pub fn verify(&self, message: &[u8], signature: &MlDsa65Signature) -> Result<()> {
+        let pk = ml_dsa_65::PublicKey::try_from_bytes(self.bytes)
+            .map_err(|_| CryptoError::SignatureVerificationFailed)?;
+        if pk.verify(message, &signature.bytes, &[]) {
+            Ok(())
+        } else {
+            Err(CryptoError::SignatureVerificationFailed)
+        }
     }
 
     /// Verifies a signature on a message with a context string.
@@ -269,27 +298,32 @@ impl MlDsa65VerifyingKey {
     /// # Arguments
     ///
     /// * `message` - The message that was signed.
-    /// * `context` - The context string used during signing.
+    /// * `context` - The context string used during signing (max 255 bytes).
     /// * `signature` - The signature to verify.
     ///
-    /// # Returns
+    /// # Errors
     ///
-    /// `true` if the signature is valid, `false` otherwise.
-    #[must_use]
+    /// Returns `SignatureVerificationFailed` if the signature is invalid,
+    /// or `InvalidContextLength` if the context exceeds 255 bytes.
     pub fn verify_with_context(
         &self,
         message: &[u8],
         context: &[u8],
         signature: &MlDsa65Signature,
-    ) -> bool {
+    ) -> Result<()> {
         if context.len() > 255 {
-            return false;
+            return Err(CryptoError::InvalidContextLength {
+                actual: context.len(),
+                max: 255,
+            });
         }
-        let pk = match ml_dsa_65::PublicKey::try_from_bytes(self.bytes) {
-            Ok(pk) => pk,
-            Err(_) => return false,
-        };
-        pk.verify(message, &signature.bytes, context)
+        let pk = ml_dsa_65::PublicKey::try_from_bytes(self.bytes)
+            .map_err(|_| CryptoError::SignatureVerificationFailed)?;
+        if pk.verify(message, &signature.bytes, context) {
+            Ok(())
+        } else {
+            Err(CryptoError::SignatureVerificationFailed)
+        }
     }
 }
 
@@ -374,11 +408,31 @@ impl core::fmt::Debug for MlDsa65Signature {
 /// CSPRNG adapter that wraps our random module.
 ///
 /// This allows us to use our getrandom-based RNG with fips204's CryptoRngCore trait.
-struct CsprngAdapter;
+///
+/// # RNG Availability
+///
+/// The adapter pre-validates RNG availability during construction to fail early
+/// with a proper error rather than panicking later during signing operations.
+struct CsprngAdapter {
+    /// Pre-fetched entropy to validate RNG availability and provide initial bytes.
+    /// This ensures we fail at construction time if the RNG is unavailable.
+    _validated: (),
+}
 
 impl CsprngAdapter {
+    /// Creates a new CSPRNG adapter, validating that the system RNG is available.
+    ///
+    /// # Errors
+    ///
+    /// Returns `RngFailure` if the system CSPRNG is not available (e.g., during
+    /// early boot when entropy pool is not yet initialised).
     fn new() -> Result<Self> {
-        Ok(Self)
+        // Pre-validate RNG availability by requesting a small amount of entropy.
+        // This ensures we fail early with a proper error rather than panicking
+        // later during signing when fill_bytes is called.
+        let mut test = [0u8; 8];
+        fill_bytes(&mut test)?;
+        Ok(Self { _validated: () })
     }
 }
 
@@ -396,8 +450,11 @@ impl fips204::RngCore for CsprngAdapter {
     }
 
     fn fill_bytes(&mut self, dest: &mut [u8]) {
-        // Panic if RNG fails - this is acceptable for CSPRNG
-        fill_bytes(dest).expect("CSPRNG failed");
+        // Delegate to try_fill_bytes for consistent error handling.
+        // The RNG was validated during construction, so failure here indicates
+        // a serious system issue (RNG became unavailable mid-operation).
+        self.try_fill_bytes(dest)
+            .expect("CSPRNG failed unexpectedly after successful validation")
     }
 
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> core::result::Result<(), fips204::RngError> {
@@ -416,6 +473,9 @@ impl fips204::CryptoRng for CsprngAdapter {}
 ///
 /// This generates a stream of pseudo-random bytes from a 32-byte seed,
 /// ensuring the same seed always produces the same output.
+///
+/// The state is zeroized on drop to prevent seed material from lingering in memory.
+#[derive(Zeroize, ZeroizeOnDrop)]
 struct DeterministicRng {
     state: [u8; 32],
     counter: u64,
@@ -503,7 +563,7 @@ mod tests {
         let message = b"Hello, ML-DSA-65!";
         let signature = signing_key.sign(message).unwrap();
 
-        assert!(verifying_key.verify(message, &signature));
+        assert!(verifying_key.verify(message, &signature).is_ok());
     }
 
     #[test]
@@ -523,7 +583,7 @@ mod tests {
         let signature = signing_key.sign(message).unwrap();
 
         let wrong_message = b"wrong message";
-        assert!(!verifying_key.verify(wrong_message, &signature));
+        assert!(verifying_key.verify(wrong_message, &signature).is_err());
     }
 
     #[test]
@@ -536,7 +596,7 @@ mod tests {
         let signature = signing_key1.sign(message).unwrap();
 
         // Verify with wrong key should fail
-        assert!(!verifying_key2.verify(message, &signature));
+        assert!(verifying_key2.verify(message, &signature).is_err());
     }
 
     #[test]
@@ -547,7 +607,7 @@ mod tests {
         let message = b"";
         let signature = signing_key.sign(message).unwrap();
 
-        assert!(verifying_key.verify(message, &signature));
+        assert!(verifying_key.verify(message, &signature).is_ok());
     }
 
     #[test]
@@ -558,7 +618,7 @@ mod tests {
         let message = vec![0xffu8; 10000];
         let signature = signing_key.sign(&message).unwrap();
 
-        assert!(verifying_key.verify(&message, &signature));
+        assert!(verifying_key.verify(&message, &signature).is_ok());
     }
 
     #[test]
@@ -572,13 +632,21 @@ mod tests {
         let signature = signing_key.sign_with_context(message, context).unwrap();
 
         // Verify with same context should succeed
-        assert!(verifying_key.verify_with_context(message, context, &signature));
+        assert!(
+            verifying_key
+                .verify_with_context(message, context, &signature)
+                .is_ok()
+        );
 
         // Verify with wrong context should fail
-        assert!(!verifying_key.verify_with_context(message, b"wrong-context", &signature));
+        assert!(
+            verifying_key
+                .verify_with_context(message, b"wrong-context", &signature)
+                .is_err()
+        );
 
         // Verify without context should fail
-        assert!(!verifying_key.verify(message, &signature));
+        assert!(verifying_key.verify(message, &signature).is_err());
     }
 
     #[test]
@@ -634,8 +702,8 @@ mod tests {
         let sig2 = recovered.sign(message).unwrap();
 
         let verifying_key = signing_key.verifying_key();
-        assert!(verifying_key.verify(message, &sig1));
-        assert!(verifying_key.verify(message, &sig2));
+        assert!(verifying_key.verify(message, &sig1).is_ok());
+        assert!(verifying_key.verify(message, &sig2).is_ok());
     }
 
     #[test]
@@ -677,7 +745,11 @@ mod tests {
         let message = b"Test message for seeded key";
         let signature = key.sign(message).unwrap();
 
-        assert!(key.verifying_key().verify(message, &signature));
-        assert!(!key.verifying_key().verify(b"wrong message", &signature));
+        assert!(key.verifying_key().verify(message, &signature).is_ok());
+        assert!(
+            key.verifying_key()
+                .verify(b"wrong message", &signature)
+                .is_err()
+        );
     }
 }

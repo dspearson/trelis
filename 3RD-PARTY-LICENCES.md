@@ -1,10 +1,99 @@
 # Third-Party Licences
 
-This file lists the licences of all third-party dependencies used by Trelis.
+This file lists the licences of all third-party dependencies used by Trelis,
+including inlined code and protocol designs that influenced this project.
 
 Generated: 
 
-## Licence Summary
+---
+
+## Inlined and Adapted Code
+
+The following projects have been inlined, adapted, or substantially influenced
+the implementation of Trelis. These are not external crate dependencies but
+are credited here for their contributions.
+
+### ML-DSA Implementation (MIT)
+
+The `mldsa_core` module is derived from the RustCrypto ML-DSA implementation.
+The code has been modified to support pluggable hash functions (SHAKE and BLAKE3).
+
+- **Source**: https://github.com/RustCrypto/signatures/tree/master/ml-dsa
+- **Licence**: MIT
+- **Copyright**: Copyright (c) 2024-2025 RustCrypto Developers
+
+### Memory Protection (MIT)
+
+The `memlock` module is derived from dryoc's protected memory implementation.
+The code has been adapted for Trelis's memory protection requirements.
+
+- **Source**: https://github.com/brndnmtthws/dryoc/blob/main/src/protected.rs
+- **Licence**: MIT
+- **Copyright**: Copyright (c) 2024 Brenden Matthews
+
+### MIT Licence Text (applies to above)
+
+```
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+---
+
+## Protocol Designs and Academic References
+
+The following protocols and academic works have influenced the design of Trelis.
+No code was directly copied, but the protocol structures are derived from or
+inspired by these works.
+
+### CoCoA: Concurrent Continuous Group Key Agreement
+
+The `trelis-cocoa` crate implements a server-assisted variant of the CoCoA
+protocol for group key agreement.
+
+- **Paper**: "CoCoA: Concurrent Continuous Group Key Agreement"
+- **Authors**: Joël Alwen, Benedikt Auerbach, Miguel Cueto Noval,
+  Karen Klein, Guillermo Pascual-Perez, Krzysztof Pietrzak
+- **Published**: EUROCRYPT 2022
+- **Link**: https://eprint.iacr.org/2022/251
+
+### X3DH: Extended Triple Diffie-Hellman
+
+The `trelis-x3dh-pq` crate extends the X3DH protocol with post-quantum security.
+
+- **Specification**: "The X3DH Key Agreement Protocol"
+- **Author**: Moxie Marlinspike, Trevor Perrin (Open Whisper Systems)
+- **Version**: Revision 1, 2016-11-04
+- **Link**: https://signal.org/docs/specifications/x3dh/
+
+### Signal Double Ratchet (Design Influence)
+
+The `trelis-ratchet` crate uses a per-message KEM ratchet design that differs
+from Signal's double ratchet, but was informed by Signal's security analysis.
+
+- **Specification**: "The Double Ratchet Algorithm"
+- **Author**: Trevor Perrin, Moxie Marlinspike (Open Whisper Systems)
+- **Version**: Revision 1, 2016-11-20
+- **Link**: https://signal.org/docs/specifications/doubleratchet/
+
+---
+
+## Cargo Dependency Licence Summary
 
 | Licence | Crates |
 |---------|--------|
@@ -36,12 +125,17 @@ Generated:
 | MIT License | cipher |
 | MIT License | digest |
 | MIT License | fnv |
+| MIT License | digest |
 | MIT License | autocfg |
 | MIT License | block-buffer |
-| MIT License | keccak |
+| MIT License | keccak, keccak |
 | MIT License | signature |
 | MIT License | opaque-debug |
 | MIT License | getrandom |
+| MIT License | signature |
+| MIT License | rand_core |
+| MIT License | block-buffer |
+| MIT License | hex-literal |
 | MIT License | getrandom |
 | MIT License | tinytemplate |
 | MIT License | bumpalo |
@@ -54,11 +148,14 @@ Generated:
 | MIT License | const-oid |
 | MIT License | der, pkcs8 |
 | MIT License | cpufeatures |
+| MIT License | sha3 |
 | MIT License | crypto-common |
 | MIT License | crypto-bigint, pem-rfc7468 |
 | MIT License | sec1 |
 | MIT License | spki |
+| MIT License | crypto-common |
 | MIT License | inout |
+| MIT License | hybrid-array |
 | MIT License | bit-set, bit-vec |
 | MIT License | anstyle, clap, clap_builder, clap_lex |
 | MIT License | arrayvec |
@@ -101,8 +198,8 @@ Generated:
 
 ### Apache License 2.0
 
-- **blake3** (1.8.2) - [source](https://github.com/BLAKE3-team/BLAKE3)
-- **constant_time_eq** (0.3.1) - [source](https://github.com/cesarb/constant_time_eq)
+- **blake3** (1.8.3) - [source](https://github.com/BLAKE3-team/BLAKE3)
+- **constant_time_eq** (0.4.2) - [source](https://github.com/cesarb/constant_time_eq)
 - **dunce** (1.0.5) - [source](https://gitlab.com/kornelski/dunce)
 
 ### BSD 2-Clause &quot;Simplified&quot; License
@@ -153,9 +250,9 @@ Generated:
 
 ### MIT License
 
-- **cc** (1.2.51) - [source](https://github.com/rust-lang/cc-rs)
+- **cc** (1.2.52) - [source](https://github.com/rust-lang/cc-rs)
 - **cfg-if** (1.0.4) - [source](https://github.com/rust-lang/cfg-if)
-- **find-msvc-tools** (0.1.6) - [source](https://github.com/rust-lang/cc-rs)
+- **find-msvc-tools** (0.1.7) - [source](https://github.com/rust-lang/cc-rs)
 - **jobserver** (0.1.34) - [source](https://github.com/rust-lang/jobserver-rs)
 - **js-sys** (0.3.83) - [source](https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/js-sys)
 - **wait-timeout** (0.2.1) - [source](https://github.com/alexcrichton/wait-timeout)
@@ -179,7 +276,7 @@ Generated:
 
 ### MIT License
 
-- **base64ct** (1.8.1) - [source](https://github.com/RustCrypto/formats)
+- **base64ct** (1.8.2) - [source](https://github.com/RustCrypto/formats)
 
 ### MIT License
 
@@ -200,7 +297,7 @@ Generated:
 
 ### MIT License
 
-- **libc** (0.2.178) - [source](https://github.com/rust-lang/libc)
+- **libc** (0.2.180) - [source](https://github.com/rust-lang/libc)
 
 ### MIT License
 
@@ -242,6 +339,10 @@ Generated:
 
 ### MIT License
 
+- **digest** (0.11.0-rc.5) - [source](https://github.com/RustCrypto/traits)
+
+### MIT License
+
 - **autocfg** (1.5.0) - [source](https://github.com/cuviper/autocfg)
 
 ### MIT License
@@ -251,6 +352,7 @@ Generated:
 ### MIT License
 
 - **keccak** (0.1.5) - [source](https://github.com/RustCrypto/sponges/tree/master/keccak)
+- **keccak** (0.2.0-rc.0) - [source](https://github.com/RustCrypto/sponges)
 
 ### MIT License
 
@@ -263,6 +365,22 @@ Generated:
 ### MIT License
 
 - **getrandom** (0.2.16) - [source](https://github.com/rust-random/getrandom)
+
+### MIT License
+
+- **signature** (3.0.0-rc.6) - [source](https://github.com/RustCrypto/traits)
+
+### MIT License
+
+- **rand_core** (0.10.0-rc-3) - [source](https://github.com/rust-random/rand_core)
+
+### MIT License
+
+- **block-buffer** (0.11.0) - [source](https://github.com/RustCrypto/utils)
+
+### MIT License
+
+- **hex-literal** (1.1.0) - [source](https://github.com/RustCrypto/utils)
 
 ### MIT License
 
@@ -316,6 +434,10 @@ Generated:
 
 ### MIT License
 
+- **sha3** (0.11.0-rc.3) - [source](https://github.com/RustCrypto/hashes)
+
+### MIT License
+
 - **crypto-common** (0.1.7) - [source](https://github.com/RustCrypto/traits)
 
 ### MIT License
@@ -333,7 +455,15 @@ Generated:
 
 ### MIT License
 
+- **crypto-common** (0.2.0-rc.9) - [source](https://github.com/RustCrypto/traits)
+
+### MIT License
+
 - **inout** (0.1.4) - [source](https://github.com/RustCrypto/utils)
+
+### MIT License
+
+- **hybrid-array** (0.4.5) - [source](https://github.com/RustCrypto/hybrid-array)
 
 ### MIT License
 
@@ -343,8 +473,8 @@ Generated:
 ### MIT License
 
 - **anstyle** (1.0.13) - [source](https://github.com/rust-cli/anstyle.git)
-- **clap** (4.5.53) - [source](https://github.com/clap-rs/clap)
-- **clap_builder** (4.5.53) - [source](https://github.com/clap-rs/clap)
+- **clap** (4.5.54) - [source](https://github.com/clap-rs/clap)
+- **clap_builder** (4.5.54) - [source](https://github.com/clap-rs/clap)
 - **clap_lex** (0.7.6) - [source](https://github.com/clap-rs/clap)
 
 ### MIT License
@@ -363,8 +493,8 @@ Generated:
 
 ### MIT License
 
-- **zerocopy-derive** (0.8.31) - [source](https://github.com/google/zerocopy)
-- **zerocopy** (0.8.31) - [source](https://github.com/google/zerocopy)
+- **zerocopy-derive** (0.8.33) - [source](https://github.com/google/zerocopy)
+- **zerocopy** (0.8.33) - [source](https://github.com/google/zerocopy)
 
 ### MIT License
 
@@ -432,19 +562,19 @@ Generated:
 - **itoa** (1.0.17) - [source](https://github.com/dtolnay/itoa)
 - **linux-raw-sys** (0.11.0) - [source](https://github.com/sunfishcode/linux-raw-sys)
 - **once_cell** (1.21.3) - [source](https://github.com/matklad/once_cell)
-- **proc-macro2** (1.0.104) - [source](https://github.com/dtolnay/proc-macro2)
-- **quote** (1.0.42) - [source](https://github.com/dtolnay/quote)
+- **proc-macro2** (1.0.105) - [source](https://github.com/dtolnay/proc-macro2)
+- **quote** (1.0.43) - [source](https://github.com/dtolnay/quote)
 - **rustix** (1.1.3) - [source](https://github.com/bytecodealliance/rustix)
 - **rustversion** (1.0.22) - [source](https://github.com/dtolnay/rustversion)
 - **serde** (1.0.228) - [source](https://github.com/serde-rs/serde)
 - **serde_core** (1.0.228) - [source](https://github.com/serde-rs/serde)
 - **serde_derive** (1.0.228) - [source](https://github.com/serde-rs/serde)
-- **serde_json** (1.0.148) - [source](https://github.com/serde-rs/json)
-- **syn** (2.0.111) - [source](https://github.com/dtolnay/syn)
+- **serde_json** (1.0.149) - [source](https://github.com/serde-rs/json)
+- **syn** (2.0.114) - [source](https://github.com/dtolnay/syn)
 - **unicode-ident** (1.0.22) - [source](https://github.com/dtolnay/unicode-ident)
 - **wasi** (0.11.1+wasi-snapshot-preview1) - [source](https://github.com/bytecodealliance/wasi)
 - **wit-bindgen** (0.46.0) - [source](https://github.com/bytecodealliance/wit-bindgen)
-- **zmij** (1.0.3) - [source](https://github.com/dtolnay/zmij)
+- **zmij** (1.0.12) - [source](https://github.com/dtolnay/zmij)
 
 ### MIT License
 

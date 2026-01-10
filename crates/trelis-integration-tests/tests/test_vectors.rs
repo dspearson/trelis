@@ -33,10 +33,10 @@
 use serde::Deserialize;
 use std::fs;
 use std::path::PathBuf;
+use trelis_primitives::mldsa::DefaultMlDsaScheme;
 
-// Type alias for explicit ML-DSA scheme selection
-type HybridSigningKeypair =
-    trelis_hybrid::HybridSigningKeypair<trelis_primitives::mldsa::MlDsa65Fips204>;
+// Type alias that explicitly uses the default ML-DSA scheme to help type inference
+type HybridSigningKeypair = trelis_hybrid::HybridSigningKeypair<DefaultMlDsaScheme>;
 
 // =============================================================================
 // Test Vector Loading Infrastructure
@@ -365,7 +365,7 @@ mod hybrid_sig {
 
         // Verify signature verifies correctly
         assert!(
-            keypair.public_key().verify(message, &signature),
+            keypair.public_key().verify(message, &signature).is_ok(),
             "Signature should verify"
         );
 

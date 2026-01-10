@@ -82,11 +82,7 @@ impl HistoryKeyShareMessage {
     /// Returns `SignatureError` if verification fails.
     pub fn verify(&self, sender_key: &HybridSigningPublicKey) -> Result<()> {
         let sig_data = Self::signing_data(&self.thread_id, &self.keys, self.shared_at);
-        if sender_key.verify(&sig_data, &self.signature) {
-            Ok(())
-        } else {
-            Err(CryptoError::SignatureVerificationFailed)
-        }
+        sender_key.verify(&sig_data, &self.signature)
     }
 
     /// Creates the data to be signed for audit purposes.
@@ -183,8 +179,7 @@ impl HistoryKeyShareMessage {
         let mut keys = Vec::with_capacity(key_count);
         for _ in 0..key_count {
             let key =
-                RetainedKey::from_bytes(&bytes[offset..offset + RetainedKey::SERIALISED_SIZE])
-                    .ok_or(CryptoError::MalformedMessage)?;
+                RetainedKey::from_bytes(&bytes[offset..offset + RetainedKey::SERIALISED_SIZE])?;
             keys.push(key);
             offset += RetainedKey::SERIALISED_SIZE;
         }

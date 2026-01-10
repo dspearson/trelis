@@ -7,8 +7,8 @@
 //! # ML-DSA Variants
 //!
 //! The hybrid signature types are generic over the ML-DSA variant:
-//! - [`MlDsa65Fips204`]: Standard FIPS 204 with SHA-3/SHAKE (default)
-//! - [`MlDsa65SuiteB`]: PQC-Suite-B variant with BLAKE3 (requires `mldsa-suite-b` feature)
+//! - [`trelis_primitives::MlDsa65Fips204`]: Standard FIPS 204 with SHA-3/SHAKE (default)
+//! - [`trelis_primitives::MlDsa65Blake3`]: BLAKE3 variant (requires `mldsa-blake3` feature)
 //!
 //! # Key Sizes
 //!
@@ -26,7 +26,7 @@
 //! let message = b"Hello, Trelis!";
 //!
 //! let signature = keypair.sign(message).unwrap();
-//! assert!(keypair.public_key().verify(message, &signature));
+//! assert!(keypair.public_key().verify(message, &signature).is_ok());
 //! ```
 //!
 //! # Using Suite-B variant
@@ -94,8 +94,7 @@ pub struct HybridSigningKeypair<S: MlDsaScheme = DefaultMlDsaScheme> {
 impl<S: MlDsaScheme> Zeroize for HybridSigningKeypair<S> {
     fn zeroize(&mut self) {
         self.ed448_secret.zeroize();
-        // S::SigningKey should also implement Zeroize, but we can't enforce it in the trait
-        // without adding more bounds. The concrete types do implement it.
+        self.mldsa_secret.zeroize();
     }
 }
 
@@ -269,6 +268,32 @@ impl<S: MlDsaScheme> HybridSigningKeypair<S> {
             _marker: PhantomData,
         })
     }
+
+    /// Wraps this keypair in a `GuardedBox` for enhanced memory protection.
+    ///
+    /// The returned `GuardedBox` provides:
+    /// - Guard pages before and after the keypair to detect buffer overflows
+    /// - Memory locking to prevent swapping to disk (if privileges allow)
+    /// - Automatic zeroization on drop
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let keypair = HybridSigningKeypair::generate()?;
+    /// let guarded = keypair.into_guarded()?;
+    /// guarded.protect_readonly()?; // Optional: make read-only after init
+    /// let sig = guarded.sign(message)?;
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `MemlockError` if memory allocation or protection fails.
+    #[cfg(feature = "mlock")]
+    pub fn into_guarded(
+        self,
+    ) -> trelis_primitives::memlock::Result<trelis_primitives::GuardedBox<Self>> {
+        trelis_primitives::GuardedBox::new(self)
+    }
 }
 
 impl<S: MlDsaScheme> core::fmt::Debug for HybridSigningKeypair<S> {
@@ -348,16 +373,19 @@ impl<S: MlDsaScheme> HybridSigningPublicKey<S> {
     /// * `message` - The message that was signed.
     /// * `signature` - The hybrid signature to verify.
     ///
-    /// # Returns
+    /// # Errors
     ///
-    /// `true` if both signatures are valid, `false` otherwise.
-    #[must_use]
-    pub fn verify(&self, message: &[u8], signature: &HybridSignature<S>) -> bool {
+    /// Returns `SignatureVerificationFailed` if either signature is invalid.
+    pub fn verify(&self, message: &[u8], signature: &HybridSignature<S>) -> Result<()> {
         let ed448_valid = self.ed448.verify(message, &signature.ed448).is_ok();
-        let mldsa_valid = S::verify(&self.mldsa, message, &signature.mldsa);
+        let mldsa_valid = S::verify(&self.mldsa, message, &signature.mldsa).is_ok();
 
         // Both must be valid - use bitwise AND to prevent short-circuit timing leak
-        ed448_valid & mldsa_valid
+        if ed448_valid & mldsa_valid {
+            Ok(())
+        } else {
+            Err(CryptoError::SignatureVerificationFailed)
+        }
     }
 
     /// Verifies a hybrid signature with a context string.
@@ -365,27 +393,40 @@ impl<S: MlDsaScheme> HybridSigningPublicKey<S> {
     /// # Arguments
     ///
     /// * `message` - The message that was signed.
-    /// * `context` - The context string used during signing.
+    /// * `context` - The context string used during signing (max 255 bytes).
     /// * `signature` - The hybrid signature to verify.
     ///
-    /// # Returns
+    /// # Errors
     ///
-    /// `true` if both signatures are valid, `false` otherwise.
-    #[must_use]
+    /// Returns `SignatureVerificationFailed` if either signature is invalid,
+    /// or `InvalidContextLength` if the context exceeds 255 bytes.
     pub fn verify_with_context(
         &self,
         message: &[u8],
         context: &[u8],
         signature: &HybridSignature<S>,
-    ) -> bool {
+    ) -> Result<()> {
+        // Validate context length first (both schemes have the same limit)
+        if context.len() > 255 {
+            return Err(CryptoError::InvalidContextLength {
+                actual: context.len(),
+                max: 255,
+            });
+        }
+
         let ed448_valid = self
             .ed448
             .verify_with_context(message, context, &signature.ed448)
             .is_ok();
-        let mldsa_valid = S::verify_with_context(&self.mldsa, message, context, &signature.mldsa);
+        let mldsa_valid =
+            S::verify_with_context(&self.mldsa, message, context, &signature.mldsa).is_ok();
 
         // Use bitwise AND to avoid short-circuit timing leak
-        ed448_valid & mldsa_valid
+        if ed448_valid & mldsa_valid {
+            Ok(())
+        } else {
+            Err(CryptoError::SignatureVerificationFailed)
+        }
     }
 }
 
@@ -515,7 +556,7 @@ mod tests {
         let message = b"Hello, hybrid signatures!";
 
         let signature = keypair.sign(message).unwrap();
-        assert!(keypair.public_key().verify(message, &signature));
+        assert!(keypair.public_key().verify(message, &signature).is_ok());
     }
 
     #[test]
@@ -546,7 +587,12 @@ mod tests {
         let keypair = TestKeypair::generate().unwrap();
         let signature = keypair.sign(b"correct message").unwrap();
 
-        assert!(!keypair.public_key().verify(b"wrong message", &signature));
+        assert!(
+            keypair
+                .public_key()
+                .verify(b"wrong message", &signature)
+                .is_err()
+        );
     }
 
     #[test]
@@ -555,7 +601,7 @@ mod tests {
         let keypair2 = TestKeypair::generate().unwrap();
 
         let signature = keypair1.sign(b"test").unwrap();
-        assert!(!keypair2.public_key().verify(b"test", &signature));
+        assert!(keypair2.public_key().verify(b"test", &signature).is_err());
     }
 
     #[test]
@@ -571,24 +617,26 @@ mod tests {
             keypair
                 .public_key()
                 .verify_with_context(message, context, &signature)
+                .is_ok()
         );
 
         // Wrong context fails
         assert!(
-            !keypair
+            keypair
                 .public_key()
                 .verify_with_context(message, b"wrong", &signature)
+                .is_err()
         );
 
         // No context fails
-        assert!(!keypair.public_key().verify(message, &signature));
+        assert!(keypair.public_key().verify(message, &signature).is_err());
     }
 
     #[test]
     fn test_empty_message() {
         let keypair = TestKeypair::generate().unwrap();
         let signature = keypair.sign(b"").unwrap();
-        assert!(keypair.public_key().verify(b"", &signature));
+        assert!(keypair.public_key().verify(b"", &signature).is_ok());
     }
 
     #[test]
@@ -601,7 +649,7 @@ mod tests {
         // Verify the recovered keypair works
         let message = b"test roundtrip";
         let sig = recovered.sign(message).unwrap();
-        assert!(recovered.public_key().verify(message, &sig));
+        assert!(recovered.public_key().verify(message, &sig).is_ok());
 
         // And the public keys match
         assert_eq!(
@@ -610,27 +658,27 @@ mod tests {
         );
     }
 
-    // Test with Suite-B variant if available
-    #[cfg(feature = "mldsa-suite-b")]
-    mod suite_b_tests {
+    // Test with BLAKE3 variant if available
+    #[cfg(feature = "mldsa-blake3")]
+    mod blake3_tests {
         use super::*;
-        use trelis_primitives::MlDsa65SuiteB;
+        use trelis_primitives::MlDsa65Blake3;
 
         #[test]
-        fn test_suite_b_sign_verify() {
-            let keypair = HybridSigningKeypair::<MlDsa65SuiteB>::generate().unwrap();
-            let message = b"Hello, Suite-B!";
+        fn test_blake3_sign_verify() {
+            let keypair = HybridSigningKeypair::<MlDsa65Blake3>::generate().unwrap();
+            let message = b"Hello, BLAKE3!";
 
             let signature = keypair.sign(message).unwrap();
-            assert!(keypair.public_key().verify(message, &signature));
+            assert!(keypair.public_key().verify(message, &signature).is_ok());
         }
 
         #[test]
-        fn test_suite_b_serialisation() {
-            let keypair = HybridSigningKeypair::<MlDsa65SuiteB>::generate().unwrap();
+        fn test_blake3_serialisation() {
+            let keypair = HybridSigningKeypair::<MlDsa65Blake3>::generate().unwrap();
             let bytes = keypair.to_bytes();
 
-            let recovered = HybridSigningKeypair::<MlDsa65SuiteB>::from_bytes(&bytes).unwrap();
+            let recovered = HybridSigningKeypair::<MlDsa65Blake3>::from_bytes(&bytes).unwrap();
             assert_eq!(
                 keypair.public_key().to_bytes(),
                 recovered.public_key().to_bytes()

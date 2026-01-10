@@ -80,27 +80,30 @@ extern crate std;
 pub mod aead;
 pub mod blake3_kdf;
 pub mod ed448;
-/// Ed448-B (experimental BLAKE3 variant) signature primitives.
-///
-/// This module provides Ed448-B signatures using BLAKE3 instead of SHAKE256.
-/// **Note:** Ed448-B is NOT compatible with standard Ed448 (RFC 8032).
-#[cfg(feature = "ed448-suite-b")]
-pub mod ed448b;
 /// Ed448 scheme abstraction trait and implementations.
 ///
 /// Provides [`Ed448Scheme`] trait for generic code over Ed448 variants.
 pub mod ed448_scheme;
+/// Ed448-B (experimental BLAKE3 variant) signature primitives.
+///
+/// This module provides Ed448-B signatures using BLAKE3 instead of SHAKE256.
+/// **Note:** Ed448-B is NOT compatible with standard Ed448 (RFC 8032).
+pub mod ed448b;
 /// ML-DSA scheme abstraction trait and implementations.
 ///
 /// Provides [`MlDsaScheme`] trait for generic code over ML-DSA variants.
 pub mod mldsa;
 pub mod mldsa65;
-/// ML-DSA-B-65 (PQC-Suite-B BLAKE3 variant) signature primitives.
+/// ML-DSA-65 BLAKE3 variant signature primitives.
 ///
 /// This module provides ML-DSA-B-65 signatures using BLAKE3 instead of SHA-3/SHAKE.
 /// **Note:** ML-DSA-B-65 is NOT compatible with standard ML-DSA-65 (FIPS 204).
-#[cfg(feature = "mldsa-suite-b")]
 pub mod mldsa65b;
+/// ML-DSA core implementation with SHAKE and BLAKE3 hash variants.
+///
+/// This module contains the full ML-DSA algorithm implementation as specified
+/// in FIPS 204, with support for both SHAKE (standard) and BLAKE3 hashes.
+pub mod mldsa_core;
 pub mod random;
 pub mod x448;
 
@@ -134,6 +137,11 @@ pub mod memlock;
 pub mod sntrup761;
 /// Wire format encoding for sntrup761 (standard encoding, shared by both backends).
 pub mod sntrup761_encoding;
+/// Optimised field and polynomial arithmetic for sntrup761.
+///
+/// Provides fast extended GCD for field inversion (O(log q) vs O(q) Fermat).
+#[cfg(any(feature = "wasm", target_os = "windows", target_arch = "wasm32"))]
+pub mod sntrup761_fq;
 /// Optimised polynomial arithmetic for sntrup761 (Karatsuba, NTT).
 #[cfg(any(feature = "wasm", target_os = "windows", target_arch = "wasm32"))]
 pub mod sntrup761_poly;
@@ -163,16 +171,10 @@ pub use blake3_kdf::{
     keyed_hash,
 };
 pub use ed448::{Ed448Signature, Ed448SigningKey, Ed448VerifyingKey};
-#[cfg(feature = "ed448-suite-b")]
-pub use ed448_scheme::Ed448SuiteB;
-pub use ed448_scheme::{DefaultEd448Scheme, Ed448Scheme, Ed448Standard};
-#[cfg(feature = "ed448-suite-b")]
+pub use ed448_scheme::{DefaultEd448Scheme, Ed448Blake3, Ed448Scheme, Ed448Standard};
 pub use ed448b::{Ed448BSignature, Ed448BSigningKey, Ed448BVerifyingKey};
-#[cfg(feature = "mldsa-suite-b")]
-pub use mldsa::MlDsa65SuiteB;
-pub use mldsa::{DefaultMlDsaScheme, MlDsa65Fips204, MlDsaScheme};
+pub use mldsa::{DefaultMlDsaScheme, MlDsa65Blake3, MlDsa65Fips204, MlDsaScheme};
 pub use mldsa65::{MlDsa65Signature, MlDsa65SigningKey, MlDsa65VerifyingKey};
-#[cfg(feature = "mldsa-suite-b")]
 pub use mldsa65b::{MlDsa65BSignature, MlDsa65BSigningKey, MlDsa65BVerifyingKey};
 pub use random::{fill_bytes, generate_bytes};
 pub use trelis_error::{CryptoError, Result};
@@ -181,8 +183,8 @@ pub use x448::{X448Public, X448Secret, X448SharedSecret};
 // Memory locking re-exports (when mlock feature is enabled)
 #[cfg(feature = "mlock")]
 pub use memlock::{
-    LockedBox, LockedVec, MemlockError, is_mlock_available, lock_memory, memlock_limit, page_size,
-    unlock_memory,
+    GuardedBox, LockedBox, LockedVec, MemlockError, is_mlock_available, lock_memory, memlock_limit,
+    page_size, protect_noaccess, protect_readonly, protect_readwrite, unlock_memory,
 };
 
 // ============================================================================

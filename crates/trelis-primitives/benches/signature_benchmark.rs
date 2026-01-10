@@ -1,21 +1,21 @@
-//! Benchmarks comparing signature schemes: Ed448, Ed448-B, ML-DSA FIPS 204, and ML-DSA Suite-B.
+//! Benchmarks comparing signature schemes: Ed448, Ed448-B, ML-DSA FIPS 204, and ML-DSA BLAKE3.
 //!
-//! Run with: `cargo bench -p trelis-primitives --features "mldsa-suite-b,ed448-suite-b" --bench signature_benchmark`
+//! Run with: `cargo bench -p trelis-primitives --features "mldsa-blake3,ed448-blake3" --bench signature_benchmark`
 //!
-//! This benchmark requires both `mldsa-suite-b` and `ed448-suite-b` features.
+//! This benchmark requires both `mldsa-blake3` and `ed448-blake3` features.
 
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 
 // Ed448 standard implementation (SHAKE256)
 use trelis_primitives::ed448::{Ed448Signature, Ed448SigningKey, Ed448VerifyingKey};
 
-// Ed448-B implementation (BLAKE3, requires ed448-suite-b feature)
+// Ed448-B implementation (BLAKE3, requires ed448-blake3 feature)
 use trelis_primitives::ed448b::{Ed448BSignature, Ed448BSigningKey, Ed448BVerifyingKey};
 
 // ML-DSA FIPS 204 implementation (SHA-3/SHAKE)
 use trelis_primitives::mldsa65::{MlDsa65Signature, MlDsa65SigningKey, MlDsa65VerifyingKey};
 
-// ML-DSA Suite-B implementation (BLAKE3, requires mldsa-suite-b feature)
+// ML-DSA BLAKE3 implementation (requires mldsa-blake3 feature)
 use trelis_primitives::mldsa65b::{MlDsa65BSignature, MlDsa65BSigningKey, MlDsa65BVerifyingKey};
 
 /// Benchmark key generation for all implementations.
@@ -43,7 +43,7 @@ fn bench_keygen(c: &mut Criterion) {
         })
     });
 
-    group.bench_function("mldsa65_suite_b", |b| {
+    group.bench_function("mldsa65_blake3", |b| {
         b.iter(|| {
             let sk = MlDsa65BSigningKey::generate().unwrap();
             black_box(sk)
@@ -65,7 +65,7 @@ fn bench_keygen_seeded(c: &mut Criterion) {
         })
     });
 
-    group.bench_function("suite_b_blake3", |b| {
+    group.bench_function("blake3", |b| {
         b.iter(|| {
             let sk = MlDsa65BSigningKey::generate_from_seed(black_box(&seed)).unwrap();
             black_box(sk)
@@ -83,7 +83,7 @@ fn bench_sign(c: &mut Criterion) {
     let ed448_sk = Ed448SigningKey::generate().unwrap();
     let ed448b_sk = Ed448BSigningKey::generate().unwrap();
     let fips_sk = MlDsa65SigningKey::generate().unwrap();
-    let suiteb_sk = MlDsa65BSigningKey::generate().unwrap();
+    let blake3_sk = MlDsa65BSigningKey::generate().unwrap();
 
     // Test message sizes
     let msg_64b = vec![0x42u8; 64];
@@ -106,19 +106,23 @@ fn bench_sign(c: &mut Criterion) {
         })
     });
 
-    group.bench_with_input(BenchmarkId::new("mldsa65_fips204", "64B"), &msg_64b, |b, msg| {
-        b.iter(|| {
-            let sig = fips_sk.sign(black_box(msg)).unwrap();
-            black_box(sig)
-        })
-    });
-
     group.bench_with_input(
-        BenchmarkId::new("mldsa65_suite_b", "64B"),
+        BenchmarkId::new("mldsa65_fips204", "64B"),
         &msg_64b,
         |b, msg| {
             b.iter(|| {
-                let sig = suiteb_sk.sign(black_box(msg)).unwrap();
+                let sig = fips_sk.sign(black_box(msg)).unwrap();
+                black_box(sig)
+            })
+        },
+    );
+
+    group.bench_with_input(
+        BenchmarkId::new("mldsa65_blake3", "64B"),
+        &msg_64b,
+        |b, msg| {
+            b.iter(|| {
+                let sig = blake3_sk.sign(black_box(msg)).unwrap();
                 black_box(sig)
             })
         },
@@ -140,19 +144,23 @@ fn bench_sign(c: &mut Criterion) {
         })
     });
 
-    group.bench_with_input(BenchmarkId::new("mldsa65_fips204", "1KB"), &msg_1kb, |b, msg| {
-        b.iter(|| {
-            let sig = fips_sk.sign(black_box(msg)).unwrap();
-            black_box(sig)
-        })
-    });
-
     group.bench_with_input(
-        BenchmarkId::new("mldsa65_suite_b", "1KB"),
+        BenchmarkId::new("mldsa65_fips204", "1KB"),
         &msg_1kb,
         |b, msg| {
             b.iter(|| {
-                let sig = suiteb_sk.sign(black_box(msg)).unwrap();
+                let sig = fips_sk.sign(black_box(msg)).unwrap();
+                black_box(sig)
+            })
+        },
+    );
+
+    group.bench_with_input(
+        BenchmarkId::new("mldsa65_blake3", "1KB"),
+        &msg_1kb,
+        |b, msg| {
+            b.iter(|| {
+                let sig = blake3_sk.sign(black_box(msg)).unwrap();
                 black_box(sig)
             })
         },
@@ -174,19 +182,23 @@ fn bench_sign(c: &mut Criterion) {
         })
     });
 
-    group.bench_with_input(BenchmarkId::new("mldsa65_fips204", "1MB"), &msg_1mb, |b, msg| {
-        b.iter(|| {
-            let sig = fips_sk.sign(black_box(msg)).unwrap();
-            black_box(sig)
-        })
-    });
-
     group.bench_with_input(
-        BenchmarkId::new("mldsa65_suite_b", "1MB"),
+        BenchmarkId::new("mldsa65_fips204", "1MB"),
         &msg_1mb,
         |b, msg| {
             b.iter(|| {
-                let sig = suiteb_sk.sign(black_box(msg)).unwrap();
+                let sig = fips_sk.sign(black_box(msg)).unwrap();
+                black_box(sig)
+            })
+        },
+    );
+
+    group.bench_with_input(
+        BenchmarkId::new("mldsa65_blake3", "1MB"),
+        &msg_1mb,
+        |b, msg| {
+            b.iter(|| {
+                let sig = blake3_sk.sign(black_box(msg)).unwrap();
                 black_box(sig)
             })
         },
@@ -209,8 +221,8 @@ fn bench_verify(c: &mut Criterion) {
     let fips_sk = MlDsa65SigningKey::generate().unwrap();
     let fips_vk = fips_sk.verifying_key();
 
-    let suiteb_sk = MlDsa65BSigningKey::generate().unwrap();
-    let suiteb_vk = suiteb_sk.verifying_key();
+    let blake3_sk = MlDsa65BSigningKey::generate().unwrap();
+    let blake3_vk = blake3_sk.verifying_key();
 
     // Test message sizes
     let msg_64b = vec![0x42u8; 64];
@@ -230,9 +242,9 @@ fn bench_verify(c: &mut Criterion) {
     let fips_sig_1kb = fips_sk.sign(&msg_1kb).unwrap();
     let fips_sig_1mb = fips_sk.sign(&msg_1mb).unwrap();
 
-    let suiteb_sig_64b = suiteb_sk.sign(&msg_64b).unwrap();
-    let suiteb_sig_1kb = suiteb_sk.sign(&msg_1kb).unwrap();
-    let suiteb_sig_1mb = suiteb_sk.sign(&msg_1mb).unwrap();
+    let blake3_sig_64b = blake3_sk.sign(&msg_64b).unwrap();
+    let blake3_sig_1kb = blake3_sk.sign(&msg_1kb).unwrap();
+    let blake3_sig_1mb = blake3_sk.sign(&msg_1mb).unwrap();
 
     // 64 byte messages
     group.throughput(Throughput::Bytes(64));
@@ -257,9 +269,9 @@ fn bench_verify(c: &mut Criterion) {
         })
     });
 
-    group.bench_function(BenchmarkId::new("mldsa65_suite_b", "64B"), |b| {
+    group.bench_function(BenchmarkId::new("mldsa65_blake3", "64B"), |b| {
         b.iter(|| {
-            let valid = suiteb_vk.verify(black_box(&msg_64b), black_box(&suiteb_sig_64b));
+            let valid = blake3_vk.verify(black_box(&msg_64b), black_box(&blake3_sig_64b));
             black_box(valid)
         })
     });
@@ -287,9 +299,9 @@ fn bench_verify(c: &mut Criterion) {
         })
     });
 
-    group.bench_function(BenchmarkId::new("mldsa65_suite_b", "1KB"), |b| {
+    group.bench_function(BenchmarkId::new("mldsa65_blake3", "1KB"), |b| {
         b.iter(|| {
-            let valid = suiteb_vk.verify(black_box(&msg_1kb), black_box(&suiteb_sig_1kb));
+            let valid = blake3_vk.verify(black_box(&msg_1kb), black_box(&blake3_sig_1kb));
             black_box(valid)
         })
     });
@@ -317,9 +329,9 @@ fn bench_verify(c: &mut Criterion) {
         })
     });
 
-    group.bench_function(BenchmarkId::new("mldsa65_suite_b", "1MB"), |b| {
+    group.bench_function(BenchmarkId::new("mldsa65_blake3", "1MB"), |b| {
         b.iter(|| {
-            let valid = suiteb_vk.verify(black_box(&msg_1mb), black_box(&suiteb_sig_1mb));
+            let valid = blake3_vk.verify(black_box(&msg_1mb), black_box(&blake3_sig_1mb));
             black_box(valid)
         })
     });
@@ -342,8 +354,8 @@ fn bench_roundtrip(c: &mut Criterion) {
     let fips_sk = MlDsa65SigningKey::generate().unwrap();
     let fips_vk = fips_sk.verifying_key();
 
-    let suiteb_sk = MlDsa65BSigningKey::generate().unwrap();
-    let suiteb_vk = suiteb_sk.verifying_key();
+    let blake3_sk = MlDsa65BSigningKey::generate().unwrap();
+    let blake3_vk = blake3_sk.verifying_key();
 
     let message = b"Hello, signature benchmark!";
 
@@ -371,10 +383,10 @@ fn bench_roundtrip(c: &mut Criterion) {
         })
     });
 
-    group.bench_function("mldsa65_suite_b", |b| {
+    group.bench_function("mldsa65_blake3", |b| {
         b.iter(|| {
-            let sig = suiteb_sk.sign(black_box(message)).unwrap();
-            let valid = suiteb_vk.verify(black_box(message), &sig);
+            let sig = blake3_sk.sign(black_box(message)).unwrap();
+            let valid = blake3_vk.verify(black_box(message), &sig);
             black_box(valid)
         })
     });
@@ -399,9 +411,9 @@ fn bench_serialization(c: &mut Criterion) {
     let fips_vk = fips_sk.verifying_key();
     let fips_sig = fips_sk.sign(b"test").unwrap();
 
-    let suiteb_sk = MlDsa65BSigningKey::generate().unwrap();
-    let suiteb_vk = suiteb_sk.verifying_key();
-    let suiteb_sig = suiteb_sk.sign(b"test").unwrap();
+    let blake3_sk = MlDsa65BSigningKey::generate().unwrap();
+    let blake3_vk = blake3_sk.verifying_key();
+    let blake3_sig = blake3_sk.sign(b"test").unwrap();
 
     // Serialize to bytes
     let ed448_vk_bytes = ed448_vk.to_bytes();
@@ -414,9 +426,9 @@ fn bench_serialization(c: &mut Criterion) {
     let fips_vk_bytes = fips_vk.to_bytes();
     let fips_sig_bytes = fips_sig.to_bytes();
 
-    let suiteb_sk_bytes = suiteb_sk.as_bytes();
-    let suiteb_vk_bytes = suiteb_vk.to_bytes();
-    let suiteb_sig_bytes = suiteb_sig.to_bytes();
+    let blake3_sk_bytes = blake3_sk.as_bytes();
+    let blake3_vk_bytes = blake3_vk.to_bytes();
+    let blake3_sig_bytes = blake3_sig.to_bytes();
 
     // Verifying key deserialization
     group.bench_function("ed448_vk_deserialize", |b| {
@@ -440,9 +452,9 @@ fn bench_serialization(c: &mut Criterion) {
         })
     });
 
-    group.bench_function("mldsa65_suite_b_vk_deserialize", |b| {
+    group.bench_function("mldsa65_blake3_vk_deserialize", |b| {
         b.iter(|| {
-            let vk = MlDsa65BVerifyingKey::from_bytes(black_box(&suiteb_vk_bytes)).unwrap();
+            let vk = MlDsa65BVerifyingKey::from_bytes(black_box(&blake3_vk_bytes)).unwrap();
             black_box(vk)
         })
     });
@@ -469,9 +481,9 @@ fn bench_serialization(c: &mut Criterion) {
         })
     });
 
-    group.bench_function("mldsa65_suite_b_sig_deserialize", |b| {
+    group.bench_function("mldsa65_blake3_sig_deserialize", |b| {
         b.iter(|| {
-            let sig = MlDsa65BSignature::from_bytes(black_box(&suiteb_sig_bytes)).unwrap();
+            let sig = MlDsa65BSignature::from_bytes(black_box(&blake3_sig_bytes)).unwrap();
             black_box(sig)
         })
     });
@@ -484,9 +496,9 @@ fn bench_serialization(c: &mut Criterion) {
         })
     });
 
-    group.bench_function("mldsa65_suite_b_sk_deserialize", |b| {
+    group.bench_function("mldsa65_blake3_sk_deserialize", |b| {
         b.iter(|| {
-            let sk = MlDsa65BSigningKey::from_bytes(black_box(suiteb_sk_bytes)).unwrap();
+            let sk = MlDsa65BSigningKey::from_bytes(black_box(blake3_sk_bytes)).unwrap();
             black_box(sk)
         })
     });
@@ -502,7 +514,7 @@ fn bench_batch_sign(c: &mut Criterion) {
     let ed448_sk = Ed448SigningKey::generate().unwrap();
     let ed448b_sk = Ed448BSigningKey::generate().unwrap();
     let fips_sk = MlDsa65SigningKey::generate().unwrap();
-    let suiteb_sk = MlDsa65BSigningKey::generate().unwrap();
+    let blake3_sk = MlDsa65BSigningKey::generate().unwrap();
 
     for batch_size in [1, 10, 100] {
         let messages: Vec<Vec<u8>> = (0..batch_size)
@@ -551,12 +563,12 @@ fn bench_batch_sign(c: &mut Criterion) {
         );
 
         group.bench_with_input(
-            BenchmarkId::new("mldsa65_suite_b", batch_size),
+            BenchmarkId::new("mldsa65_blake3", batch_size),
             &messages,
             |b, msgs| {
                 b.iter(|| {
                     for msg in msgs {
-                        let sig = suiteb_sk.sign(black_box(msg)).unwrap();
+                        let sig = blake3_sk.sign(black_box(msg)).unwrap();
                         black_box(sig);
                     }
                 })

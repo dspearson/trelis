@@ -133,11 +133,7 @@ impl DeviceRevocation {
     /// Returns `SignatureError` if verification fails.
     pub fn verify(&self, user_key: &HybridSigningPublicKey) -> Result<()> {
         let sig_data = Self::signing_data(&self.device_id, self.revoked_at, self.reason);
-        if user_key.verify(&sig_data, &self.signature) {
-            Ok(())
-        } else {
-            Err(CryptoError::SignatureVerificationFailed)
-        }
+        user_key.verify(&sig_data, &self.signature)
     }
 
     /// Creates the data to be signed.

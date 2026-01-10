@@ -244,11 +244,7 @@ impl<S: MlDsaScheme> CompromiseNotice<S> {
             &self.signer_fingerprint,
         );
 
-        if signer_key.verify(&sig_data, &self.signature) {
-            Ok(())
-        } else {
-            Err(CryptoError::SignatureVerificationFailed)
-        }
+        signer_key.verify(&sig_data, &self.signature)
     }
 
     /// Returns true if this is a self-signed notice (compromised key signed it).
@@ -636,7 +632,7 @@ mod tests {
         let signature = keypair.sign(message).unwrap();
 
         // Signature should verify with derived public key
-        assert!(keypair.public_key().verify(message, &signature));
+        assert!(keypair.public_key().verify(message, &signature).is_ok());
     }
 
     #[cfg(feature = "std")]

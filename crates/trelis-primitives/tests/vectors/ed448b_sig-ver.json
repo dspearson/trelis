@@ -1,0 +1,782 @@
+{
+  "algorithm": "Ed448-B",
+  "description": "Ed448 with BLAKE3 domain separation (non-standard variant)",
+  "version": "1.0",
+  "domainContexts": {
+    "expand": "Ed448-B-expand",
+    "nonce": "Ed448-B-nonce",
+    "challenge": "Ed448-B-challenge"
+  },
+  "testGroups": [
+    {
+      "tgId": 1,
+      "seed": "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "pk": "12c361b90039af422afb912ca2997c6d9f37c30d133158d02937cb90350b55b5f370135981355aa89796b834e33e091036ad95056479e82a80",
+      "tests": [
+        {
+          "tcId": 1,
+          "testPassed": true,
+          "message": "",
+          "signature": "06be9133acca8c53dbfe3f3a3d7cfb4673ed6b490062c4d8b23af3aa9024b993e316391fc138acdd3c78df81760666756712cb9629784ec480f4969af60a8283cd4f432fd9656ad81abf1770b56a72ff286095c6668d70cc8d4037196c1f6245ea7cc5e2d52ffc52c8a0c74029178d5a0b00",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 2,
+          "testPassed": false,
+          "message": "00",
+          "signature": "06be9133acca8c53dbfe3f3a3d7cfb4673ed6b490062c4d8b23af3aa9024b993e316391fc138acdd3c78df81760666756712cb9629784ec480f4969af60a8283cd4f432fd9656ad81abf1770b56a72ff286095c6668d70cc8d4037196c1f6245ea7cc5e2d52ffc52c8a0c74029178d5a0b00",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 3,
+          "testPassed": false,
+          "message": "",
+          "signature": "f9be9133acca8c53dbfe3f3a3d7cfb4673ed6b490062c4d8b23af3aa9024b993e316391fc138acdd3c78df81760666756712cb9629784ec480f4969af60a8283cd4f432fd9656ad81abf1770b56a72ff286095c6668d70cc8d4037196c1f6245ea7cc5e2d52ffc52c8a0c74029178d5a0b00",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 4,
+          "testPassed": true,
+          "message": "00",
+          "signature": "3cbffc5ac4bd3d5f51785d4cfbcc0765cbb2b10ed2d14f8c8ec4c119ead6d71e89b8fab6af34dff23cd8cd6e7c515da727570aa16909defd00199c589e6fd2a468d46c48d095940cfa7dd33322e680c07f304fa75b319e00314a1701bb518e588d7644d1fcf4cc4e065f9d72ec02ef101500",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 5,
+          "testPassed": false,
+          "message": "0000",
+          "signature": "3cbffc5ac4bd3d5f51785d4cfbcc0765cbb2b10ed2d14f8c8ec4c119ead6d71e89b8fab6af34dff23cd8cd6e7c515da727570aa16909defd00199c589e6fd2a468d46c48d095940cfa7dd33322e680c07f304fa75b319e00314a1701bb518e588d7644d1fcf4cc4e065f9d72ec02ef101500",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 6,
+          "testPassed": false,
+          "message": "00",
+          "signature": "c3bffc5ac4bd3d5f51785d4cfbcc0765cbb2b10ed2d14f8c8ec4c119ead6d71e89b8fab6af34dff23cd8cd6e7c515da727570aa16909defd00199c589e6fd2a468d46c48d095940cfa7dd33322e680c07f304fa75b319e00314a1701bb518e588d7644d1fcf4cc4e065f9d72ec02ef101500",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 7,
+          "testPassed": true,
+          "message": "ff",
+          "signature": "0f045ce6187fd1884872a15001b5519bd7f9f9a83ab822c793e4b0c709a8c9363d4cab45ed872cffe0559950c8b063b1be9537bcebfafd0100048f45466f89111b64c86d88805f47a34b74a078dd3a48ddf2ae9292e59a2fb2cc0cc598c5ad5695584db4275d09e6eece21f440d226ee1a00",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 8,
+          "testPassed": false,
+          "message": "ff00",
+          "signature": "0f045ce6187fd1884872a15001b5519bd7f9f9a83ab822c793e4b0c709a8c9363d4cab45ed872cffe0559950c8b063b1be9537bcebfafd0100048f45466f89111b64c86d88805f47a34b74a078dd3a48ddf2ae9292e59a2fb2cc0cc598c5ad5695584db4275d09e6eece21f440d226ee1a00",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 9,
+          "testPassed": false,
+          "message": "ff",
+          "signature": "f0045ce6187fd1884872a15001b5519bd7f9f9a83ab822c793e4b0c709a8c9363d4cab45ed872cffe0559950c8b063b1be9537bcebfafd0100048f45466f89111b64c86d88805f47a34b74a078dd3a48ddf2ae9292e59a2fb2cc0cc598c5ad5695584db4275d09e6eece21f440d226ee1a00",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 10,
+          "testPassed": true,
+          "message": "48656c6c6f2c2045643434382d4221",
+          "signature": "b30864cb506be86cac3965abb8647be3943c00932ea752d0733b303e8637a1e4ee898169bfc0d9f4fb0d46f197a933c93906dba17d130015802ce833527842713a3891a9974e2e64dda487ba602ed7d73d29fec8298e28d90ad692bc450abe51d97e4a522deff54d055c55e8653083420100",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 11,
+          "testPassed": false,
+          "message": "48656c6c6f2c2045643434382d422100",
+          "signature": "b30864cb506be86cac3965abb8647be3943c00932ea752d0733b303e8637a1e4ee898169bfc0d9f4fb0d46f197a933c93906dba17d130015802ce833527842713a3891a9974e2e64dda487ba602ed7d73d29fec8298e28d90ad692bc450abe51d97e4a522deff54d055c55e8653083420100",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 12,
+          "testPassed": false,
+          "message": "48656c6c6f2c2045643434382d4221",
+          "signature": "4c0864cb506be86cac3965abb8647be3943c00932ea752d0733b303e8637a1e4ee898169bfc0d9f4fb0d46f197a933c93906dba17d130015802ce833527842713a3891a9974e2e64dda487ba602ed7d73d29fec8298e28d90ad692bc450abe51d97e4a522deff54d055c55e8653083420100",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 13,
+          "testPassed": true,
+          "message": "54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f67",
+          "signature": "4f3192d90d73c58cce599f48670984b7c0560e794600a6fbfc49ebb73d1d90576da3a78628e35fcf05490cb022dd829f10ecf5a7001afc9900eca80d5bde35958278e3aea8f06a2763e4f081fb72c761fb839786fb227b326ac78be876b2243875f5dc9d55bb6a291372a2996481066b3100",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 14,
+          "testPassed": false,
+          "message": "54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f6700",
+          "signature": "4f3192d90d73c58cce599f48670984b7c0560e794600a6fbfc49ebb73d1d90576da3a78628e35fcf05490cb022dd829f10ecf5a7001afc9900eca80d5bde35958278e3aea8f06a2763e4f081fb72c761fb839786fb227b326ac78be876b2243875f5dc9d55bb6a291372a2996481066b3100",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 15,
+          "testPassed": false,
+          "message": "54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f67",
+          "signature": "b03192d90d73c58cce599f48670984b7c0560e794600a6fbfc49ebb73d1d90576da3a78628e35fcf05490cb022dd829f10ecf5a7001afc9900eca80d5bde35958278e3aea8f06a2763e4f081fb72c761fb839786fb227b326ac78be876b2243875f5dc9d55bb6a291372a2996481066b3100",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 16,
+          "testPassed": true,
+          "message": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
+          "signature": "3858f1b8a480633386a0c30397b8880bb1ea038b23abc05af7321ad8e404fb60274fa2518457fe0aa8ed4839e4977218eb81f2010757b0b0803d5604340073ef5d6449ee1217ff68551a20d773f2de0a21ac0ca97b4a928a34e1f79c1be693ddcb208ab4f3153f67f34802b44114a8f31d00",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 17,
+          "testPassed": false,
+          "message": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff00",
+          "signature": "3858f1b8a480633386a0c30397b8880bb1ea038b23abc05af7321ad8e404fb60274fa2518457fe0aa8ed4839e4977218eb81f2010757b0b0803d5604340073ef5d6449ee1217ff68551a20d773f2de0a21ac0ca97b4a928a34e1f79c1be693ddcb208ab4f3153f67f34802b44114a8f31d00",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 18,
+          "testPassed": false,
+          "message": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
+          "signature": "c758f1b8a480633386a0c30397b8880bb1ea038b23abc05af7321ad8e404fb60274fa2518457fe0aa8ed4839e4977218eb81f2010757b0b0803d5604340073ef5d6449ee1217ff68551a20d773f2de0a21ac0ca97b4a928a34e1f79c1be693ddcb208ab4f3153f67f34802b44114a8f31d00",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 19,
+          "testPassed": true,
+          "message": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+          "signature": "c8fa046e7cbd4cc74684b6e55dde19b69ddb828d3b22c64ccfd679736c6b19f70e978ad4c40626e2d7002831cd0544d04caa75c782a53a1800b41ff045c3c904cae131b5b370dde814d54b39a3b5b83df26364953d10a41fdef65cbdddfd21634a54436430ac2e0727c0d0a7b8db9c721500",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 20,
+          "testPassed": false,
+          "message": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab00",
+          "signature": "c8fa046e7cbd4cc74684b6e55dde19b69ddb828d3b22c64ccfd679736c6b19f70e978ad4c40626e2d7002831cd0544d04caa75c782a53a1800b41ff045c3c904cae131b5b370dde814d54b39a3b5b83df26364953d10a41fdef65cbdddfd21634a54436430ac2e0727c0d0a7b8db9c721500",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 21,
+          "testPassed": false,
+          "message": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+          "signature": "37fa046e7cbd4cc74684b6e55dde19b69ddb828d3b22c64ccfd679736c6b19f70e978ad4c40626e2d7002831cd0544d04caa75c782a53a1800b41ff045c3c904cae131b5b370dde814d54b39a3b5b83df26364953d10a41fdef65cbdddfd21634a54436430ac2e0727c0d0a7b8db9c721500",
+          "reason": "modified signature"
+        }
+      ]
+    },
+    {
+      "tgId": 2,
+      "seed": "010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101",
+      "pk": "e8c39521ed50e5179e96e48c922e361f61a1da76a74802f3f5080d64542e40d179480a31b587c8600a94fcc022eab8f8dbf5fc513d4c8a2380",
+      "tests": [
+        {
+          "tcId": 1,
+          "testPassed": true,
+          "message": "",
+          "signature": "1f9f18b21e7213b51f93f3f8d88e483198fc15f7e983a9dd47677393200ae5d9149fd24619bcc522db66594bfad8ba8279224d5494e22a430050daf48389a84abef0a5cc1fb15a85864cf4fb3426788915ad293db25659db753b4882e9e4a3769f21239e7dd6dd1fa583c2c77c1eddeb2c00",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 2,
+          "testPassed": false,
+          "message": "00",
+          "signature": "1f9f18b21e7213b51f93f3f8d88e483198fc15f7e983a9dd47677393200ae5d9149fd24619bcc522db66594bfad8ba8279224d5494e22a430050daf48389a84abef0a5cc1fb15a85864cf4fb3426788915ad293db25659db753b4882e9e4a3769f21239e7dd6dd1fa583c2c77c1eddeb2c00",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 3,
+          "testPassed": false,
+          "message": "",
+          "signature": "e09f18b21e7213b51f93f3f8d88e483198fc15f7e983a9dd47677393200ae5d9149fd24619bcc522db66594bfad8ba8279224d5494e22a430050daf48389a84abef0a5cc1fb15a85864cf4fb3426788915ad293db25659db753b4882e9e4a3769f21239e7dd6dd1fa583c2c77c1eddeb2c00",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 4,
+          "testPassed": true,
+          "message": "00",
+          "signature": "7d64ea856c2151fbc3bd5ece20516680f42a5f759077ad305f118af267c027c54b2ef91b2c6a1acfe3677c558b1e9f04bad9b72b514e9280008d33aeadfa6268620f79a8813201547e4dda0c67df93da75bc60056277de1b689b6b15d930a2792f066cc39ec7765afbd2ef7cc685c5273b00",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 5,
+          "testPassed": false,
+          "message": "0000",
+          "signature": "7d64ea856c2151fbc3bd5ece20516680f42a5f759077ad305f118af267c027c54b2ef91b2c6a1acfe3677c558b1e9f04bad9b72b514e9280008d33aeadfa6268620f79a8813201547e4dda0c67df93da75bc60056277de1b689b6b15d930a2792f066cc39ec7765afbd2ef7cc685c5273b00",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 6,
+          "testPassed": false,
+          "message": "00",
+          "signature": "8264ea856c2151fbc3bd5ece20516680f42a5f759077ad305f118af267c027c54b2ef91b2c6a1acfe3677c558b1e9f04bad9b72b514e9280008d33aeadfa6268620f79a8813201547e4dda0c67df93da75bc60056277de1b689b6b15d930a2792f066cc39ec7765afbd2ef7cc685c5273b00",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 7,
+          "testPassed": true,
+          "message": "ff",
+          "signature": "a5b56b3f84ee441164092fca8a27b0b45be2d80cbb6330c19792196b438f86f0e5ded1a413fe5cdb867b0909e0fe85ea7d2b766a5155dca580f383bf84ee02f9de056237f5e45500ef3e415cf1bb817e00382764bce0914792f9ba2d92e3b6e239c038efdac57179dafc5b6c28a801021900",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 8,
+          "testPassed": false,
+          "message": "ff00",
+          "signature": "a5b56b3f84ee441164092fca8a27b0b45be2d80cbb6330c19792196b438f86f0e5ded1a413fe5cdb867b0909e0fe85ea7d2b766a5155dca580f383bf84ee02f9de056237f5e45500ef3e415cf1bb817e00382764bce0914792f9ba2d92e3b6e239c038efdac57179dafc5b6c28a801021900",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 9,
+          "testPassed": false,
+          "message": "ff",
+          "signature": "5ab56b3f84ee441164092fca8a27b0b45be2d80cbb6330c19792196b438f86f0e5ded1a413fe5cdb867b0909e0fe85ea7d2b766a5155dca580f383bf84ee02f9de056237f5e45500ef3e415cf1bb817e00382764bce0914792f9ba2d92e3b6e239c038efdac57179dafc5b6c28a801021900",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 10,
+          "testPassed": true,
+          "message": "48656c6c6f2c2045643434382d4221",
+          "signature": "c5c1b5563a6039ca1fbd6782512dcb76220b97249448dd875e973d28035fea24c20c7c0d7acd08927a75666d40e4ebc9fe3ba985d86d9c9200d974ea66a69a648af4ad1991d5b30b86829aa24baa5ae1cadf341de7eaf304fcf7e9dd3afdb4e2e637a3ce47156b2f61ab4b95c266fdfc2400",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 11,
+          "testPassed": false,
+          "message": "48656c6c6f2c2045643434382d422100",
+          "signature": "c5c1b5563a6039ca1fbd6782512dcb76220b97249448dd875e973d28035fea24c20c7c0d7acd08927a75666d40e4ebc9fe3ba985d86d9c9200d974ea66a69a648af4ad1991d5b30b86829aa24baa5ae1cadf341de7eaf304fcf7e9dd3afdb4e2e637a3ce47156b2f61ab4b95c266fdfc2400",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 12,
+          "testPassed": false,
+          "message": "48656c6c6f2c2045643434382d4221",
+          "signature": "3ac1b5563a6039ca1fbd6782512dcb76220b97249448dd875e973d28035fea24c20c7c0d7acd08927a75666d40e4ebc9fe3ba985d86d9c9200d974ea66a69a648af4ad1991d5b30b86829aa24baa5ae1cadf341de7eaf304fcf7e9dd3afdb4e2e637a3ce47156b2f61ab4b95c266fdfc2400",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 13,
+          "testPassed": true,
+          "message": "54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f67",
+          "signature": "30fa250d3e34b34af0b9d0eb6a73da666169f3e4388c03b4fc658a01ea7a8ae8c6ea32c50c1b83a816c83b1935770147462647a22d622f4780ada6c9d5f8e57c42c89ec455a3ad54c2120faa47da9b12ab9976845066fb06c578a242c32c47e7aaea239bb231f22daf41efa48101fbdc0900",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 14,
+          "testPassed": false,
+          "message": "54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f6700",
+          "signature": "30fa250d3e34b34af0b9d0eb6a73da666169f3e4388c03b4fc658a01ea7a8ae8c6ea32c50c1b83a816c83b1935770147462647a22d622f4780ada6c9d5f8e57c42c89ec455a3ad54c2120faa47da9b12ab9976845066fb06c578a242c32c47e7aaea239bb231f22daf41efa48101fbdc0900",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 15,
+          "testPassed": false,
+          "message": "54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f67",
+          "signature": "cffa250d3e34b34af0b9d0eb6a73da666169f3e4388c03b4fc658a01ea7a8ae8c6ea32c50c1b83a816c83b1935770147462647a22d622f4780ada6c9d5f8e57c42c89ec455a3ad54c2120faa47da9b12ab9976845066fb06c578a242c32c47e7aaea239bb231f22daf41efa48101fbdc0900",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 16,
+          "testPassed": true,
+          "message": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
+          "signature": "f01a2e5cf2a010e5e121f8f2a46ee86e7b634c2f1994c49b029064346f3cdfe5472525861830efc06923ef02edc05b122538c4d2546d001080f34638cbbc22021f811021f8116275646950fc311e63ffde54f8eb90f54ba0746a43f4906c14e44c0c51545047c1570a2bd9bcf75d7a003f00",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 17,
+          "testPassed": false,
+          "message": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff00",
+          "signature": "f01a2e5cf2a010e5e121f8f2a46ee86e7b634c2f1994c49b029064346f3cdfe5472525861830efc06923ef02edc05b122538c4d2546d001080f34638cbbc22021f811021f8116275646950fc311e63ffde54f8eb90f54ba0746a43f4906c14e44c0c51545047c1570a2bd9bcf75d7a003f00",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 18,
+          "testPassed": false,
+          "message": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
+          "signature": "0f1a2e5cf2a010e5e121f8f2a46ee86e7b634c2f1994c49b029064346f3cdfe5472525861830efc06923ef02edc05b122538c4d2546d001080f34638cbbc22021f811021f8116275646950fc311e63ffde54f8eb90f54ba0746a43f4906c14e44c0c51545047c1570a2bd9bcf75d7a003f00",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 19,
+          "testPassed": true,
+          "message": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+          "signature": "aa735348d6cf1d0ceb682ce9786f4c69bf980021b83ed216d5d3db6a23410e86d67f9087ce920988836241bcd489dd27323a97c14aa2a55980ffc1e45c7c1adb2cfc44f02c992e11edcdf6909ceaf49db5fea6de13ade4afa2a6d1a06332a2095d3be348966f44943cf7a94f99bb77310f00",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 20,
+          "testPassed": false,
+          "message": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab00",
+          "signature": "aa735348d6cf1d0ceb682ce9786f4c69bf980021b83ed216d5d3db6a23410e86d67f9087ce920988836241bcd489dd27323a97c14aa2a55980ffc1e45c7c1adb2cfc44f02c992e11edcdf6909ceaf49db5fea6de13ade4afa2a6d1a06332a2095d3be348966f44943cf7a94f99bb77310f00",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 21,
+          "testPassed": false,
+          "message": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+          "signature": "55735348d6cf1d0ceb682ce9786f4c69bf980021b83ed216d5d3db6a23410e86d67f9087ce920988836241bcd489dd27323a97c14aa2a55980ffc1e45c7c1adb2cfc44f02c992e11edcdf6909ceaf49db5fea6de13ade4afa2a6d1a06332a2095d3be348966f44943cf7a94f99bb77310f00",
+          "reason": "modified signature"
+        }
+      ]
+    },
+    {
+      "tgId": 3,
+      "seed": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "pk": "e7b4bff8258b458c410cb7e322ca2dbc6c6fb41574fe6ed9e0aca624852afa4bad6c2ab2629224f52462123d121fad51d20c7850af6aad5300",
+      "tests": [
+        {
+          "tcId": 1,
+          "testPassed": true,
+          "message": "",
+          "signature": "1b02e919218483d26218fc110447037ade1bcba1cb84beeb0fcf40889a3584d05d6006ef8a506aecd0f2bf19ac62f4c2e5815a44867ef3f78062a31d1ef590910039b67a096e057c8328ed70ec5126f0cfc161ac184dcdcfdfeb0f581f61189b41a1342b27a397dfa17a734a1f5164b93400",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 2,
+          "testPassed": false,
+          "message": "00",
+          "signature": "1b02e919218483d26218fc110447037ade1bcba1cb84beeb0fcf40889a3584d05d6006ef8a506aecd0f2bf19ac62f4c2e5815a44867ef3f78062a31d1ef590910039b67a096e057c8328ed70ec5126f0cfc161ac184dcdcfdfeb0f581f61189b41a1342b27a397dfa17a734a1f5164b93400",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 3,
+          "testPassed": false,
+          "message": "",
+          "signature": "e402e919218483d26218fc110447037ade1bcba1cb84beeb0fcf40889a3584d05d6006ef8a506aecd0f2bf19ac62f4c2e5815a44867ef3f78062a31d1ef590910039b67a096e057c8328ed70ec5126f0cfc161ac184dcdcfdfeb0f581f61189b41a1342b27a397dfa17a734a1f5164b93400",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 4,
+          "testPassed": true,
+          "message": "00",
+          "signature": "7a144e48d64d5e2821fea09c6dc019f9196c4e6c6aee4eb1ddcaa567e46bdc707502de417956366ebddd4f13a5aad5667b9c015ed17743d880fd3feabe072ecd4bc9a16d99055c7d35ffb82f5f9df303ae44db21824b33c168750eaf09a042fab8ffd2dae8388c5d9b8af04c19ce4c9a1f00",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 5,
+          "testPassed": false,
+          "message": "0000",
+          "signature": "7a144e48d64d5e2821fea09c6dc019f9196c4e6c6aee4eb1ddcaa567e46bdc707502de417956366ebddd4f13a5aad5667b9c015ed17743d880fd3feabe072ecd4bc9a16d99055c7d35ffb82f5f9df303ae44db21824b33c168750eaf09a042fab8ffd2dae8388c5d9b8af04c19ce4c9a1f00",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 6,
+          "testPassed": false,
+          "message": "00",
+          "signature": "85144e48d64d5e2821fea09c6dc019f9196c4e6c6aee4eb1ddcaa567e46bdc707502de417956366ebddd4f13a5aad5667b9c015ed17743d880fd3feabe072ecd4bc9a16d99055c7d35ffb82f5f9df303ae44db21824b33c168750eaf09a042fab8ffd2dae8388c5d9b8af04c19ce4c9a1f00",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 7,
+          "testPassed": true,
+          "message": "ff",
+          "signature": "198c41bf7413bc8196101eb7542ce64034a9a0c98b13dbffbd22557c93511899d18b0dacece7cb82cfcadb00a2b901eb623d7b673a11687480e6a82f86a607c34d1c93f7c90332f1b92002f126de8ec55fb73f93eb8dcbee779abf612d403a0fc5a747de15069419f4849539d4fc41842900",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 8,
+          "testPassed": false,
+          "message": "ff00",
+          "signature": "198c41bf7413bc8196101eb7542ce64034a9a0c98b13dbffbd22557c93511899d18b0dacece7cb82cfcadb00a2b901eb623d7b673a11687480e6a82f86a607c34d1c93f7c90332f1b92002f126de8ec55fb73f93eb8dcbee779abf612d403a0fc5a747de15069419f4849539d4fc41842900",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 9,
+          "testPassed": false,
+          "message": "ff",
+          "signature": "e68c41bf7413bc8196101eb7542ce64034a9a0c98b13dbffbd22557c93511899d18b0dacece7cb82cfcadb00a2b901eb623d7b673a11687480e6a82f86a607c34d1c93f7c90332f1b92002f126de8ec55fb73f93eb8dcbee779abf612d403a0fc5a747de15069419f4849539d4fc41842900",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 10,
+          "testPassed": true,
+          "message": "48656c6c6f2c2045643434382d4221",
+          "signature": "8a60bc328cf86ed5609197a5c260208fa99f33cb4d1be222385f86a86c655ef836b204136aaa21b18175793d41953ab11c905e871644f40c80fb244fa0972d869cd494ce668adcf8a728f5286300c2f555b14349bdea9918b2c6b8e57887027568993d64af0dfc232b85a5dd96c95ca30600",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 11,
+          "testPassed": false,
+          "message": "48656c6c6f2c2045643434382d422100",
+          "signature": "8a60bc328cf86ed5609197a5c260208fa99f33cb4d1be222385f86a86c655ef836b204136aaa21b18175793d41953ab11c905e871644f40c80fb244fa0972d869cd494ce668adcf8a728f5286300c2f555b14349bdea9918b2c6b8e57887027568993d64af0dfc232b85a5dd96c95ca30600",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 12,
+          "testPassed": false,
+          "message": "48656c6c6f2c2045643434382d4221",
+          "signature": "7560bc328cf86ed5609197a5c260208fa99f33cb4d1be222385f86a86c655ef836b204136aaa21b18175793d41953ab11c905e871644f40c80fb244fa0972d869cd494ce668adcf8a728f5286300c2f555b14349bdea9918b2c6b8e57887027568993d64af0dfc232b85a5dd96c95ca30600",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 13,
+          "testPassed": true,
+          "message": "54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f67",
+          "signature": "fc196e392a5a448bfd641f9bf47f5eb50259afd04cf67762a89f3f70612e862b3a3746b61c879a4b6cd02979b8c6d8ecf8e112b4f099cb5380f2c4bc7522e0fe0c835a3d05f2f860f862dadd53e7d1a6b5e401ccbdf05501488ddc3c46712cce2981e8d12e793517c7d38473d7d374dc1c00",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 14,
+          "testPassed": false,
+          "message": "54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f6700",
+          "signature": "fc196e392a5a448bfd641f9bf47f5eb50259afd04cf67762a89f3f70612e862b3a3746b61c879a4b6cd02979b8c6d8ecf8e112b4f099cb5380f2c4bc7522e0fe0c835a3d05f2f860f862dadd53e7d1a6b5e401ccbdf05501488ddc3c46712cce2981e8d12e793517c7d38473d7d374dc1c00",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 15,
+          "testPassed": false,
+          "message": "54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f67",
+          "signature": "03196e392a5a448bfd641f9bf47f5eb50259afd04cf67762a89f3f70612e862b3a3746b61c879a4b6cd02979b8c6d8ecf8e112b4f099cb5380f2c4bc7522e0fe0c835a3d05f2f860f862dadd53e7d1a6b5e401ccbdf05501488ddc3c46712cce2981e8d12e793517c7d38473d7d374dc1c00",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 16,
+          "testPassed": true,
+          "message": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
+          "signature": "4bfcb48e177952ecb8201d3437a7386ad0612d592cf04161089f053d944fe027a6e93e866085a9ba2d8d6c073d7b28fbbfd5e1c04b1253e08033ff91d5fb5408b9d432dda1d751fa29510eec844bc1d087ff7ce4cd012bb701123c9a5edc45c1665574337cb731af13411f29c93b3c0e1f00",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 17,
+          "testPassed": false,
+          "message": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff00",
+          "signature": "4bfcb48e177952ecb8201d3437a7386ad0612d592cf04161089f053d944fe027a6e93e866085a9ba2d8d6c073d7b28fbbfd5e1c04b1253e08033ff91d5fb5408b9d432dda1d751fa29510eec844bc1d087ff7ce4cd012bb701123c9a5edc45c1665574337cb731af13411f29c93b3c0e1f00",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 18,
+          "testPassed": false,
+          "message": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
+          "signature": "b4fcb48e177952ecb8201d3437a7386ad0612d592cf04161089f053d944fe027a6e93e866085a9ba2d8d6c073d7b28fbbfd5e1c04b1253e08033ff91d5fb5408b9d432dda1d751fa29510eec844bc1d087ff7ce4cd012bb701123c9a5edc45c1665574337cb731af13411f29c93b3c0e1f00",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 19,
+          "testPassed": true,
+          "message": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+          "signature": "ed27cdd4fc030d283289518eacf7f052af46c9457ce45f9fc0abc301b2f837437ae3ca9429784da0eb997ddd7f16f65f3c949ffb2d4e00fa005e655531f0b61cdf7b980e791529a6a43a93ca44dc9a12050780fdadd0159aea281785848d3257146d816965d8e77e151346b51ecd5f153500",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 20,
+          "testPassed": false,
+          "message": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab00",
+          "signature": "ed27cdd4fc030d283289518eacf7f052af46c9457ce45f9fc0abc301b2f837437ae3ca9429784da0eb997ddd7f16f65f3c949ffb2d4e00fa005e655531f0b61cdf7b980e791529a6a43a93ca44dc9a12050780fdadd0159aea281785848d3257146d816965d8e77e151346b51ecd5f153500",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 21,
+          "testPassed": false,
+          "message": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+          "signature": "1227cdd4fc030d283289518eacf7f052af46c9457ce45f9fc0abc301b2f837437ae3ca9429784da0eb997ddd7f16f65f3c949ffb2d4e00fa005e655531f0b61cdf7b980e791529a6a43a93ca44dc9a12050780fdadd0159aea281785848d3257146d816965d8e77e151346b51ecd5f153500",
+          "reason": "modified signature"
+        }
+      ]
+    },
+    {
+      "tgId": 4,
+      "seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738",
+      "pk": "0d6ad9eb7c710b0c4c3666c7d5983c6d65e6d108d18583ebb5ec1d7c01e175920ff9d2952d286a833ece4ab6a0f761280e7a558370bcb60680",
+      "tests": [
+        {
+          "tcId": 1,
+          "testPassed": true,
+          "message": "",
+          "signature": "e307e20c20bc78f64da4d8f826b69035c42dbd73431c4174ce22e021b343781bc0e0530eac9a33c2e5bf701673c1c1475c3f96273bd8f94a00e97661eda66266c97808b1fe1ca29ac15197998e22e4558d539f73dd2b40769206db7f5f4ec52e5d293892fb71fb50c9742ef522b385371a00",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 2,
+          "testPassed": false,
+          "message": "00",
+          "signature": "e307e20c20bc78f64da4d8f826b69035c42dbd73431c4174ce22e021b343781bc0e0530eac9a33c2e5bf701673c1c1475c3f96273bd8f94a00e97661eda66266c97808b1fe1ca29ac15197998e22e4558d539f73dd2b40769206db7f5f4ec52e5d293892fb71fb50c9742ef522b385371a00",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 3,
+          "testPassed": false,
+          "message": "",
+          "signature": "1c07e20c20bc78f64da4d8f826b69035c42dbd73431c4174ce22e021b343781bc0e0530eac9a33c2e5bf701673c1c1475c3f96273bd8f94a00e97661eda66266c97808b1fe1ca29ac15197998e22e4558d539f73dd2b40769206db7f5f4ec52e5d293892fb71fb50c9742ef522b385371a00",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 4,
+          "testPassed": true,
+          "message": "00",
+          "signature": "ae181137024efa46e8512a885702cf9913261e7472c6b4ae8d4da108a3e868a091fcabf4d52ef11cc7f2e525e0119c5cbb659acd7104dc6080c8f33e3db9a762c57bc91543fc4e56fcae718280092257ac791cac212f3793a25530fcd38a4d81992ceb42382f589286c6fb3fc129443a0c00",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 5,
+          "testPassed": false,
+          "message": "0000",
+          "signature": "ae181137024efa46e8512a885702cf9913261e7472c6b4ae8d4da108a3e868a091fcabf4d52ef11cc7f2e525e0119c5cbb659acd7104dc6080c8f33e3db9a762c57bc91543fc4e56fcae718280092257ac791cac212f3793a25530fcd38a4d81992ceb42382f589286c6fb3fc129443a0c00",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 6,
+          "testPassed": false,
+          "message": "00",
+          "signature": "51181137024efa46e8512a885702cf9913261e7472c6b4ae8d4da108a3e868a091fcabf4d52ef11cc7f2e525e0119c5cbb659acd7104dc6080c8f33e3db9a762c57bc91543fc4e56fcae718280092257ac791cac212f3793a25530fcd38a4d81992ceb42382f589286c6fb3fc129443a0c00",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 7,
+          "testPassed": true,
+          "message": "ff",
+          "signature": "9dbb46b416c6cba43f4a544f37cb4a104b8663e8d0691c057a13ebc27bf6e318b5f0efefd97c265979f971c7992ac1b2aa66bcf7eaa05ed900a778dd62958a4656b8e18ed7350f62dbfa3b9a9a9b4d3814248c4472a81e7d315a4de2c0cd2db29c233daad5a003f86c63821c8e95a6110200",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 8,
+          "testPassed": false,
+          "message": "ff00",
+          "signature": "9dbb46b416c6cba43f4a544f37cb4a104b8663e8d0691c057a13ebc27bf6e318b5f0efefd97c265979f971c7992ac1b2aa66bcf7eaa05ed900a778dd62958a4656b8e18ed7350f62dbfa3b9a9a9b4d3814248c4472a81e7d315a4de2c0cd2db29c233daad5a003f86c63821c8e95a6110200",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 9,
+          "testPassed": false,
+          "message": "ff",
+          "signature": "62bb46b416c6cba43f4a544f37cb4a104b8663e8d0691c057a13ebc27bf6e318b5f0efefd97c265979f971c7992ac1b2aa66bcf7eaa05ed900a778dd62958a4656b8e18ed7350f62dbfa3b9a9a9b4d3814248c4472a81e7d315a4de2c0cd2db29c233daad5a003f86c63821c8e95a6110200",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 10,
+          "testPassed": true,
+          "message": "48656c6c6f2c2045643434382d4221",
+          "signature": "115b04007da454ccefdf4e9994def328e06cffadc7608a5159e654884cec2cf81f03a439df4b5cc8ae6422e5056e73acbb062e35c7eac97700e7e761340dc121c3fa3b450a7e66cd6d3ef4557a696986886e023b43c487b2ea906f3df58b831579607a7e768a42eead09207f64cfbede1f00",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 11,
+          "testPassed": false,
+          "message": "48656c6c6f2c2045643434382d422100",
+          "signature": "115b04007da454ccefdf4e9994def328e06cffadc7608a5159e654884cec2cf81f03a439df4b5cc8ae6422e5056e73acbb062e35c7eac97700e7e761340dc121c3fa3b450a7e66cd6d3ef4557a696986886e023b43c487b2ea906f3df58b831579607a7e768a42eead09207f64cfbede1f00",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 12,
+          "testPassed": false,
+          "message": "48656c6c6f2c2045643434382d4221",
+          "signature": "ee5b04007da454ccefdf4e9994def328e06cffadc7608a5159e654884cec2cf81f03a439df4b5cc8ae6422e5056e73acbb062e35c7eac97700e7e761340dc121c3fa3b450a7e66cd6d3ef4557a696986886e023b43c487b2ea906f3df58b831579607a7e768a42eead09207f64cfbede1f00",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 13,
+          "testPassed": true,
+          "message": "54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f67",
+          "signature": "2277e3aefcc15d3fa16679843cf036722fc3a0afa9273d62fc586b3a412f947f7eea0f5a55fe8432b83eb98571b272f38b9c347031ff61ba0019f6745d8d3250d76725db7e65c41751d8c657b4afe985f34233a2c640566e9ef820738c863817340913cf5716f01b5b6a73c0484fba251300",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 14,
+          "testPassed": false,
+          "message": "54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f6700",
+          "signature": "2277e3aefcc15d3fa16679843cf036722fc3a0afa9273d62fc586b3a412f947f7eea0f5a55fe8432b83eb98571b272f38b9c347031ff61ba0019f6745d8d3250d76725db7e65c41751d8c657b4afe985f34233a2c640566e9ef820738c863817340913cf5716f01b5b6a73c0484fba251300",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 15,
+          "testPassed": false,
+          "message": "54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f67",
+          "signature": "dd77e3aefcc15d3fa16679843cf036722fc3a0afa9273d62fc586b3a412f947f7eea0f5a55fe8432b83eb98571b272f38b9c347031ff61ba0019f6745d8d3250d76725db7e65c41751d8c657b4afe985f34233a2c640566e9ef820738c863817340913cf5716f01b5b6a73c0484fba251300",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 16,
+          "testPassed": true,
+          "message": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
+          "signature": "caf56b6e315c15f5b3f2a57acc6a1de4a160384387bc242ca324f934aa746a414539bb3f60c79d775f02fe0db6db71bd435587b84db1c451000d8f669d01ebdfb2a3eec87a4c36f0bf5b1caeab90ed71ef83ccf430a0c43d2884c6f731598103fdd94fdb6979c49963fb6dd9f7a587243900",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 17,
+          "testPassed": false,
+          "message": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff00",
+          "signature": "caf56b6e315c15f5b3f2a57acc6a1de4a160384387bc242ca324f934aa746a414539bb3f60c79d775f02fe0db6db71bd435587b84db1c451000d8f669d01ebdfb2a3eec87a4c36f0bf5b1caeab90ed71ef83ccf430a0c43d2884c6f731598103fdd94fdb6979c49963fb6dd9f7a587243900",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 18,
+          "testPassed": false,
+          "message": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
+          "signature": "35f56b6e315c15f5b3f2a57acc6a1de4a160384387bc242ca324f934aa746a414539bb3f60c79d775f02fe0db6db71bd435587b84db1c451000d8f669d01ebdfb2a3eec87a4c36f0bf5b1caeab90ed71ef83ccf430a0c43d2884c6f731598103fdd94fdb6979c49963fb6dd9f7a587243900",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 19,
+          "testPassed": true,
+          "message": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+          "signature": "a33a6b1f733ba79526deff05ac6dab5b222e26e7c0629bb92ca3556130b475c46e1fa1c6f064619e26cfe2c51c976e50f813a7ce0a44f9c5005d6fb242034fa53883728604a1b63d45095ebf326f1d54643473a0b0a9d48a87b4f733e1ad3ec40af88eaeabdc1ddc66ddb3a74d9e95e53900",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 20,
+          "testPassed": false,
+          "message": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab00",
+          "signature": "a33a6b1f733ba79526deff05ac6dab5b222e26e7c0629bb92ca3556130b475c46e1fa1c6f064619e26cfe2c51c976e50f813a7ce0a44f9c5005d6fb242034fa53883728604a1b63d45095ebf326f1d54643473a0b0a9d48a87b4f733e1ad3ec40af88eaeabdc1ddc66ddb3a74d9e95e53900",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 21,
+          "testPassed": false,
+          "message": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+          "signature": "5c3a6b1f733ba79526deff05ac6dab5b222e26e7c0629bb92ca3556130b475c46e1fa1c6f064619e26cfe2c51c976e50f813a7ce0a44f9c5005d6fb242034fa53883728604a1b63d45095ebf326f1d54643473a0b0a9d48a87b4f733e1ad3ec40af88eaeabdc1ddc66ddb3a74d9e95e53900",
+          "reason": "modified signature"
+        }
+      ]
+    },
+    {
+      "tgId": 5,
+      "seed": "3837363534333231302f2e2d2c2b2a292827262524232221201f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100",
+      "pk": "864fdb4e8cd0c1f032daa32da9ffacb9a86b15bfdab1027d2cd505d49e03c561e3ec47fa77b848ca186a5547abadf91bc77593262d8a7a1d00",
+      "tests": [
+        {
+          "tcId": 1,
+          "testPassed": true,
+          "message": "",
+          "signature": "052ffd486ce06c9937e9b1212551f2119eeba635833b7eaba85fa4c71bc8907e6c22623436cbe1e121f65cbeeaed5371fbc3f239f9594b9e005cd7a4998098cfa75737e26679fd22bc5a969a0e28432c1ca6977cfb72d623b62dc29ff8ac13e4892deed17ff75d936dd75a5deb8d0af53c00",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 2,
+          "testPassed": false,
+          "message": "00",
+          "signature": "052ffd486ce06c9937e9b1212551f2119eeba635833b7eaba85fa4c71bc8907e6c22623436cbe1e121f65cbeeaed5371fbc3f239f9594b9e005cd7a4998098cfa75737e26679fd22bc5a969a0e28432c1ca6977cfb72d623b62dc29ff8ac13e4892deed17ff75d936dd75a5deb8d0af53c00",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 3,
+          "testPassed": false,
+          "message": "",
+          "signature": "fa2ffd486ce06c9937e9b1212551f2119eeba635833b7eaba85fa4c71bc8907e6c22623436cbe1e121f65cbeeaed5371fbc3f239f9594b9e005cd7a4998098cfa75737e26679fd22bc5a969a0e28432c1ca6977cfb72d623b62dc29ff8ac13e4892deed17ff75d936dd75a5deb8d0af53c00",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 4,
+          "testPassed": true,
+          "message": "00",
+          "signature": "eaa7ff9d0dacd2dfc99d56f804d48452c12d5ec8d1ad2fafad4e905a2c5cfdd0f031fa2d1762f4d90237900d2d6f9696bb5b69beb141ce0800e7e5a926952331fd3dc99015459538ed1333c4e8c3d52e4f24ac53ead9165d146c0f68b78f3f79f57ab8e1d6db30d79f0ddf34eb7241422000",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 5,
+          "testPassed": false,
+          "message": "0000",
+          "signature": "eaa7ff9d0dacd2dfc99d56f804d48452c12d5ec8d1ad2fafad4e905a2c5cfdd0f031fa2d1762f4d90237900d2d6f9696bb5b69beb141ce0800e7e5a926952331fd3dc99015459538ed1333c4e8c3d52e4f24ac53ead9165d146c0f68b78f3f79f57ab8e1d6db30d79f0ddf34eb7241422000",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 6,
+          "testPassed": false,
+          "message": "00",
+          "signature": "15a7ff9d0dacd2dfc99d56f804d48452c12d5ec8d1ad2fafad4e905a2c5cfdd0f031fa2d1762f4d90237900d2d6f9696bb5b69beb141ce0800e7e5a926952331fd3dc99015459538ed1333c4e8c3d52e4f24ac53ead9165d146c0f68b78f3f79f57ab8e1d6db30d79f0ddf34eb7241422000",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 7,
+          "testPassed": true,
+          "message": "ff",
+          "signature": "5b61c87858c2dfe166401146990025f497a4c91ce1e26c3c9e96edb58893c9624497abca6a2d54a8e92ebd400f3e11532109940716a9066a80746c156a05716a5fcfe7291017854be1ef84ff129a6da2796ffb5b6305e901245d3a6311fbc7a6021301b2cb2331b397a3396e0811876e0400",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 8,
+          "testPassed": false,
+          "message": "ff00",
+          "signature": "5b61c87858c2dfe166401146990025f497a4c91ce1e26c3c9e96edb58893c9624497abca6a2d54a8e92ebd400f3e11532109940716a9066a80746c156a05716a5fcfe7291017854be1ef84ff129a6da2796ffb5b6305e901245d3a6311fbc7a6021301b2cb2331b397a3396e0811876e0400",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 9,
+          "testPassed": false,
+          "message": "ff",
+          "signature": "a461c87858c2dfe166401146990025f497a4c91ce1e26c3c9e96edb58893c9624497abca6a2d54a8e92ebd400f3e11532109940716a9066a80746c156a05716a5fcfe7291017854be1ef84ff129a6da2796ffb5b6305e901245d3a6311fbc7a6021301b2cb2331b397a3396e0811876e0400",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 10,
+          "testPassed": true,
+          "message": "48656c6c6f2c2045643434382d4221",
+          "signature": "121b25a126aad372e96e38d0283ececfb5ec9fc62a193fe6bad70ce9ef5c36ca581742f1067f0f4e521542cfd778d5c1b3ddc988c4da0bb480a3ac21273d81e77cba5d0fac8a524fc89df7fa05bb711e1f30109eddd786262bc54d18fd5df5ddca1a486927d7b5e59d31ffd4186a8e973b00",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 11,
+          "testPassed": false,
+          "message": "48656c6c6f2c2045643434382d422100",
+          "signature": "121b25a126aad372e96e38d0283ececfb5ec9fc62a193fe6bad70ce9ef5c36ca581742f1067f0f4e521542cfd778d5c1b3ddc988c4da0bb480a3ac21273d81e77cba5d0fac8a524fc89df7fa05bb711e1f30109eddd786262bc54d18fd5df5ddca1a486927d7b5e59d31ffd4186a8e973b00",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 12,
+          "testPassed": false,
+          "message": "48656c6c6f2c2045643434382d4221",
+          "signature": "ed1b25a126aad372e96e38d0283ececfb5ec9fc62a193fe6bad70ce9ef5c36ca581742f1067f0f4e521542cfd778d5c1b3ddc988c4da0bb480a3ac21273d81e77cba5d0fac8a524fc89df7fa05bb711e1f30109eddd786262bc54d18fd5df5ddca1a486927d7b5e59d31ffd4186a8e973b00",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 13,
+          "testPassed": true,
+          "message": "54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f67",
+          "signature": "396df97f54ce9a833ea0c4d34e69fad951d45fc79e9c3fd77eb4c86c8cd1bd3f8d1b82a090b3e0062351492350df84c6dfeef3a0c8f072b180bce06fb2236815f821ee2fe8bdf9d046448d74b91f838db186679177a0fc3f1e7011bdbf8faa3bb1cf264170c25f0cb312d9038cb8992e3c00",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 14,
+          "testPassed": false,
+          "message": "54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f6700",
+          "signature": "396df97f54ce9a833ea0c4d34e69fad951d45fc79e9c3fd77eb4c86c8cd1bd3f8d1b82a090b3e0062351492350df84c6dfeef3a0c8f072b180bce06fb2236815f821ee2fe8bdf9d046448d74b91f838db186679177a0fc3f1e7011bdbf8faa3bb1cf264170c25f0cb312d9038cb8992e3c00",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 15,
+          "testPassed": false,
+          "message": "54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f67",
+          "signature": "c66df97f54ce9a833ea0c4d34e69fad951d45fc79e9c3fd77eb4c86c8cd1bd3f8d1b82a090b3e0062351492350df84c6dfeef3a0c8f072b180bce06fb2236815f821ee2fe8bdf9d046448d74b91f838db186679177a0fc3f1e7011bdbf8faa3bb1cf264170c25f0cb312d9038cb8992e3c00",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 16,
+          "testPassed": true,
+          "message": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
+          "signature": "9d496d35bd905566df9e77132fb959e4164c1dba5a8ed17834a1b8488aaa7056db86e37a24144e74d781245fc39c693c086f1c0dd0724180002022e0ef88e2c53fe0d7e1ce31161412cd5793d9f6bde192394938c2d037fc9805ff0decb2a7890094347cee2cdc41455cbbe0e240f7c02b00",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 17,
+          "testPassed": false,
+          "message": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff00",
+          "signature": "9d496d35bd905566df9e77132fb959e4164c1dba5a8ed17834a1b8488aaa7056db86e37a24144e74d781245fc39c693c086f1c0dd0724180002022e0ef88e2c53fe0d7e1ce31161412cd5793d9f6bde192394938c2d037fc9805ff0decb2a7890094347cee2cdc41455cbbe0e240f7c02b00",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 18,
+          "testPassed": false,
+          "message": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
+          "signature": "62496d35bd905566df9e77132fb959e4164c1dba5a8ed17834a1b8488aaa7056db86e37a24144e74d781245fc39c693c086f1c0dd0724180002022e0ef88e2c53fe0d7e1ce31161412cd5793d9f6bde192394938c2d037fc9805ff0decb2a7890094347cee2cdc41455cbbe0e240f7c02b00",
+          "reason": "modified signature"
+        },
+        {
+          "tcId": 19,
+          "testPassed": true,
+          "message": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+          "signature": "d19c0b0157c4aaed2087b73da8562d2c4d93ccb7637cdfc388922b3dddb399fbcd0bf9575fe0759fc89193eaae53a876f9e721b488d3fbae00b7a1af2ef65c1b4427d66452c162a8c7e119c0c5c034f3a3c952e9a51eea399c864ff9fb3ef52c285a6ac22816123eb7d0c5b6633f4aff2b00",
+          "reason": "valid signature"
+        },
+        {
+          "tcId": 20,
+          "testPassed": false,
+          "message": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab00",
+          "signature": "d19c0b0157c4aaed2087b73da8562d2c4d93ccb7637cdfc388922b3dddb399fbcd0bf9575fe0759fc89193eaae53a876f9e721b488d3fbae00b7a1af2ef65c1b4427d66452c162a8c7e119c0c5c034f3a3c952e9a51eea399c864ff9fb3ef52c285a6ac22816123eb7d0c5b6633f4aff2b00",
+          "reason": "modified message"
+        },
+        {
+          "tcId": 21,
+          "testPassed": false,
+          "message": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+          "signature": "2e9c0b0157c4aaed2087b73da8562d2c4d93ccb7637cdfc388922b3dddb399fbcd0bf9575fe0759fc89193eaae53a876f9e721b488d3fbae00b7a1af2ef65c1b4427d66452c162a8c7e119c0c5c034f3a3c952e9a51eea399c864ff9fb3ef52c285a6ac22816123eb7d0c5b6633f4aff2b00",
+          "reason": "modified signature"
+        }
+      ]
+    }
+  ]
+}

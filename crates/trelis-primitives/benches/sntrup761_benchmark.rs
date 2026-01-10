@@ -328,6 +328,86 @@ fn bench_poly_mult(c: &mut Criterion) {
     group.finish();
 }
 
+/// Benchmark field element inversion: Extended GCD vs Fermat.
+fn bench_fq_recip(c: &mut Criterion) {
+    use trelis_primitives::sntrup761_fq;
+
+    let mut group = c.benchmark_group("sntrup761_fq_recip");
+
+    // Test values for inversion
+    let test_values: Vec<i16> = vec![1, 7, 42, 761, 1234, 2000, 4000];
+
+    group.bench_function("extended_gcd", |bench| {
+        bench.iter(|| {
+            for &a in &test_values {
+                black_box(sntrup761_fq::recip(black_box(a)));
+            }
+        })
+    });
+
+    // Fermat's little theorem: a^(q-2) mod q
+    fn fermat_recip(a: i16) -> i16 {
+        const Q: i32 = 4591;
+        const Q12: i32 = (Q - 1) / 2;
+        let mut ai = a;
+        for _ in 1..Q - 2 {
+            let x = (a as i32 * ai as i32) % Q;
+            ai = if x > Q12 {
+                (x - Q) as i16
+            } else if x < -Q12 {
+                (x + Q) as i16
+            } else {
+                x as i16
+            };
+        }
+        ai
+    }
+
+    group.bench_function("fermat", |bench| {
+        bench.iter(|| {
+            for &a in &test_values {
+                black_box(fermat_recip(black_box(a)));
+            }
+        })
+    });
+
+    group.finish();
+}
+
+/// Benchmark Rq polynomial inversion: optimized vs ntrulp.
+fn bench_rq_recip(c: &mut Criterion) {
+    use ntrulp::poly::r3::R3;
+    use trelis_primitives::sntrup761_fq::Rq as FastRq;
+
+    let mut group = c.benchmark_group("sntrup761_rq_recip");
+    group.sample_size(10); // Polynomial inversion is slow
+
+    // Create a deterministic test polynomial (simple pattern that's invertible)
+    let mut coeffs_i8 = [0i8; 761];
+    // Create a short polynomial with appropriate weight
+    for i in 0..286 {
+        coeffs_i8[i * 2] = if i % 2 == 0 { 1 } else { -1 };
+    }
+
+    group.bench_function("optimized_egcd", |bench| {
+        let f_rq: FastRq = (&coeffs_i8).into();
+        bench.iter(|| {
+            let result = f_rq.recip::<3>();
+            black_box(result)
+        })
+    });
+
+    group.bench_function("ntrulp_fermat", |bench| {
+        let f_rq = R3::from(coeffs_i8).rq_from_r3();
+        bench.iter(|| {
+            let result = f_rq.recip::<3>();
+            black_box(result)
+        })
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_keygen,
@@ -338,6 +418,8 @@ criterion_group!(
     bench_batch_kem,
     bench_interop,
     bench_poly_mult,
+    bench_fq_recip,
+    bench_rq_recip,
 );
 
 criterion_main!(benches);

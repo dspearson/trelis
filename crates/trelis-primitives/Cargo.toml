@@ -12,7 +12,7 @@ default = ["std"]
 # std feature: enables standard library support
 # On Unix/Linux: uses C FFI sntrup761 (pqcrypto-ntruprime) for performance
 # On Windows: uses pure Rust sntrup761 (ntrulp) since pqcrypto C code doesn't compile with MSVC
-std = ["alloc", "trelis-error/std", "blake3/std", "chacha20poly1305/std", "getrandom/std"]
+std = ["alloc", "trelis-error/std", "blake3/std", "blake3/rayon", "chacha20poly1305/std", "getrandom/std"]
 alloc = ["trelis-error/alloc", "chacha20poly1305/alloc"]
 # WASM target support (browser environment)
 # Uses ntrulp (pure Rust) with custom encoding to match standard wire format
@@ -25,22 +25,23 @@ expose-internals = []
 # Unix: mlock(2), Windows: VirtualLock
 mlock = ["std", "libc", "windows-sys"]
 
-# ML-DSA-B-65: PQC-Suite-B variant with BLAKE3 (faster, experimental)
+# ML-DSA-65 BLAKE3 variant (faster, experimental)
 # Provides MlDsa65B* types separate from standard MlDsa65* (FIPS 204)
-mldsa-suite-b = ["ml-dsa"]
-# Use Suite-B as the default ML-DSA variant (requires mldsa-suite-b)
-mldsa-suite-b-default = ["mldsa-suite-b"]
+mldsa-blake3 = []
+# Use BLAKE3 as the default ML-DSA variant (requires mldsa-blake3)
+mldsa-blake3-default = ["mldsa-blake3"]
 
-# Ed448-B: Experimental variant with BLAKE3 (faster, non-standard)
+# Ed448 BLAKE3 variant (faster, non-standard)
 # Provides Ed448B* types separate from standard Ed448* (RFC 8032)
-ed448-suite-b = []
-# Use Suite-B as the default Ed448 variant (requires ed448-suite-b)
-ed448-suite-b-default = ["ed448-suite-b"]
+ed448-blake3 = []
+# Use BLAKE3 as the default Ed448 variant (requires ed448-blake3)
+ed448-blake3-default = ["ed448-blake3"]
 
 [dependencies]
 trelis-error.workspace = true
 blake3.workspace = true
 sha2.workspace = true
+sha3 = { version = "0.11.0-rc.0", default-features = false }
 chacha20poly1305.workspace = true
 ed448-goldilocks-plus.workspace = true
 fips204.workspace = true
@@ -48,14 +49,15 @@ zeroize.workspace = true
 subtle.workspace = true
 rand_core.workspace = true
 getrandom.workspace = true
+hybrid-array = { version = "0.4", features = ["extra-sizes", "zeroize"] }
+num-traits = { version = "0.2.19", default-features = false }
+signature = { version = "3.0.0-rc.2", default-features = false, features = ["rand_core"] }
 
 # Post-quantum KEM - Pure Rust (WASM builds, with custom encoding layer)
 ntrulp = { workspace = true, optional = true }
 # Memory locking (optional, for mlock feature)
 libc = { workspace = true, optional = true }
 windows-sys = { workspace = true, optional = true }
-# ML-DSA-B (PQC-Suite-B BLAKE3 variant)
-ml-dsa = { workspace = true, optional = true }
 
 # Post-quantum KEM - C FFI (native Unix/Linux only)
 # Excluded on Windows (MSVC issues) and WASM (no C FFI)
@@ -68,10 +70,12 @@ pqcrypto-traits = { workspace = true }
 ntrulp = { workspace = true }
 
 [dev-dependencies]
-hex.workspace = true
+hex = { workspace = true, features = ["serde"] }
+hex-literal = "1.1"
 proptest.workspace = true
 criterion.workspace = true
 rayon.workspace = true
+rand = "0.8"
 serde.workspace = true
 serde_json.workspace = true
 
@@ -83,4 +87,11 @@ required-features = ["std", "wasm"]
 [[bench]]
 name = "signature_benchmark"
 harness = false
-required-features = ["mldsa-suite-b", "ed448-suite-b"]
+
+[[bench]]
+name = "mldsa_variant_benchmark"
+harness = false
+
+[[bench]]
+name = "ed448_variant_benchmark"
+harness = false

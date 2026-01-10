@@ -138,15 +138,14 @@ impl SignedPreKeyBundle {
     ///
     /// # Errors
     ///
-    /// Returns `HybridSignatureVerificationFailed` if the signature is invalid.
+    /// Returns `BundleSignatureInvalid` if the signature is invalid.
     #[cfg(feature = "alloc")]
     pub fn verify(&self) -> Result<()> {
         let data = self.signing_data();
-        if self.bundle.identity_signing.verify(&data, &self.signature) {
-            Ok(())
-        } else {
-            Err(CryptoError::BundleSignatureInvalid)
-        }
+        self.bundle
+            .identity_signing
+            .verify(&data, &self.signature)
+            .map_err(|_| CryptoError::BundleSignatureInvalid)
     }
 
     /// Validates bundle timestamps against the current time.

@@ -313,8 +313,20 @@ impl KemRatchet {
 #[cfg(feature = "alloc")]
 impl Zeroize for KemRatchet {
     fn zeroize(&mut self) {
+        // Zeroize all sensitive cryptographic material
         self.root_key.zeroize();
-        // Note: keypairs should implement Zeroize as well
+        self.our_keypair.zeroize();
+
+        // Zeroize all previous keypairs
+        for (_, keypair) in &mut self.previous_keypairs {
+            keypair.zeroize();
+        }
+        self.previous_keypairs.clear();
+
+        // Reset counters and status (not secret, but good hygiene)
+        self.send_count = 0;
+        self.recv_count = 0;
+        self.status = RatchetStatus::Uninitialised;
     }
 }
 

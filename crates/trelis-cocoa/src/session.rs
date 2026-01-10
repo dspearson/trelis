@@ -11,6 +11,7 @@ use alloc::vec::Vec;
 use trelis_error::{CryptoError, Result};
 use trelis_hybrid::HybridKemKeypair;
 use trelis_primitives::aead::{self, AeadKey, Nonce};
+use zeroize::Zeroize;
 
 use crate::epoch::Epoch;
 use crate::tree::PartialTreeView;
@@ -175,27 +176,26 @@ impl CocoaSession {
         self.tree.member_count()
     }
 
-    /// Returns the current epoch's init_secret for serialization.
+    /// Returns the current epoch's init_secret for serialisation.
     ///
-    /// This is needed to properly serialize and restore session state.
+    /// This is needed to properly serialise and restore session state.
     #[must_use]
     pub fn init_secret(&self) -> &[u8; 32] {
         self.epoch.init_secret()
     }
 
-    /// Returns the current message counter for serialization.
+    /// Returns the current message counter for serialisation.
     #[must_use]
     pub fn message_counter(&self) -> u64 {
         self.epoch.message_counter()
     }
 
-    /// Sets the message counter (for deserialization).
+    /// Sets the message counter (for deserialisation).
+    ///
+    /// This directly sets the counter without deriving intermediate keys,
+    /// which is both more efficient and avoids potential overflow issues.
     pub fn set_message_counter(&mut self, counter: u64) {
-        // We need to advance the internal counter to match
-        // This is a workaround since we can't directly set it
-        while self.epoch.message_counter() < counter {
-            let _ = self.epoch.next_message_key();
-        }
+        self.epoch.set_message_counter(counter);
     }
 
     /// Encrypts a message for the group.
@@ -299,6 +299,24 @@ impl CocoaSession {
     pub fn rotate_keypair(&mut self) -> Result<()> {
         self.our_keypair = HybridKemKeypair::generate()?;
         Ok(())
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl Zeroize for CocoaSession {
+    fn zeroize(&mut self) {
+        // Zeroize all sensitive cryptographic material
+        self.our_keypair.zeroize();
+        self.epoch.zeroize();
+        self.transcript_hash.zeroize();
+        // group_id, our_user_id, our_leaf_position, and tree are not secrets
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl Drop for CocoaSession {
+    fn drop(&mut self) {
+        self.zeroize();
     }
 }
 

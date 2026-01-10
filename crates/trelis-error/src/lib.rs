@@ -57,6 +57,14 @@ pub enum CryptoError {
     /// Invalid signature format or length.
     InvalidSignature,
 
+    /// Context string exceeds maximum allowed length (255 bytes).
+    InvalidContextLength {
+        /// Actual length in bytes.
+        actual: usize,
+        /// Maximum allowed length (255).
+        max: usize,
+    },
+
     // ─── Encryption Errors ──────────────────────────────────────────────────
     /// Decryption failed due to invalid ciphertext or wrong key.
     ///
@@ -278,6 +286,12 @@ impl fmt::Display for CryptoError {
                 write!(f, "hybrid signature verification failed")
             }
             Self::InvalidSignature => write!(f, "invalid signature format"),
+            Self::InvalidContextLength { actual, max } => {
+                write!(
+                    f,
+                    "context string too long: {actual} bytes exceeds maximum {max}"
+                )
+            }
 
             // Encryption errors
             Self::DecryptionFailed => write!(f, "decryption failed"),
@@ -480,6 +494,7 @@ impl CryptoError {
             | Self::UnexpectedEndOfInput { .. }
             | Self::InvalidKeyLength { .. }
             | Self::InvalidNonceLength { .. }
+            | Self::InvalidContextLength { .. }
             | Self::InvalidCiphertext
             | Self::InvalidCiphertextLength { .. }
             | Self::EncapsulationFailed

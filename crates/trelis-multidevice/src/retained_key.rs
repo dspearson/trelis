@@ -3,6 +3,7 @@
 //! When history sync is enabled, message keys are retained locally
 //! for potential sharing with new devices.
 
+use trelis_error::{CryptoError, Result};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Retained message key for history sharing.
@@ -71,12 +72,11 @@ impl RetainedKey {
     ///
     /// # Errors
     ///
-    /// Returns `None` if the input is not exactly 80 bytes.
-    #[must_use]
+    /// Returns `MalformedMessage` if the input is not exactly 80 bytes.
     #[allow(clippy::expect_used)] // Slices guaranteed correct size after length check
-    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         if bytes.len() != Self::SERIALISED_SIZE {
-            return None;
+            return Err(CryptoError::MalformedMessage);
         }
 
         let mut message_id = [0u8; 32];
@@ -90,7 +90,7 @@ impl RetainedKey {
         let timestamp =
             u64::from_le_bytes(bytes[72..80].try_into().expect("slice is exactly 8 bytes"));
 
-        Some(Self {
+        Ok(Self {
             message_id,
             message_key,
             sequence,
@@ -148,8 +148,8 @@ mod tests {
 
     #[test]
     fn test_retained_key_from_bytes_wrong_size() {
-        assert!(RetainedKey::from_bytes(&[0u8; 79]).is_none());
-        assert!(RetainedKey::from_bytes(&[0u8; 81]).is_none());
+        assert!(RetainedKey::from_bytes(&[0u8; 79]).is_err());
+        assert!(RetainedKey::from_bytes(&[0u8; 81]).is_err());
     }
 
     #[test]

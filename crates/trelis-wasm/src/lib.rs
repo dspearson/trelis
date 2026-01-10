@@ -22,14 +22,13 @@
 use wasm_bindgen::prelude::*;
 
 // Type aliases using the compile-time selected default ML-DSA scheme
-// With `mldsa-suite-b-default` feature: uses MlDsa65SuiteB (BLAKE3)
+// With `mldsa-blake3-default` feature: uses MlDsa65Blake3 (BLAKE3)
 // Without that feature (default): uses MlDsa65Fips204 (SHA-3/SHAKE)
 type HybridSigningPublicKey =
     trelis_hybrid::HybridSigningPublicKey<trelis_primitives::mldsa::DefaultMlDsaScheme>;
 type HybridSigningKeypair =
     trelis_hybrid::HybridSigningKeypair<trelis_primitives::mldsa::DefaultMlDsaScheme>;
-type HybridSignature =
-    trelis_hybrid::HybridSignature<trelis_primitives::mldsa::DefaultMlDsaScheme>;
+type HybridSignature = trelis_hybrid::HybridSignature<trelis_primitives::mldsa::DefaultMlDsaScheme>;
 
 /// Initialise the WASM module with better panic handling (optional).
 #[wasm_bindgen(start)]
@@ -313,7 +312,7 @@ pub fn mldsa65_verify(
     let sig = trelis_primitives::MlDsa65Signature::from_bytes(signature)
         .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
-    Ok(pk.verify(message, &sig))
+    Ok(pk.verify(message, &sig).is_ok())
 }
 
 // ============================================================================
@@ -363,7 +362,7 @@ pub fn hybrid_verify(public_key: &[u8], message: &[u8], signature: &[u8]) -> Res
     let sig = HybridSignature::from_bytes(signature)
         .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
-    Ok(pk.verify(message, &sig))
+    Ok(pk.verify(message, &sig).is_ok())
 }
 
 // ============================================================================
@@ -559,7 +558,7 @@ pub fn hybrid_identity_verify(
     let sig = trelis_hybrid::HybridSignature::from_bytes(signature)
         .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
-    Ok(pk.verify(message, &sig))
+    Ok(pk.verify(message, &sig).is_ok())
 }
 
 /// Decapsulate using a hybrid identity key.
@@ -939,7 +938,7 @@ pub fn x3dh_verify_bundle(signed_bundle: &[u8]) -> Result<JsValue, JsValue> {
     let signature = HybridSignature::from_bytes(sig_bytes)
         .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
-    if !id_sign.verify(&signing_data, &signature) {
+    if id_sign.verify(&signing_data, &signature).is_err() {
         return Err(JsValue::from_str("Bundle signature invalid"));
     }
 
@@ -2734,7 +2733,7 @@ pub fn retained_key_create(
 #[wasm_bindgen]
 pub fn retained_key_parse(bytes: &[u8]) -> Result<JsValue, JsValue> {
     let key = trelis_multidevice::RetainedKey::from_bytes(bytes)
-        .ok_or_else(|| JsValue::from_str("Invalid retained key"))?;
+        .map_err(|_| JsValue::from_str("Invalid retained key"))?;
 
     let obj = js_sys::Object::new();
     js_sys::Reflect::set(
@@ -2789,7 +2788,7 @@ pub fn history_key_share_create(
     let mut keys = Vec::new();
     for chunk in retained_keys.chunks(80) {
         let key = trelis_multidevice::RetainedKey::from_bytes(chunk)
-            .ok_or_else(|| JsValue::from_str("Invalid retained key in array"))?;
+            .map_err(|_| JsValue::from_str("Invalid retained key in array"))?;
         keys.push(key);
     }
 
@@ -2904,7 +2903,7 @@ pub fn thread_key_store_retain(
     let mut store = deserialize_thread_key_store(store_bytes)?;
 
     let key = trelis_multidevice::RetainedKey::from_bytes(retained_key)
-        .ok_or_else(|| JsValue::from_str("Invalid retained key"))?;
+        .map_err(|_| JsValue::from_str("Invalid retained key"))?;
 
     store.retain_key(key);
 
@@ -3000,7 +2999,7 @@ pub fn thread_key_store_merge(store_bytes: &[u8], other_keys: &[u8]) -> Result<V
     let mut keys = Vec::new();
     for chunk in other_keys.chunks(80) {
         let key = trelis_multidevice::RetainedKey::from_bytes(chunk)
-            .ok_or_else(|| JsValue::from_str("Invalid retained key"))?;
+            .map_err(|_| JsValue::from_str("Invalid retained key"))?;
         keys.push(key);
     }
 
@@ -3044,7 +3043,7 @@ fn deserialize_thread_key_store(
     for i in 0..key_count {
         let offset = 40 + i * 80;
         let key = trelis_multidevice::RetainedKey::from_bytes(&bytes[offset..offset + 80])
-            .ok_or_else(|| JsValue::from_str("Invalid retained key in store"))?;
+            .map_err(|_| JsValue::from_str("Invalid retained key in store"))?;
         store.retain_key(key);
     }
 
@@ -3158,7 +3157,7 @@ mod native_tests {
         let message = b"post-quantum secure message";
 
         let signature = keypair.sign(message).unwrap();
-        assert!(keypair.verifying_key().verify(message, &signature));
+        assert!(keypair.verifying_key().verify(message, &signature).is_ok());
     }
 
     // ========================================================================
@@ -3243,8 +3242,13 @@ mod native_tests {
         let signature = keypair.sign(message).unwrap();
 
         // Verify
-        assert!(keypair.public_key().verify(message, &signature));
-        assert!(!keypair.public_key().verify(b"wrong message", &signature));
+        assert!(keypair.public_key().verify(message, &signature).is_ok());
+        assert!(
+            keypair
+                .public_key()
+                .verify(b"wrong message", &signature)
+                .is_err()
+        );
     }
 
     #[test]
@@ -3261,7 +3265,7 @@ mod native_tests {
         // Verify signing still works after restoration
         let message = b"test after restore";
         let signature = restored.sign(message).unwrap();
-        assert!(restored.public_key().verify(message, &signature));
+        assert!(restored.public_key().verify(message, &signature).is_ok());
     }
 
     // ========================================================================

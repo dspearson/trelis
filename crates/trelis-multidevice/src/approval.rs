@@ -119,11 +119,7 @@ impl DeviceApprovalCertificate {
             self.approved_at,
         );
 
-        if approving_device_key.verify(&sig_data, &self.signature) {
-            Ok(())
-        } else {
-            Err(CryptoError::SignatureVerificationFailed)
-        }
+        approving_device_key.verify(&sig_data, &self.signature)
     }
 
     /// Creates the data to be signed.

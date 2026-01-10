@@ -33,7 +33,7 @@
 //! // Option 1: Use LockedBox for automatic lock/unlock lifecycle
 //! let secret_key = LockedBox::new([0u8; 32])?;
 //! // Memory is locked, use secret_key.as_ref() to access
-//! // Automatically unlocked and zeroized on drop
+//! // Automatically unlocked and zeroised on drop
 //!
 //! // Option 2: Manual lock/unlock for existing allocations
 //! let mut buffer = vec![0u8; 4096];
@@ -94,6 +94,11 @@ pub enum MemlockError {
         /// OS error code.
         os_error: i32,
     },
+    /// Memory protection change failed (mprotect/VirtualProtect).
+    ProtectFailed {
+        /// OS error code.
+        os_error: i32,
+    },
     /// Memory allocation failed.
     AllocationFailed,
     /// The requested size is zero or too large.
@@ -110,6 +115,9 @@ impl fmt::Display for MemlockError {
             }
             Self::UnlockFailed { os_error } => {
                 write!(f, "memory unlock failed (os error: {os_error})")
+            }
+            Self::ProtectFailed { os_error } => {
+                write!(f, "memory protection change failed (os error: {os_error})")
             }
             Self::AllocationFailed => write!(f, "memory allocation failed"),
             Self::InvalidSize => write!(f, "invalid size for memory locking"),
@@ -339,6 +347,283 @@ pub fn advise_secret(_ptr: *const u8, _len: usize) -> Result<()> {
 }
 
 // ============================================================================
+// Memory protection (mprotect) - Unix implementation
+// ============================================================================
+
+/// Sets memory region to read-only.
+///
+/// After calling this, any write attempt to the memory region will cause
+/// a segmentation fault (SIGSEGV on Unix, access violation on Windows).
+///
+/// # Use Cases
+///
+/// - Protect cryptographic keys after initialisation
+/// - Detect accidental writes to immutable data
+/// - Defense-in-depth against buffer overflows
+///
+/// # Requirements
+///
+/// The memory region should be page-aligned for best results. Non-aligned
+/// regions will have the protection applied to the containing pages.
+///
+/// # Errors
+///
+/// Returns `MemlockError::ProtectFailed` if the protection change fails.
+#[cfg(unix)]
+pub fn protect_readonly(ptr: *const u8, len: usize) -> Result<()> {
+    if len == 0 {
+        return Ok(());
+    }
+
+    // SAFETY: mprotect with PROT_READ is safe for valid memory regions
+    let result = unsafe { libc::mprotect(ptr as *mut libc::c_void, len, libc::PROT_READ) };
+
+    if result == 0 {
+        Ok(())
+    } else {
+        let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(-1);
+        Err(MemlockError::ProtectFailed { os_error: errno })
+    }
+}
+
+/// Sets memory region to read-write.
+///
+/// This restores normal read-write access to a previously protected region.
+/// Must be called before deallocating protected memory.
+///
+/// # Errors
+///
+/// Returns `MemlockError::ProtectFailed` if the protection change fails.
+#[cfg(unix)]
+pub fn protect_readwrite(ptr: *mut u8, len: usize) -> Result<()> {
+    if len == 0 {
+        return Ok(());
+    }
+
+    // SAFETY: mprotect with PROT_READ | PROT_WRITE is safe for valid memory regions
+    let result = unsafe {
+        libc::mprotect(
+            ptr as *mut libc::c_void,
+            len,
+            libc::PROT_READ | libc::PROT_WRITE,
+        )
+    };
+
+    if result == 0 {
+        Ok(())
+    } else {
+        let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(-1);
+        Err(MemlockError::ProtectFailed { os_error: errno })
+    }
+}
+
+/// Sets memory region to no-access (neither readable nor writable).
+///
+/// After calling this, any read or write attempt to the memory region will
+/// cause a segmentation fault. This is used for guard pages.
+///
+/// # Use Cases
+///
+/// - Guard pages to detect buffer overflows/underflows
+/// - Temporarily hiding sensitive data
+///
+/// # Errors
+///
+/// Returns `MemlockError::ProtectFailed` if the protection change fails.
+#[cfg(unix)]
+pub fn protect_noaccess(ptr: *const u8, len: usize) -> Result<()> {
+    if len == 0 {
+        return Ok(());
+    }
+
+    // SAFETY: mprotect with PROT_NONE is safe for valid memory regions
+    let result = unsafe { libc::mprotect(ptr as *mut libc::c_void, len, libc::PROT_NONE) };
+
+    if result == 0 {
+        Ok(())
+    } else {
+        let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(-1);
+        Err(MemlockError::ProtectFailed { os_error: errno })
+    }
+}
+
+// ============================================================================
+// Memory protection (mprotect) - Windows implementation
+// ============================================================================
+
+/// Sets memory region to read-only on Windows.
+#[cfg(windows)]
+pub fn protect_readonly(ptr: *const u8, len: usize) -> Result<()> {
+    use windows_sys::Win32::Foundation::GetLastError;
+    use windows_sys::Win32::System::Memory::{PAGE_READONLY, VirtualProtect};
+
+    if len == 0 {
+        return Ok(());
+    }
+
+    let mut old_protect: u32 = 0;
+
+    // SAFETY: VirtualProtect is safe for valid memory regions
+    let result = unsafe {
+        VirtualProtect(
+            ptr as *mut core::ffi::c_void,
+            len,
+            PAGE_READONLY,
+            &mut old_protect,
+        )
+    };
+
+    if result != 0 {
+        Ok(())
+    } else {
+        Err(MemlockError::ProtectFailed {
+            os_error: unsafe { GetLastError() } as i32,
+        })
+    }
+}
+
+/// Sets memory region to read-write on Windows.
+#[cfg(windows)]
+pub fn protect_readwrite(ptr: *mut u8, len: usize) -> Result<()> {
+    use windows_sys::Win32::Foundation::GetLastError;
+    use windows_sys::Win32::System::Memory::{PAGE_READWRITE, VirtualProtect};
+
+    if len == 0 {
+        return Ok(());
+    }
+
+    let mut old_protect: u32 = 0;
+
+    // SAFETY: VirtualProtect is safe for valid memory regions
+    let result = unsafe {
+        VirtualProtect(
+            ptr as *mut core::ffi::c_void,
+            len,
+            PAGE_READWRITE,
+            &mut old_protect,
+        )
+    };
+
+    if result != 0 {
+        Ok(())
+    } else {
+        Err(MemlockError::ProtectFailed {
+            os_error: unsafe { GetLastError() } as i32,
+        })
+    }
+}
+
+/// Sets memory region to no-access on Windows.
+#[cfg(windows)]
+pub fn protect_noaccess(ptr: *const u8, len: usize) -> Result<()> {
+    use windows_sys::Win32::Foundation::GetLastError;
+    use windows_sys::Win32::System::Memory::{PAGE_NOACCESS, VirtualProtect};
+
+    if len == 0 {
+        return Ok(());
+    }
+
+    let mut old_protect: u32 = 0;
+
+    // SAFETY: VirtualProtect is safe for valid memory regions
+    let result = unsafe {
+        VirtualProtect(
+            ptr as *mut core::ffi::c_void,
+            len,
+            PAGE_NOACCESS,
+            &mut old_protect,
+        )
+    };
+
+    if result != 0 {
+        Ok(())
+    } else {
+        Err(MemlockError::ProtectFailed {
+            os_error: unsafe { GetLastError() } as i32,
+        })
+    }
+}
+
+// ============================================================================
+// Page-aligned allocation helpers
+// ============================================================================
+
+/// Rounds a size up to the nearest page boundary.
+#[inline]
+fn page_round(size: usize, page_size: usize) -> usize {
+    (size + page_size - 1) & !(page_size - 1)
+}
+
+/// Allocates page-aligned memory.
+///
+/// Returns a pointer to the allocated memory and the actual allocated size.
+/// The caller is responsible for deallocating with `page_aligned_free`.
+#[cfg(unix)]
+fn page_aligned_alloc(size: usize) -> Result<(*mut u8, usize)> {
+    let ps = page_size();
+    let aligned_size = page_round(size, ps);
+
+    if aligned_size == 0 {
+        return Err(MemlockError::InvalidSize);
+    }
+
+    let mut ptr: *mut libc::c_void = core::ptr::null_mut();
+
+    // SAFETY: posix_memalign is safe with valid alignment (power of 2, multiple of sizeof(void*))
+    let result = unsafe { libc::posix_memalign(&mut ptr, ps, aligned_size) };
+
+    if result == 0 && !ptr.is_null() {
+        Ok((ptr as *mut u8, aligned_size))
+    } else {
+        Err(MemlockError::AllocationFailed)
+    }
+}
+
+/// Allocates page-aligned memory on Windows.
+#[cfg(windows)]
+fn page_aligned_alloc(size: usize) -> Result<(*mut u8, usize)> {
+    use windows_sys::Win32::System::Memory::{
+        MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE, VirtualAlloc,
+    };
+
+    let ps = page_size();
+    let aligned_size = page_round(size, ps);
+
+    if aligned_size == 0 {
+        return Err(MemlockError::InvalidSize);
+    }
+
+    // SAFETY: VirtualAlloc with MEM_COMMIT | MEM_RESERVE allocates new memory
+    let ptr = unsafe {
+        VirtualAlloc(
+            core::ptr::null(),
+            aligned_size,
+            MEM_COMMIT | MEM_RESERVE,
+            PAGE_READWRITE,
+        )
+    };
+
+    if !ptr.is_null() {
+        Ok((ptr as *mut u8, aligned_size))
+    } else {
+        Err(MemlockError::AllocationFailed)
+    }
+}
+
+/// Frees page-aligned memory allocated with `page_aligned_alloc`.
+#[cfg(unix)]
+unsafe fn page_aligned_free(ptr: *mut u8, _size: usize) {
+    unsafe { libc::free(ptr as *mut libc::c_void) };
+}
+
+/// Frees page-aligned memory on Windows.
+#[cfg(windows)]
+unsafe fn page_aligned_free(ptr: *mut u8, _size: usize) {
+    use windows_sys::Win32::System::Memory::{MEM_RELEASE, VirtualFree};
+    unsafe { VirtualFree(ptr as *mut core::ffi::c_void, 0, MEM_RELEASE) };
+}
+
+// ============================================================================
 // LockedBox<T> - Smart pointer with automatic memory locking
 // ============================================================================
 
@@ -379,7 +664,7 @@ pub fn advise_secret(_ptr: *const u8, _len: usize) -> Result<()> {
 /// # Failure Handling
 ///
 /// If memory locking fails (e.g., insufficient privileges), `new()` returns an error
-/// and the value is securely zeroized before returning. No partially-initialized
+/// and the value is securely zeroised before returning. No partially-initialised
 /// `LockedBox` can exist.
 pub struct LockedBox<T: Zeroize> {
     ptr: NonNull<T>,
@@ -399,7 +684,7 @@ impl<T: Zeroize> LockedBox<T> {
     /// Returns `MemlockError::AllocationFailed` if heap allocation fails.
     /// Returns `MemlockError::LockFailed` if memory locking fails.
     ///
-    /// In case of lock failure, the value is zeroized and deallocated.
+    /// In case of lock failure, the value is zeroised and deallocated.
     pub fn new(mut value: T) -> Result<Self> {
         let layout = Layout::new::<T>();
 
@@ -421,7 +706,7 @@ impl<T: Zeroize> LockedBox<T> {
         let ptr = unsafe { NonNull::new_unchecked(ptr) };
 
         // Move value to allocated memory
-        // SAFETY: ptr points to valid, uninitialized memory of correct size
+        // SAFETY: ptr points to valid, uninitialised memory of correct size
         unsafe {
             core::ptr::write(ptr.as_ptr(), value);
         }
@@ -740,6 +1025,304 @@ impl fmt::Debug for LockedVec {
 // SAFETY: LockedVec owns its data exclusively
 unsafe impl Send for LockedVec {}
 unsafe impl Sync for LockedVec {}
+
+// ============================================================================
+// GuardedBox<T> - Smart pointer with guard pages
+// ============================================================================
+
+/// A heap-allocated value with guard pages for overflow detection.
+///
+/// `GuardedBox<T>` provides the highest level of memory protection:
+///
+/// 1. **Guard pages**: Inaccessible memory pages before and after the data
+///    that will cause an immediate crash if accessed, detecting buffer
+///    overflows and underflows.
+///
+/// 2. **Memory locking**: The data is locked into RAM (if privileges allow),
+///    preventing it from being swapped to disk.
+///
+/// 3. **Page-aligned allocation**: Uses `posix_memalign`/`VirtualAlloc` for
+///    proper alignment required by guard pages.
+///
+/// 4. **Automatic zeroization**: When dropped, the memory is securely zeroed
+///    before being deallocated.
+///
+/// 5. **Optional read-only protection**: After initialisation, the data can
+///    be marked read-only to prevent accidental modification.
+///
+/// # Memory Layout
+///
+/// ```text
+/// ┌─────────────┬───────────────────┬─────────────┐
+/// │ Guard Page  │   Data (locked)   │ Guard Page  │
+/// │ (PROT_NONE) │   (PROT_READ/RW)  │ (PROT_NONE) │
+/// └─────────────┴───────────────────┴─────────────┘
+/// ```
+///
+/// # Example
+///
+/// ```ignore
+/// use trelis_primitives::memlock::GuardedBox;
+///
+/// // Create a guarded secret key
+/// let mut secret_key: GuardedBox<[u8; 32]> = GuardedBox::new([0u8; 32])?;
+///
+/// // Initialize the key...
+/// secret_key.as_mut()[..].copy_from_slice(&key_bytes);
+///
+/// // Make it read-only (optional)
+/// secret_key.protect_readonly()?;
+///
+/// // Any buffer overflow into the guard pages will crash immediately
+/// ```
+///
+/// # When to Use
+///
+/// Use `GuardedBox` for:
+/// - Long-lived cryptographic keys (identity keys, signing keys)
+/// - High-value secrets that justify the memory overhead
+///
+/// Use `LockedBox` instead when:
+/// - Memory overhead is a concern (GuardedBox uses 2 extra pages)
+/// - You're storing many small secrets
+/// - Guard page protection isn't critical
+pub struct GuardedBox<T: Zeroize> {
+    /// Pointer to the data (between guard pages)
+    data_ptr: NonNull<T>,
+    /// Pointer to the full allocation (including guard pages)
+    alloc_ptr: NonNull<u8>,
+    /// Total allocation size (data pages + 2 guard pages)
+    alloc_size: usize,
+    /// Size of the data region (page-aligned)
+    data_size: usize,
+    /// Whether the memory is locked
+    locked: bool,
+    /// Whether the data is read-only
+    readonly: bool,
+    _marker: PhantomData<T>,
+}
+
+impl<T: Zeroize> GuardedBox<T> {
+    /// Creates a new `GuardedBox` containing the given value.
+    ///
+    /// The memory layout is:
+    /// - One guard page (inaccessible)
+    /// - Data pages (locked and read-write)
+    /// - One guard page (inaccessible)
+    ///
+    /// # Errors
+    ///
+    /// Returns `MemlockError::AllocationFailed` if allocation fails.
+    /// Returns `MemlockError::ProtectFailed` if guard page protection fails.
+    /// Memory locking failures are non-fatal (the box is still usable).
+    pub fn new(value: T) -> Result<Self> {
+        let ps = page_size();
+        let data_size = page_round(core::mem::size_of::<T>(), ps);
+
+        if data_size == 0 {
+            return Err(MemlockError::InvalidSize);
+        }
+
+        // Total allocation: guard page + data + guard page
+        let alloc_size = ps + data_size + ps;
+
+        // Allocate page-aligned memory
+        let (alloc_ptr, _) = page_aligned_alloc(alloc_size)?;
+
+        // SAFETY: alloc_ptr is valid and non-null
+        let alloc_ptr = unsafe { NonNull::new_unchecked(alloc_ptr) };
+
+        // Calculate pointers to each region
+        let fore_guard = alloc_ptr.as_ptr();
+        let data_ptr = unsafe { alloc_ptr.as_ptr().add(ps) };
+        let aft_guard = unsafe { alloc_ptr.as_ptr().add(ps + data_size) };
+
+        // Set up guard pages (PROT_NONE)
+        if protect_noaccess(fore_guard, ps).is_err() {
+            // Clean up on failure
+            unsafe { page_aligned_free(alloc_ptr.as_ptr(), alloc_size) };
+            return Err(MemlockError::ProtectFailed { os_error: 0 });
+        }
+
+        if protect_noaccess(aft_guard, ps).is_err() {
+            // Restore fore guard and clean up
+            let _ = protect_readwrite(fore_guard, ps);
+            unsafe { page_aligned_free(alloc_ptr.as_ptr(), alloc_size) };
+            return Err(MemlockError::ProtectFailed { os_error: 0 });
+        }
+
+        // Write the value to the data region
+        // SAFETY: data_ptr is valid and properly aligned
+        unsafe {
+            core::ptr::write(data_ptr as *mut T, value);
+        }
+
+        // Try to lock the data region (non-fatal if fails)
+        let locked = lock_memory(data_ptr, data_size).is_ok();
+
+        // Advise kernel about secret data (non-fatal)
+        let _ = advise_secret(data_ptr, data_size);
+
+        Ok(Self {
+            data_ptr: unsafe { NonNull::new_unchecked(data_ptr as *mut T) },
+            alloc_ptr,
+            alloc_size,
+            data_size,
+            locked,
+            readonly: false,
+            _marker: PhantomData,
+        })
+    }
+
+    /// Makes the data region read-only.
+    ///
+    /// After calling this, any attempt to write to the data will cause a crash.
+    /// Use this after initialising a key to prevent accidental modification.
+    ///
+    /// # Errors
+    ///
+    /// Returns `MemlockError::ProtectFailed` if the protection change fails.
+    pub fn protect_readonly(&mut self) -> Result<()> {
+        if self.readonly {
+            return Ok(()); // Already read-only
+        }
+
+        protect_readonly(self.data_ptr.as_ptr() as *const u8, self.data_size)?;
+        self.readonly = true;
+        Ok(())
+    }
+
+    /// Restores read-write access to the data region.
+    ///
+    /// # Errors
+    ///
+    /// Returns `MemlockError::ProtectFailed` if the protection change fails.
+    pub fn protect_readwrite(&mut self) -> Result<()> {
+        if !self.readonly {
+            return Ok(()); // Already read-write
+        }
+
+        protect_readwrite(self.data_ptr.as_ptr() as *mut u8, self.data_size)?;
+        self.readonly = false;
+        Ok(())
+    }
+
+    /// Returns `true` if the memory is currently locked.
+    #[must_use]
+    pub fn is_locked(&self) -> bool {
+        self.locked
+    }
+
+    /// Returns `true` if the data is read-only.
+    #[must_use]
+    pub fn is_readonly(&self) -> bool {
+        self.readonly
+    }
+
+    /// Returns the size of the data in bytes.
+    #[must_use]
+    pub fn size(&self) -> usize {
+        core::mem::size_of::<T>()
+    }
+
+    /// Returns the total allocated size including guard pages.
+    #[must_use]
+    pub fn total_size(&self) -> usize {
+        self.alloc_size
+    }
+}
+
+impl<T: Zeroize> Deref for GuardedBox<T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        // SAFETY: data_ptr is always valid while GuardedBox exists
+        unsafe { self.data_ptr.as_ref() }
+    }
+}
+
+impl<T: Zeroize> DerefMut for GuardedBox<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        // Note: This will crash if the memory is read-only protected
+        // SAFETY: data_ptr is always valid while GuardedBox exists
+        unsafe { self.data_ptr.as_mut() }
+    }
+}
+
+impl<T: Zeroize> AsRef<T> for GuardedBox<T> {
+    fn as_ref(&self) -> &T {
+        self
+    }
+}
+
+impl<T: Zeroize> AsMut<T> for GuardedBox<T> {
+    fn as_mut(&mut self) -> &mut T {
+        self
+    }
+}
+
+impl<T: Zeroize> Drop for GuardedBox<T> {
+    fn drop(&mut self) {
+        let ps = page_size();
+
+        // SAFETY: All pointers are valid until this point
+        unsafe {
+            // Step 1: Restore read-write access if needed (required for zeroization)
+            if self.readonly {
+                let _ = protect_readwrite(self.data_ptr.as_ptr() as *mut u8, self.data_size);
+            }
+
+            // Step 2: Zeroize the contents
+            (*self.data_ptr.as_ptr()).zeroize();
+
+            // Step 3: Unlock if locked
+            if self.locked {
+                let _ = unlock_memory(self.data_ptr.as_ptr() as *const u8, self.data_size);
+            }
+
+            // Step 4: Restore guard pages to read-write for deallocation
+            let fore_guard = self.alloc_ptr.as_ptr();
+            let aft_guard = self.alloc_ptr.as_ptr().add(ps + self.data_size);
+            let _ = protect_readwrite(fore_guard, ps);
+            let _ = protect_readwrite(aft_guard, ps);
+
+            // Step 5: Deallocate
+            page_aligned_free(self.alloc_ptr.as_ptr(), self.alloc_size);
+        }
+    }
+}
+
+impl<T: Zeroize> Zeroize for GuardedBox<T> {
+    fn zeroize(&mut self) {
+        // Restore write access if needed
+        if self.readonly {
+            let _ = protect_readwrite(self.data_ptr.as_ptr() as *mut u8, self.data_size);
+            self.readonly = false;
+        }
+        // SAFETY: data_ptr is valid
+        unsafe {
+            (*self.data_ptr.as_ptr()).zeroize();
+        }
+    }
+}
+
+impl<T: Zeroize> ZeroizeOnDrop for GuardedBox<T> {}
+
+// SAFETY: GuardedBox owns its data exclusively
+unsafe impl<T: Zeroize + Send> Send for GuardedBox<T> {}
+unsafe impl<T: Zeroize + Sync> Sync for GuardedBox<T> {}
+
+impl<T: Zeroize + fmt::Debug> fmt::Debug for GuardedBox<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GuardedBox")
+            .field("size", &self.size())
+            .field("total_size", &self.alloc_size)
+            .field("locked", &self.locked)
+            .field("readonly", &self.readonly)
+            .field("contents", &"[REDACTED]")
+            .finish()
+    }
+}
 
 // ============================================================================
 // Utility functions
@@ -1092,5 +1675,196 @@ mod tests {
         assert!(result.is_ok());
 
         unsafe { dealloc(ptr, layout) };
+    }
+
+    // ========================================================================
+    // mprotect tests
+    // ========================================================================
+
+    #[test]
+    fn test_protect_zero_length() {
+        // Zero-length protect operations should succeed as no-ops
+        assert!(protect_readonly(core::ptr::null(), 0).is_ok());
+        assert!(protect_readwrite(core::ptr::null_mut(), 0).is_ok());
+        assert!(protect_noaccess(core::ptr::null(), 0).is_ok());
+    }
+
+    #[test]
+    fn test_protect_roundtrip() {
+        // Allocate page-aligned memory
+        let (ptr, size) = match page_aligned_alloc(4096) {
+            Ok(result) => result,
+            Err(_) => {
+                println!("page_aligned_alloc failed, skipping test");
+                return;
+            }
+        };
+
+        // Write some data
+        unsafe {
+            core::ptr::write_bytes(ptr, 0xAA, size);
+        }
+
+        // Test readonly -> readwrite roundtrip
+        match protect_readonly(ptr, size) {
+            Ok(()) => {
+                println!("protect_readonly succeeded");
+                // Should be able to read
+                let val = unsafe { *ptr };
+                assert_eq!(val, 0xAA);
+
+                // Restore read-write
+                assert!(protect_readwrite(ptr, size).is_ok());
+
+                // Should be able to write again
+                unsafe { *ptr = 0xBB };
+                assert_eq!(unsafe { *ptr }, 0xBB);
+            }
+            Err(MemlockError::ProtectFailed { os_error }) => {
+                println!(
+                    "protect_readonly failed: errno={} (may need privileges)",
+                    os_error
+                );
+            }
+            Err(e) => panic!("Unexpected error: {:?}", e),
+        }
+
+        unsafe { page_aligned_free(ptr, size) };
+    }
+
+    #[test]
+    fn test_page_round() {
+        assert_eq!(page_round(1, 4096), 4096);
+        assert_eq!(page_round(4096, 4096), 4096);
+        assert_eq!(page_round(4097, 4096), 8192);
+        assert_eq!(page_round(0, 4096), 0);
+    }
+
+    #[test]
+    fn test_page_aligned_alloc_basic() {
+        match page_aligned_alloc(4096) {
+            Ok((ptr, size)) => {
+                assert!(!ptr.is_null());
+                assert!(size >= 4096);
+                // Check alignment
+                assert_eq!(ptr as usize % page_size(), 0);
+                unsafe { page_aligned_free(ptr, size) };
+            }
+            Err(e) => panic!("page_aligned_alloc failed: {:?}", e),
+        }
+    }
+
+    // ========================================================================
+    // GuardedBox tests
+    // ========================================================================
+
+    #[test]
+    fn test_guarded_box_basic() {
+        match GuardedBox::new([42u8; 32]) {
+            Ok(boxed) => {
+                assert_eq!(boxed[0], 42);
+                assert_eq!(boxed.size(), 32);
+                // Total size should include 2 guard pages
+                assert!(boxed.total_size() >= boxed.size() + 2 * page_size());
+                println!(
+                    "GuardedBox created: size={}, total={}, locked={}",
+                    boxed.size(),
+                    boxed.total_size(),
+                    boxed.is_locked()
+                );
+            }
+            Err(MemlockError::ProtectFailed { os_error }) => {
+                println!("GuardedBox::new failed (mprotect): errno={}", os_error);
+            }
+            Err(e) => panic!("Unexpected error: {:?}", e),
+        }
+    }
+
+    #[test]
+    fn test_guarded_box_deref() {
+        match GuardedBox::new([1u8, 2, 3, 4]) {
+            Ok(boxed) => {
+                assert_eq!(&*boxed, &[1, 2, 3, 4]);
+            }
+            Err(_) => println!("GuardedBox::new failed, skipping test"),
+        }
+    }
+
+    #[test]
+    fn test_guarded_box_deref_mut() {
+        match GuardedBox::new([0u8; 4]) {
+            Ok(mut boxed) => {
+                boxed[0] = 99;
+                assert_eq!(boxed[0], 99);
+            }
+            Err(_) => println!("GuardedBox::new failed, skipping test"),
+        }
+    }
+
+    #[test]
+    fn test_guarded_box_readonly() {
+        match GuardedBox::new([42u8; 32]) {
+            Ok(mut boxed) => {
+                // Make read-only
+                match boxed.protect_readonly() {
+                    Ok(()) => {
+                        assert!(boxed.is_readonly());
+                        // Can still read
+                        assert_eq!(boxed[0], 42);
+
+                        // Restore read-write
+                        assert!(boxed.protect_readwrite().is_ok());
+                        assert!(!boxed.is_readonly());
+
+                        // Can write again
+                        boxed[0] = 99;
+                        assert_eq!(boxed[0], 99);
+                    }
+                    Err(_) => println!("protect_readonly failed, skipping"),
+                }
+            }
+            Err(_) => println!("GuardedBox::new failed, skipping test"),
+        }
+    }
+
+    #[test]
+    fn test_guarded_box_debug_redacted() {
+        match GuardedBox::new([0xAAu8; 32]) {
+            Ok(boxed) => {
+                let debug_str = format!("{:?}", boxed);
+                assert!(debug_str.contains("REDACTED"));
+                assert!(debug_str.contains("GuardedBox"));
+                assert!(!debug_str.contains("170")); // 0xAA = 170
+            }
+            Err(_) => println!("GuardedBox::new failed, skipping test"),
+        }
+    }
+
+    #[test]
+    fn test_guarded_box_zeroize() {
+        match GuardedBox::new([0xFFu8; 32]) {
+            Ok(mut boxed) => {
+                assert_eq!(boxed[0], 0xFF);
+
+                // Zeroize
+                boxed.zeroize();
+                assert_eq!(boxed[0], 0);
+            }
+            Err(_) => println!("GuardedBox::new failed, skipping test"),
+        }
+    }
+
+    #[test]
+    fn test_guarded_box_zero_size_rejected() {
+        let result: Result<GuardedBox<()>> = GuardedBox::new(());
+        assert!(matches!(result, Err(MemlockError::InvalidSize)));
+    }
+
+    #[test]
+    fn test_protect_failed_error_display() {
+        let err = MemlockError::ProtectFailed { os_error: 13 };
+        let msg = format!("{}", err);
+        assert!(msg.contains("13"));
+        assert!(msg.contains("protection"));
     }
 }

@@ -1,9 +1,7 @@
-//! Test vectors for ML-DSA-B-65 (PQC-Suite-B BLAKE3 variant).
+//! Test vectors for ML-DSA-B-65 (BLAKE3 variant).
 //!
-//! These tests use the official PQC-Suite-B test vectors from:
-//! vendor/pqc-suite-b-signatures/ml-dsa/tests/blake3_sig-ver.json
-
-#![cfg(feature = "mldsa-suite-b")]
+//! These tests use BLAKE3 variant test vectors from:
+//! tests/vectors/blake3_sig-ver.json
 
 use serde::Deserialize;
 use std::fs;
@@ -41,7 +39,7 @@ struct TestCase {
 fn load_test_vectors() -> TestFile {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../vendor/pqc-suite-b-signatures/ml-dsa/tests/blake3_sig-ver.json"
+        "/tests/vectors/blake3_sig-ver.json"
     );
     let content = fs::read_to_string(path).expect("Failed to read test vectors file");
     serde_json::from_str(&content).expect("Failed to parse test vectors")

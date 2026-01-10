@@ -2,7 +2,7 @@
 //!
 //! This module provides a trait-based abstraction over different ML-DSA variants:
 //! - [`MlDsa65Fips204`]: Standard FIPS 204 with SHA-3/SHAKE
-//! - [`MlDsa65SuiteB`]: PQC-Suite-B variant with BLAKE3 (requires `mldsa-suite-b` feature)
+//! - [`MlDsa65Blake3`]: BLAKE3 variant (requires `mldsa-blake3` feature)
 //!
 //! # Example
 //!
@@ -17,14 +17,17 @@
 //! ```
 
 use trelis_error::Result;
+use zeroize::Zeroize;
 
 /// Trait abstracting over ML-DSA signature scheme variants.
 ///
 /// This trait allows generic code to work with different ML-DSA implementations
-/// (FIPS 204 or Suite-B) without knowing which variant is being used.
+/// (FIPS 204 or BLAKE3) without knowing which variant is being used.
 pub trait MlDsaScheme: Sized + Clone + 'static {
     /// The signing key type for this scheme.
-    type SigningKey: Clone;
+    ///
+    /// Must implement `Zeroize` to ensure proper cleanup of secret key material.
+    type SigningKey: Clone + Zeroize;
     /// The verifying key type for this scheme.
     type VerifyingKey: Clone + PartialEq + Eq;
     /// The signature type for this scheme.
@@ -60,15 +63,24 @@ pub trait MlDsaScheme: Sized + Clone + 'static {
     ) -> Result<Self::Signature>;
 
     /// Verifies a signature on a message.
-    fn verify(vk: &Self::VerifyingKey, message: &[u8], signature: &Self::Signature) -> bool;
+    ///
+    /// # Errors
+    ///
+    /// Returns `SignatureVerificationFailed` if the signature is invalid.
+    fn verify(vk: &Self::VerifyingKey, message: &[u8], signature: &Self::Signature) -> Result<()>;
 
     /// Verifies a signature with a context string.
+    ///
+    /// # Errors
+    ///
+    /// Returns `SignatureVerificationFailed` if the signature is invalid,
+    /// or `InvalidContextLength` if the context exceeds 255 bytes.
     fn verify_with_context(
         vk: &Self::VerifyingKey,
         message: &[u8],
         context: &[u8],
         signature: &Self::Signature,
-    ) -> bool;
+    ) -> Result<()>;
 
     /// Serializes a signing key to bytes.
     fn signing_key_to_bytes(sk: &Self::SigningKey) -> [u8; 4032];
@@ -137,7 +149,7 @@ impl MlDsaScheme for MlDsa65Fips204 {
         sk.sign_with_context(message, context)
     }
 
-    fn verify(vk: &Self::VerifyingKey, message: &[u8], signature: &Self::Signature) -> bool {
+    fn verify(vk: &Self::VerifyingKey, message: &[u8], signature: &Self::Signature) -> Result<()> {
         vk.verify(message, signature)
     }
 
@@ -146,7 +158,7 @@ impl MlDsaScheme for MlDsa65Fips204 {
         message: &[u8],
         context: &[u8],
         signature: &Self::Signature,
-    ) -> bool {
+    ) -> Result<()> {
         vk.verify_with_context(message, context, signature)
     }
 
@@ -176,23 +188,21 @@ impl MlDsaScheme for MlDsa65Fips204 {
 }
 
 // ============================================================================
-// Suite-B Implementation (optional)
+// BLAKE3 Implementation
 // ============================================================================
 
-#[cfg(feature = "mldsa-suite-b")]
 use crate::mldsa65b::{
-    MlDsa65BSignature, MlDsa65BSigningKey, MlDsa65BVerifyingKey, PUBLIC_KEY_SIZE as SUITEB_PK_SIZE,
-    SECRET_KEY_SIZE as SUITEB_SK_SIZE, SIGNATURE_SIZE as SUITEB_SIG_SIZE,
+    MlDsa65BSignature, MlDsa65BSigningKey, MlDsa65BVerifyingKey, PUBLIC_KEY_SIZE as BLAKE3_PK_SIZE,
+    SECRET_KEY_SIZE as BLAKE3_SK_SIZE, SIGNATURE_SIZE as BLAKE3_SIG_SIZE,
 };
 
-/// ML-DSA-B-65 using PQC-Suite-B (BLAKE3).
+/// ML-DSA-B-65 using BLAKE3.
 ///
-/// This is the faster, experimental Suite-B variant with BLAKE3 hashing.
+/// This is the faster, experimental BLAKE3 variant with BLAKE3 hashing.
 ///
 /// **Note:** Signatures from this variant are NOT compatible with FIPS 204.
-#[cfg(feature = "mldsa-suite-b")]
 #[derive(Clone, Copy, Debug, Default)]
-pub struct MlDsa65SuiteB;
+pub struct MlDsa65Blake3;
 
 // ============================================================================
 // Default Scheme Type Alias
@@ -200,27 +210,26 @@ pub struct MlDsa65SuiteB;
 
 /// Default ML-DSA scheme based on compile-time feature selection.
 ///
-/// - With `mldsa-suite-b-default` feature: uses [`MlDsa65SuiteB`] (BLAKE3)
+/// - With `mldsa-blake3-default` feature: uses [`MlDsa65Blake3`] (BLAKE3)
 /// - Without that feature (default): uses [`MlDsa65Fips204`] (SHA-3/SHAKE)
 ///
 /// This allows downstream crates to write generic code that uses the
 /// compile-time selected default without specifying the type explicitly.
-#[cfg(feature = "mldsa-suite-b-default")]
-pub type DefaultMlDsaScheme = MlDsa65SuiteB;
+#[cfg(feature = "mldsa-blake3-default")]
+pub type DefaultMlDsaScheme = MlDsa65Blake3;
 
 /// Default ML-DSA scheme (FIPS 204 with SHA-3/SHAKE).
-#[cfg(not(feature = "mldsa-suite-b-default"))]
+#[cfg(not(feature = "mldsa-blake3-default"))]
 pub type DefaultMlDsaScheme = MlDsa65Fips204;
 
-#[cfg(feature = "mldsa-suite-b")]
-impl MlDsaScheme for MlDsa65SuiteB {
+impl MlDsaScheme for MlDsa65Blake3 {
     type SigningKey = MlDsa65BSigningKey;
     type VerifyingKey = MlDsa65BVerifyingKey;
     type Signature = MlDsa65BSignature;
 
-    const PUBLIC_KEY_SIZE: usize = SUITEB_PK_SIZE;
-    const SECRET_KEY_SIZE: usize = SUITEB_SK_SIZE;
-    const SIGNATURE_SIZE: usize = SUITEB_SIG_SIZE;
+    const PUBLIC_KEY_SIZE: usize = BLAKE3_PK_SIZE;
+    const SECRET_KEY_SIZE: usize = BLAKE3_SK_SIZE;
+    const SIGNATURE_SIZE: usize = BLAKE3_SIG_SIZE;
 
     fn generate() -> Result<Self::SigningKey> {
         MlDsa65BSigningKey::generate()
@@ -246,7 +255,7 @@ impl MlDsaScheme for MlDsa65SuiteB {
         sk.sign_with_context(message, context)
     }
 
-    fn verify(vk: &Self::VerifyingKey, message: &[u8], signature: &Self::Signature) -> bool {
+    fn verify(vk: &Self::VerifyingKey, message: &[u8], signature: &Self::Signature) -> Result<()> {
         vk.verify(message, signature)
     }
 
@@ -255,7 +264,7 @@ impl MlDsaScheme for MlDsa65SuiteB {
         message: &[u8],
         context: &[u8],
         signature: &Self::Signature,
-    ) -> bool {
+    ) -> Result<()> {
         vk.verify_with_context(message, context, signature)
     }
 
@@ -295,8 +304,8 @@ mod tests {
         let message = b"Hello, ML-DSA!";
         let signature = S::sign(&sk, message).unwrap();
 
-        assert!(S::verify(&vk, message, &signature));
-        assert!(!S::verify(&vk, b"wrong message", &signature));
+        assert!(S::verify(&vk, message, &signature).is_ok());
+        assert!(S::verify(&vk, b"wrong message", &signature).is_err());
     }
 
     fn test_scheme_serialization<S: MlDsaScheme>() {
@@ -342,7 +351,7 @@ mod tests {
         let message = b"Seeded key test";
         let sig = S::sign(&sk1, message).unwrap();
         let vk = S::verifying_key(&sk1);
-        assert!(S::verify(&vk, message, &sig));
+        assert!(S::verify(&vk, message, &sig).is_ok());
     }
 
     #[test]
@@ -360,21 +369,18 @@ mod tests {
         test_scheme_seeded_keygen::<MlDsa65Fips204>();
     }
 
-    #[cfg(feature = "mldsa-suite-b")]
     #[test]
-    fn test_suiteb_roundtrip() {
-        test_scheme_roundtrip::<MlDsa65SuiteB>();
+    fn test_blake3_roundtrip() {
+        test_scheme_roundtrip::<MlDsa65Blake3>();
     }
 
-    #[cfg(feature = "mldsa-suite-b")]
     #[test]
-    fn test_suiteb_serialization() {
-        test_scheme_serialization::<MlDsa65SuiteB>();
+    fn test_blake3_serialization() {
+        test_scheme_serialization::<MlDsa65Blake3>();
     }
 
-    #[cfg(feature = "mldsa-suite-b")]
     #[test]
-    fn test_suiteb_seeded_keygen() {
-        test_scheme_seeded_keygen::<MlDsa65SuiteB>();
+    fn test_blake3_seeded_keygen() {
+        test_scheme_seeded_keygen::<MlDsa65Blake3>();
     }
 }
