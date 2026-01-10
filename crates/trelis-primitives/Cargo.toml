@@ -17,11 +17,7 @@ alloc = ["trelis-error/alloc", "chacha20poly1305/alloc"]
 # WASM target support (browser environment)
 # Uses ntrulp (pure Rust) with custom encoding to match standard wire format
 # Enables BLAKE3 WASM SIMD for faster hashing in browsers with SIMD support
-wasm = ["alloc", "getrandom/js", "ntrulp", "blake3/wasm32_simd"]
-# Deterministic key generation from seeds (required for CoCoA path derivation)
-# Forces pure Rust sntrup761 even on native targets for seeded generation
-# Uses BLAKE3 XOF for deterministic RNG
-deterministic-keygen = ["ntrulp"]
+wasm = ["alloc", "getrandom/js", "blake3/wasm32_simd"]
 # Expose internal functions for testing
 expose-internals = []
 # Memory locking to prevent secrets from being swapped to disk
@@ -57,8 +53,8 @@ hybrid-array = { version = "0.4", features = ["extra-sizes", "zeroize"] }
 num-traits = { version = "0.2.19", default-features = false }
 signature = { version = "3.0.0-rc.2", default-features = false, features = ["rand_core"] }
 
-# Post-quantum KEM - Pure Rust (WASM builds, with custom encoding layer)
-ntrulp = { workspace = true, optional = true }
+# Post-quantum KEM - Pure Rust (always included for deterministic keygen)
+ntrulp = { workspace = true }
 # Memory locking (optional, for mlock feature)
 libc = { workspace = true, optional = true }
 windows-sys = { workspace = true, optional = true }

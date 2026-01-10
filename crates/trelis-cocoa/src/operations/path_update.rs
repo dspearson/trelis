@@ -90,15 +90,7 @@ pub struct PathUpdateResult {
 ///
 /// # Note
 ///
-/// This function requires the `deterministic-keygen` feature.
-#[cfg(all(
-    feature = "alloc",
-    any(
-        feature = "deterministic-keygen",
-        target_os = "windows",
-        target_arch = "wasm32"
-    )
-))]
+#[cfg(feature = "alloc")]
 pub fn build_path_updates(
     tree: &PartialTreeView,
     our_leaf_position: u32,
@@ -178,14 +170,8 @@ pub fn build_path_updates(
             // Compute h2 (predecessor binding)
             // Predecessor keys are the public keys from earlier levels in this same commit
             let pred_refs: Vec<&HybridKemPublicKey> = predecessor_keys.iter().collect();
-            let resolution_key_refs: Vec<&HybridKemPublicKey> =
-                keys.iter().copied().collect();
-            let h2 = h4_parent_hash_h2(
-                &public_key,
-                &pred_refs,
-                &prev_h2,
-                &resolution_key_refs,
-            );
+            let resolution_key_refs: Vec<&HybridKemPublicKey> = keys.to_vec();
+            let h2 = h4_parent_hash_h2(&public_key, &pred_refs, &prev_h2, &resolution_key_refs);
 
             (h1, h2)
         };
@@ -232,14 +218,7 @@ pub fn build_path_updates(
 /// # Returns
 ///
 /// A `PathUpdateResult` containing the updates and delta root.
-#[cfg(all(
-    feature = "alloc",
-    any(
-        feature = "deterministic-keygen",
-        target_os = "windows",
-        target_arch = "wasm32"
-    )
-))]
+#[cfg(feature = "alloc")]
 pub fn build_path_updates_with_seeds(
     tree_depth: u32,
     our_leaf_position: u32,
@@ -312,14 +291,8 @@ pub fn build_path_updates_with_seeds(
             // Compute h2 (predecessor binding)
             // Predecessor keys are the public keys from earlier levels in this same commit
             let pred_refs: Vec<&HybridKemPublicKey> = predecessor_keys.iter().collect();
-            let resolution_key_refs: Vec<&HybridKemPublicKey> =
-                keys.iter().copied().collect();
-            let h2 = h4_parent_hash_h2(
-                &public_key,
-                &pred_refs,
-                &prev_h2,
-                &resolution_key_refs,
-            );
+            let resolution_key_refs: Vec<&HybridKemPublicKey> = keys.to_vec();
+            let h2 = h4_parent_hash_h2(&public_key, &pred_refs, &prev_h2, &resolution_key_refs);
 
             (h1, h2)
         };
@@ -365,14 +338,7 @@ pub fn build_path_updates_with_seeds(
 /// # Returns
 ///
 /// The delta root for epoch key derivation.
-#[cfg(all(
-    feature = "alloc",
-    any(
-        feature = "deterministic-keygen",
-        target_os = "windows",
-        target_arch = "wasm32"
-    )
-))]
+#[cfg(feature = "alloc")]
 pub fn apply_path_updates(
     path_updates: &[NodeUpdate],
     our_keypair: &HybridKemKeypair,
@@ -392,9 +358,7 @@ pub fn apply_path_updates(
     for (level, update) in path_updates.iter().enumerate() {
         for recipient in &update.encrypted_seeds {
             // Check if this is for us by trying to decrypt
-            if let Ok(seed) =
-                decrypt_seed(&recipient.encrypted, our_keypair, &update.node_index)
-            {
+            if let Ok(seed) = decrypt_seed(&recipient.encrypted, our_keypair, &update.node_index) {
                 decrypted_seed = Some((level, seed));
                 break;
             }
@@ -480,11 +444,6 @@ mod tests {
         assert_eq!(node.unwrap(), NodeIndex::new(2, 0));
     }
 
-    #[cfg(any(
-        feature = "deterministic-keygen",
-        target_os = "windows",
-        target_arch = "wasm32"
-    ))]
     #[test]
     fn test_build_and_apply_path_updates() {
         // Create a simple 2-member tree
@@ -498,7 +457,7 @@ mod tests {
         let resolution_sets = vec![
             vec![NodeIndex::new(2, 1)], // Level 0 (our leaf): other member
             vec![NodeIndex::new(2, 1)], // Level 1: sibling subtree = other member
-            vec![],                      // Level 2 (root): no one
+            vec![],                     // Level 2 (root): no one
         ];
 
         let resolution_keys: Vec<Vec<&HybridKemPublicKey>> = vec![
@@ -514,7 +473,14 @@ mod tests {
             [0u8; 32], // Root sibling label (root has no sibling, but we still need the array)
         ];
 
-        let result = build_path_updates(&tree, 0, &resolution_sets, &resolution_keys, &sibling_labels).unwrap();
+        let result = build_path_updates(
+            &tree,
+            0,
+            &resolution_sets,
+            &resolution_keys,
+            &sibling_labels,
+        )
+        .unwrap();
 
         assert_eq!(result.updates.len(), 3);
 

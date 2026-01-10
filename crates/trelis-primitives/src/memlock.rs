@@ -1,8 +1,8 @@
-//! Memory locking to prevent secrets from being swapped to disk.
+//! Memory locking to prevent secrets from being swapped to disc.
 //!
 //! This module provides OS-level memory protection for sensitive cryptographic
 //! material. When enabled, secrets are locked into physical RAM and cannot be
-//! swapped to disk, protecting against cold boot attacks and swap file forensics.
+//! swapped to disc, protecting against cold boot attacks and swap file forensics.
 //!
 //! # Platform Support
 //!
@@ -359,7 +359,7 @@ pub fn advise_secret(_ptr: *const u8, _len: usize) -> Result<()> {
 ///
 /// - Protect cryptographic keys after initialisation
 /// - Detect accidental writes to immutable data
-/// - Defense-in-depth against buffer overflows
+/// - Defence-in-depth against buffer overflows
 ///
 /// # Requirements
 ///
@@ -632,9 +632,9 @@ unsafe fn page_aligned_free(ptr: *mut u8, _size: usize) {
 /// `LockedBox<T>` is similar to `Box<T>` but with additional security guarantees:
 ///
 /// 1. **Memory locking**: The underlying memory is locked into RAM using `mlock(2)`,
-///    preventing it from being swapped to disk.
+///    preventing it from being swapped to disc.
 ///
-/// 2. **Automatic zeroization**: When dropped, the memory is securely zeroed before
+/// 2. **Automatic zeroisation**: When dropped, the memory is securely zeroed before
 ///    being unlocked and deallocated.
 ///
 /// 3. **Core dump exclusion**: On Linux, the memory is marked with `MADV_DONTDUMP`
@@ -726,7 +726,7 @@ impl<T: Zeroize> LockedBox<T> {
             }),
             Err(e) => {
                 // Lock failed - zeroize and deallocate
-                // SAFETY: ptr is valid and initialized
+                // SAFETY: ptr is valid and initialised
                 unsafe {
                     (*ptr.as_ptr()).zeroize();
                     dealloc(ptr.as_ptr() as *mut u8, layout);
@@ -739,11 +739,11 @@ impl<T: Zeroize> LockedBox<T> {
     /// Creates a `LockedBox` without memory locking.
     ///
     /// This is useful when memory locking is not available or not required,
-    /// but you still want the zeroization-on-drop guarantee.
+    /// but you still want the zeroisation-on-drop guarantee.
     ///
     /// # Security Note
     ///
-    /// Without memory locking, the secret may be swapped to disk. Use this
+    /// Without memory locking, the secret may be swapped to disc. Use this
     /// only when `new()` fails or for non-critical secrets.
     pub fn new_unlocked(value: T) -> Result<Self> {
         let layout = Layout::new::<T>();
@@ -835,7 +835,7 @@ impl<T: Zeroize> Drop for LockedBox<T> {
 }
 
 // Implement ZeroizeOnDrop marker for documentation purposes
-// (actual zeroization happens in Drop)
+// (actual zeroisation happens in Drop)
 impl<T: Zeroize> ZeroizeOnDrop for LockedBox<T> {}
 
 // SAFETY: LockedBox owns its data exclusively (like Box)
@@ -859,7 +859,7 @@ impl<T: Zeroize + fmt::Debug> fmt::Debug for LockedBox<T> {
 
 /// A variable-length buffer with memory locked into RAM.
 ///
-/// Similar to `Vec<u8>` but with memory locking and automatic zeroization.
+/// Similar to `Vec<u8>` but with memory locking and automatic zeroisation.
 pub struct LockedVec {
     ptr: NonNull<u8>,
     len: usize,
@@ -1044,7 +1044,7 @@ unsafe impl Sync for LockedVec {}
 /// 3. **Page-aligned allocation**: Uses `posix_memalign`/`VirtualAlloc` for
 ///    proper alignment required by guard pages.
 ///
-/// 4. **Automatic zeroization**: When dropped, the memory is securely zeroed
+/// 4. **Automatic zeroisation**: When dropped, the memory is securely zeroed
 ///    before being deallocated.
 ///
 /// 5. **Optional read-only protection**: After initialisation, the data can
@@ -1267,7 +1267,7 @@ impl<T: Zeroize> Drop for GuardedBox<T> {
 
         // SAFETY: All pointers are valid until this point
         unsafe {
-            // Step 1: Restore read-write access if needed (required for zeroization)
+            // Step 1: Restore read-write access if needed (required for zeroisation)
             if self.readonly {
                 let _ = protect_readwrite(self.data_ptr.as_ptr() as *mut u8, self.data_size);
             }

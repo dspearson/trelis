@@ -230,8 +230,8 @@ impl Ed448BSigningKey {
     ///
     /// The returned `GuardedBox` provides:
     /// - Guard pages before and after the key to detect buffer overflows
-    /// - Memory locking to prevent swapping to disk (if privileges allow)
-    /// - Automatic zeroization on drop
+    /// - Memory locking to prevent swapping to disc (if privileges allow)
+    /// - Automatic zeroisation on drop
     ///
     /// # Example
     ///
@@ -365,7 +365,7 @@ impl Ed448BVerifyingKey {
         let k = Scalar::from_bytes_mod_order_wide(&k_bytes);
 
         // Deserialize s scalar from signature with canonical validation
-        // This is defense in depth - from_bytes should already reject non-canonical scalars
+        // This is defence in depth - from_bytes should already reject non-canonical scalars
         //
         // IMPORTANT: Also check byte 56 is 0x00 since from_canonical_bytes only checks 56 bytes.
         // Use constant-time comparison to prevent timing attacks that could leak validity of byte 56.

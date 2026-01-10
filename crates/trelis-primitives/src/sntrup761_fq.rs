@@ -45,25 +45,105 @@ fn i16_nonzero_mask(x: i16) -> i16 {
     -(neg as i16)
 }
 
-/// Half of q, used for centered representation.
+/// Half of q, used for centred representation.
 pub const Q12: i32 = (Q - 1) / 2; // 2295
 
-/// Reduce a value to the centered range [-(q-1)/2, (q-1)/2].
+// ============================================================================
+// Fast modular arithmetic (avoiding division/modulo operators)
+// ============================================================================
+
+/// Constant for fast division: 2^31
+const V: u32 = 0x8000_0000;
+
+/// Fast unsigned division and modulo for 14-bit modulus.
 ///
-/// This is equivalent to ntrulp's `fq::freeze()` but uses a more
-/// efficient reduction method.
-#[inline]
+/// Returns (quotient, remainder) for x / m.
+/// Uses fixed-point multiplication to avoid slow division.
+/// This matches ntrulp's u32_divmod_u14 exactly.
+#[inline(always)]
+fn u32_divmod_u14(x: u32, m: u16) -> (u32, u16) {
+    // Compute reciprocal: v = 2^31 / m
+    let mut v = V;
+    v /= m as u32;
+
+    let mut q = 0u32;
+
+    // First approximation
+    let qpart = ((x as u64 * v as u64) >> 31) as u32;
+    let new_x = x.wrapping_sub(qpart * m as u32);
+    q += qpart;
+
+    // Second refinement (note: cast to u32 before shift, matching ntrulp)
+    let qpart = (new_x as u64 * v as u64) as u32 >> 31;
+    let final_x = new_x.wrapping_sub(qpart * m as u32);
+    q += qpart;
+
+    // Final correction
+    let sub_x = final_x.wrapping_sub(m as u32);
+    q += 1;
+
+    let mask = if sub_x >> 31 != 0 { u32::MAX } else { 0 };
+    let added_x = sub_x.wrapping_add(mask & m as u32);
+    let final_q = q.wrapping_add(mask);
+
+    (final_q, added_x as u16)
+}
+
+/// Fast signed division and modulo for 14-bit modulus.
+///
+/// Returns (quotient, remainder) for x / m where x is signed.
+#[inline(always)]
+fn i32_divmod_u14(x: i32, m: u16) -> (u32, u32) {
+    // Add V to make x positive, divide, then adjust
+    let (mut uq, ur) = u32_divmod_u14(V.wrapping_add(x as u32), m);
+    let mut ur = ur as u32;
+
+    // Subtract the contribution of V
+    let (uq2, ur2) = u32_divmod_u14(V, m);
+    ur = ur.wrapping_sub(ur2 as u32);
+    uq = uq.wrapping_sub(uq2);
+
+    // Fix negative remainder
+    let mask: u32 = if ur >> 15 != 0 { u32::MAX } else { 0 };
+    ur = ur.wrapping_add(mask & m as u32);
+    uq = uq.wrapping_add(mask);
+
+    (uq, ur)
+}
+
+/// Fast signed modulo for 14-bit modulus.
+#[inline(always)]
+fn i32_mod_u14(x: i32, m: u16) -> u32 {
+    i32_divmod_u14(x, m).1
+}
+
+// ============================================================================
+// F3 (mod 3) arithmetic - for R3 polynomials
+// ============================================================================
+
+/// Reduce a value to the centred range [-1, 0, 1] (mod 3).
+///
+/// This is equivalent to ntrulp's `f3::freeze()`.
+/// Uses fixed-point multiplication to avoid division.
+#[inline(always)]
+pub fn f3_freeze(a: i16) -> i8 {
+    let a_32 = a as i32;
+    // First approximation: a - 3 * floor(a * 10923 / 2^15)
+    let b = a_32 - (3 * ((10923 * a_32) >> 15));
+    // Refinement step
+    let c = b - (3 * ((89_478_485 * b + 134_217_728) >> 28));
+    c as i8
+}
+
+/// Reduce a value to the centred range [-(q-1)/2, (q-1)/2].
+///
+/// This is equivalent to ntrulp's `fq::freeze()`.
+/// Uses fixed-point multiplication to avoid slow division/modulo.
+#[inline(always)]
 pub fn freeze(x: i32) -> i16 {
-    // Use Barrett reduction for efficiency
-    // For q = 4591, we can use: floor(x/q) ≈ (x * 2863312) >> 32
-    // But for simplicity and correctness, use direct modulo
-    let mut r = x % Q;
-    if r > Q12 {
-        r -= Q;
-    } else if r < -Q12 {
-        r += Q;
-    }
-    r as i16
+    // Compute (x + Q12) mod Q, then subtract Q12 to centre
+    let r = i32_mod_u14(x + Q12, Q as u16);
+    r as i16 - Q12 as i16
 }
 
 /// Compute the multiplicative inverse of a field element using extended GCD.
@@ -90,7 +170,7 @@ pub fn recip(a: i16) -> i16 {
 
     debug_assert!(a != 0, "Cannot invert zero");
 
-    // Normalize input to positive
+    // Normalise input to positive
     let a_pos = if a < 0 { a as i32 + Q } else { a as i32 };
 
     // Standard extended Euclidean algorithm
@@ -114,7 +194,7 @@ pub fn recip(a: i16) -> i16 {
     // old_r should be 1 (gcd)
     debug_assert_eq!(old_r, 1, "a is not invertible mod q");
 
-    // Normalize result to centered range
+    // Normalise result to centred range
     freeze(old_s)
 }
 
@@ -124,7 +204,7 @@ pub fn recip(a: i16) -> i16 {
 /// the optimised field arithmetic for polynomial inversion.
 #[derive(Debug, Clone)]
 pub struct Rq {
-    /// Polynomial coefficients in centered representation.
+    /// Polynomial coefficients in centred representation.
     pub coeffs: [i16; P],
 }
 
@@ -204,12 +284,26 @@ impl Rq {
     ///
     /// Returns `Err` if the polynomial is not invertible.
     pub fn recip<const RATIO: i16>(&self) -> Result<Rq, &'static str> {
-        let input = &self.coeffs;
+        let input = self.coeffs; // Copy for predictable access patterns
         let mut out = [0i16; P];
         let mut f = [0i16; P + 1];
         let mut g = [0i16; P + 1];
         let mut v = [0i16; P + 1];
         let mut r = [0i16; P + 1];
+        let mut delta: i16;
+        let mut swap: i16;
+        let mut t: i16;
+        let mut f0: i32;
+        let mut g0: i32;
+
+        // Closure for quotient update - using slices enables better compiler optimization
+        // This is the key pattern that makes ntrulp fast
+        let quotient = |out: &mut [i16], f0: i32, g0: i32, fv: &[i16]| {
+            for i in 0..P + 1 {
+                let x = f0 * out[i] as i32 - g0 * fv[i] as i32;
+                out[i] = freeze(x);
+            }
+        };
 
         // Initialize r[0] = 1/RATIO using fast extended GCD
         r[0] = recip(RATIO);
@@ -223,9 +317,9 @@ impl Rq {
         for i in 0..P {
             g[P - 1 - i] = input[i];
         }
-        g[P] = 0;
 
-        let mut delta: i16 = 1;
+        g[P] = 0;
+        delta = 1;
 
         // Main loop: 2*P - 1 iterations
         // Uses branchless operations for constant-time execution
@@ -238,33 +332,28 @@ impl Rq {
 
             // Compute swap mask (all 1s if swap, all 0s otherwise)
             // swap = (delta > 0) && (g[0] != 0)
-            let swap: i16 = i16_negative_mask(-delta) & i16_nonzero_mask(g[0]);
+            swap = i16_negative_mask(-delta) & i16_nonzero_mask(g[0]);
 
             // Conditional delta update using XOR
             delta ^= swap & (delta ^ -delta);
             delta += 1;
 
             // Constant-time conditional swap using XOR
-            for i in 0..=P {
-                let t = swap & (f[i] ^ g[i]);
+            for i in 0..P + 1 {
+                t = swap & (f[i] ^ g[i]);
                 f[i] ^= t;
                 g[i] ^= t;
-                let t = swap & (v[i] ^ r[i]);
+                t = swap & (v[i] ^ r[i]);
                 v[i] ^= t;
                 r[i] ^= t;
             }
 
-            // g = f0 * g - g0 * f, r = f0 * r - g0 * v
-            let f0 = f[0] as i32;
-            let g0 = g[0] as i32;
+            f0 = f[0] as i32;
+            g0 = g[0] as i32;
 
-            for i in 0..=P {
-                let gval = f0 * g[i] as i32 - g0 * f[i] as i32;
-                g[i] = freeze(gval);
-
-                let rval = f0 * r[i] as i32 - g0 * v[i] as i32;
-                r[i] = freeze(rval);
-            }
+            // Update using closure with slices (key optimization pattern)
+            quotient(&mut g, f0, g0, &f);
+            quotient(&mut r, f0, g0, &v);
 
             // Shift g left (divide by x)
             for i in 0..P {
@@ -326,6 +415,213 @@ impl From<&[i8; P]> for Rq {
             out[i] = coeffs[i] as i16;
         }
         Rq { coeffs: out }
+    }
+}
+
+// ============================================================================
+// R3 polynomial (coefficients in {-1, 0, 1})
+// ============================================================================
+
+/// Optimised R3 polynomial for sntrup761.
+///
+/// This type provides the same functionality as ntrulp's `R3` but with
+/// optimised polynomial inversion matching the Rq implementation.
+#[derive(Debug, Clone)]
+pub struct R3 {
+    /// Polynomial coefficients in {-1, 0, 1}.
+    pub coeffs: [i8; P],
+}
+
+impl Default for R3 {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl R3 {
+    /// Create a new zero polynomial.
+    #[inline]
+    pub fn new() -> Self {
+        Self { coeffs: [0i8; P] }
+    }
+
+    /// Create a polynomial from coefficients.
+    #[inline]
+    pub fn from(coeffs: [i8; P]) -> Self {
+        Self { coeffs }
+    }
+
+    /// Check if polynomial equals 1 (constant polynomial).
+    pub fn eq_one(&self) -> bool {
+        if self.coeffs[0] != 1 {
+            return false;
+        }
+        for i in 1..P {
+            if self.coeffs[i] != 0 {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Check if polynomial equals zero.
+    pub fn eq_zero(&self) -> bool {
+        for c in self.coeffs {
+            if c != 0 {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Multiply two R3 polynomials.
+    ///
+    /// Computes h = f*g in the ring R3.
+    pub fn mult(&self, g: &R3) -> R3 {
+        let f = &self.coeffs;
+        let g = &g.coeffs;
+        let mut fg = [0i8; P + P - 1];
+
+        // Convolution with running freeze
+        for i in 0..P {
+            let mut r = 0i8;
+            for j in 0..=i {
+                let x = r + f[j] * g[i - j];
+                r = f3_freeze(x as i16);
+            }
+            fg[i] = r;
+        }
+        for i in P..P + P - 1 {
+            let mut r = 0i8;
+            for j in (i - P + 1)..P {
+                let x = r + f[j] * g[i - j];
+                r = f3_freeze(x as i16);
+            }
+            fg[i] = r;
+        }
+
+        // Reduce modulo x^p - x - 1
+        for i in (P..P + P - 1).rev() {
+            let x0 = fg[i - P] + fg[i];
+            let x1 = fg[i - P + 1] + fg[i];
+            fg[i - P] = f3_freeze(x0 as i16);
+            fg[i - P + 1] = f3_freeze(x1 as i16);
+        }
+
+        let mut out = [0i8; P];
+        out[..P].copy_from_slice(&fg[..P]);
+        R3::from(out)
+    }
+
+    /// Compute the reciprocal (inverse) of self in R3.
+    ///
+    /// Returns `out` such that `out * self = 1` in R3.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if the polynomial is not invertible.
+    pub fn recip(&self) -> Result<R3, &'static str> {
+        let input = self.coeffs; // Copy for predictable access patterns
+        let mut out = [0i8; P];
+        let mut f = [0i8; P + 1];
+        let mut g = [0i8; P + 1];
+        let mut v = [0i8; P + 1];
+        let mut r = [0i8; P + 1];
+        let mut delta: i16;
+        let mut swap: i8;
+        let mut t: i8;
+        let mut sign: i8;
+
+        // Closure for quotient update - using slices enables better compiler optimisation
+        let quotient = |out: &mut [i8], sign: i8, fv: &[i8]| {
+            for i in 0..P + 1 {
+                let x = out[i] + sign * fv[i];
+                out[i] = f3_freeze(x as i16);
+            }
+        };
+
+        // Initialize r[0] = 1
+        r[0] = 1;
+
+        // f = x^p - x - 1
+        f[0] = 1;
+        f[P - 1] = -1;
+        f[P] = -1;
+
+        // g = reverse(input)
+        for i in 0..P {
+            g[P - 1 - i] = input[i];
+        }
+
+        g[P] = 0;
+        delta = 1;
+
+        // Main loop: 2*P - 1 iterations
+        for _ in 0..2 * P - 1 {
+            // Shift v right
+            for i in (1..=P).rev() {
+                v[i] = v[i - 1];
+            }
+            v[0] = 0;
+
+            // sign = -g[0] * f[0] (in F3, this is the elimination coefficient)
+            sign = -g[0] * f[0];
+
+            // Compute swap mask
+            swap = (i16_negative_mask(-delta) & i16_nonzero_mask(g[0] as i16)) as i8;
+
+            // Conditional delta update
+            delta ^= (swap as i16) & (delta ^ -delta);
+            delta += 1;
+
+            // Constant-time conditional swap
+            for i in 0..P + 1 {
+                t = swap & (f[i] ^ g[i]);
+                f[i] ^= t;
+                g[i] ^= t;
+                t = swap & (v[i] ^ r[i]);
+                v[i] ^= t;
+                r[i] ^= t;
+            }
+
+            // Update using closure with slices (key optimisation pattern)
+            quotient(&mut g, sign, &f);
+            quotient(&mut r, sign, &v);
+
+            // Shift g left (divide by x)
+            for i in 0..P {
+                g[i] = g[i + 1];
+            }
+            g[P] = 0;
+        }
+
+        // Check if inversion succeeded
+        if i16_nonzero_mask(delta) != 0 {
+            return Err("Polynomial not invertible in R3");
+        }
+
+        // Scale by f[0] (which is ±1 in R3)
+        sign = f[0];
+        for i in 0..P {
+            out[i] = sign * v[P - 1 - i];
+        }
+
+        Ok(R3::from(out))
+    }
+
+    /// Convert to Rq polynomial.
+    pub fn rq_from_r3(&self) -> Rq {
+        let mut out = [0i16; P];
+        for (i, v) in out.iter_mut().enumerate() {
+            *v = freeze(self.coeffs[i].into());
+        }
+        Rq::from(out)
+    }
+}
+
+impl From<[i8; P]> for R3 {
+    fn from(coeffs: [i8; P]) -> Self {
+        R3 { coeffs }
     }
 }
 
@@ -405,5 +701,84 @@ mod tests {
         let product = inv.mult_r3(&r3_coeffs);
 
         assert!(product.eq_one(), "Reciprocal verification failed");
+    }
+
+    #[test]
+    fn test_f3_freeze() {
+        // Test values in centred range
+        assert_eq!(f3_freeze(0), 0);
+        assert_eq!(f3_freeze(1), 1);
+        assert_eq!(f3_freeze(-1), -1);
+        assert_eq!(f3_freeze(2), -1); // 2 mod 3 = 2 -> -1 in centred
+        assert_eq!(f3_freeze(-2), 1); // -2 mod 3 = 1
+        assert_eq!(f3_freeze(3), 0);
+        assert_eq!(f3_freeze(-3), 0);
+        assert_eq!(f3_freeze(4), 1);
+        assert_eq!(f3_freeze(-4), -1);
+
+        // Test a range of values
+        for i in -100i16..=100 {
+            let expected = match ((i % 3) + 3) % 3 {
+                0 => 0i8,
+                1 => 1,
+                2 => -1,
+                _ => unreachable!(),
+            };
+            assert_eq!(f3_freeze(i), expected, "f3_freeze({}) failed", i);
+        }
+    }
+
+    #[test]
+    fn test_r3_mult() {
+        // Test: 1 * 1 = 1
+        let mut one_coeffs = [0i8; P];
+        one_coeffs[0] = 1;
+        let one = R3::from(one_coeffs);
+
+        let product = one.mult(&one);
+        assert!(product.eq_one());
+
+        // Test: x * 1 = x
+        let mut x_coeffs = [0i8; P];
+        x_coeffs[1] = 1;
+        let x = R3::from(x_coeffs);
+
+        let product = x.mult(&one);
+        assert_eq!(product.coeffs[1], 1);
+        assert_eq!(product.coeffs[0], 0);
+    }
+
+    #[test]
+    fn test_r3_recip() {
+        // Create a simple invertible R3 polynomial
+        let mut coeffs = [0i8; P];
+        coeffs[0] = 1;
+        coeffs[1] = 1;
+
+        let r3 = R3::from(coeffs);
+        let inv = r3.recip().expect("Should be invertible");
+
+        // Verify: inv * r3 should equal 1
+        let product = inv.mult(&r3);
+        assert!(product.eq_one(), "R3 reciprocal verification failed");
+    }
+
+    #[test]
+    fn test_r3_recip_random_pattern() {
+        // Create a polynomial with alternating coefficients
+        let mut coeffs = [0i8; P];
+        for i in 0..50 {
+            coeffs[i * 2] = if i % 2 == 0 { 1 } else { -1 };
+        }
+
+        let r3 = R3::from(coeffs);
+        if let Ok(inv) = r3.recip() {
+            let product = inv.mult(&r3);
+            assert!(
+                product.eq_one(),
+                "R3 reciprocal verification failed for alternating pattern"
+            );
+        }
+        // Note: some polynomials may not be invertible, which is fine
     }
 }

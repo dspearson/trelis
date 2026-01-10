@@ -110,7 +110,7 @@ impl HybridIdentityKeypair {
     /// # Security
     ///
     /// The returned bytes contain secret key material and should be
-    /// handled securely (encrypted storage, zeroization after use).
+    /// handled securely (encrypted storage, zeroisation after use).
     #[must_use]
     pub fn to_bytes(&self) -> [u8; SECRET_KEY_SIZE] {
         let mut bytes = [0u8; SECRET_KEY_SIZE];

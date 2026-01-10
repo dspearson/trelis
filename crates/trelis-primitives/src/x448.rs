@@ -96,7 +96,6 @@ impl X448Secret {
     ///
     /// assert_eq!(key1.as_bytes(), key2.as_bytes());
     /// ```
-    #[cfg(feature = "deterministic-keygen")]
     #[must_use]
     pub fn generate_from_seed(seed: &[u8; 32]) -> Self {
         let mut bytes = [0u8; SECRET_KEY_SIZE];
@@ -487,7 +486,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "deterministic-keygen")]
     fn test_generate_from_seed_deterministic() {
         let seed = [0x42u8; 32];
         let key1 = X448Secret::generate_from_seed(&seed);
@@ -498,7 +496,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "deterministic-keygen")]
     fn test_generate_from_seed_different_seeds() {
         let seed1 = [0x42u8; 32];
         let seed2 = [0x43u8; 32];
@@ -510,7 +507,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "deterministic-keygen")]
     fn test_generate_from_seed_clamping() {
         let seed = [0x42u8; 32];
         let key = X448Secret::generate_from_seed(&seed);
@@ -521,7 +517,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "deterministic-keygen")]
     fn test_generate_from_seed_dh_works() {
         let seed1 = [0x42u8; 32];
         let seed2 = [0x43u8; 32];

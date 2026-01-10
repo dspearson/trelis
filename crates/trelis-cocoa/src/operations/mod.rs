@@ -24,23 +24,12 @@ pub mod seed_encrypt;
 mod update;
 
 pub use add::{AddCommit, EncryptedSeed, PathUpdate, add_member, process_add};
-pub use init::{Welcome, WelcomeInfoSerialise, create_group, encrypt_welcome_info, process_welcome};
-pub use remove::{RemoveCommit, process_remove, remove_member};
-#[cfg(any(
-    feature = "deterministic-keygen",
-    target_os = "windows",
-    target_arch = "wasm32"
-))]
-pub use seed_chain::{
-    Seed, SEED_SIZE, derive_delta_root, derive_node_keypair, derive_path_seeds,
-    generate_leaf_seed, get_seed_at_level,
+pub use init::{
+    Welcome, WelcomeInfoSerialise, create_group, encrypt_welcome_info, process_welcome,
 };
-#[cfg(not(any(
-    feature = "deterministic-keygen",
-    target_os = "windows",
-    target_arch = "wasm32"
-)))]
+pub use remove::{RemoveCommit, process_remove, remove_member};
 pub use seed_chain::{
-    Seed, SEED_SIZE, derive_delta_root, derive_path_seeds, generate_leaf_seed, get_seed_at_level,
+    SEED_SIZE, Seed, derive_delta_root, derive_node_keypair, derive_path_seeds, generate_leaf_seed,
+    get_seed_at_level,
 };
 pub use update::{UpdateCommit, create_update, process_update};

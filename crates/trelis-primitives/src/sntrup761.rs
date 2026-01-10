@@ -125,7 +125,6 @@ impl Sntrup761SecretKey {
     /// This uses the pure Rust implementation (same as WASM backend) rather
     /// than the C FFI, since the C implementation doesn't support seeded
     /// key generation.
-    #[cfg(feature = "deterministic-keygen")]
     #[must_use]
     pub fn generate_from_seed(seed: &[u8; 32]) -> Self {
         // Use the pure Rust implementation for deterministic keygen

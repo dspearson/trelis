@@ -20,7 +20,7 @@
 //! XChaCha20 uses 192-bit (24-byte) nonces, providing sufficient space for
 //! random nonce generation without practical collision risk. However, the
 //! Trelis protocol uses hedged nonces combining counters and randomness
-//! for defense-in-depth.
+//! for defence-in-depth.
 //!
 //! # Examples
 //!

@@ -177,7 +177,6 @@ impl Sntrup761SecretKey {
     ///
     /// Panics if key generation fails after `MAX_KEYGEN_ATTEMPTS` attempts,
     /// which should never happen with a properly seeded RNG.
-    #[cfg(feature = "deterministic-keygen")]
     #[must_use]
     pub fn generate_from_seed(seed: &[u8; 32]) -> Self {
         use crate::random::SeededRng;
@@ -247,9 +246,8 @@ impl Sntrup761SecretKey {
             };
 
             // Compute public key: h = (1/3f) * g in Rq
-            // Use ntrulp's Rq for polynomial inversion (faster than our implementation)
-            let f_r3 = ntrulp::poly::r3::R3::from(f_coeffs);
-            let f_rq = f_r3.rq_from_r3();
+            // Use our optimised Rq for polynomial inversion (uses closure+slice pattern)
+            let f_rq = R3::from(f_coeffs).rq_from_r3();
 
             // Compute 1/(3f) in Rq
             // If f is not invertible mod 3, retry with new g and f.
@@ -763,7 +761,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "deterministic-keygen")]
     fn test_generate_from_seed_deterministic() {
         let seed = [0x42u8; 32];
         let sk1 = Sntrup761SecretKey::generate_from_seed(&seed);
@@ -774,7 +771,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "deterministic-keygen")]
     fn test_generate_from_seed_different_seeds() {
         let seed1 = [0x42u8; 32];
         let seed2 = [0x43u8; 32];
@@ -786,7 +782,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "deterministic-keygen")]
     fn test_generate_from_seed_kem_works() {
         let seed = [0x42u8; 32];
         let sk = Sntrup761SecretKey::generate_from_seed(&seed);

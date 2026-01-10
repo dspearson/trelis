@@ -121,7 +121,6 @@ impl HybridKemKeypair {
     /// // Same seed produces same keypair
     /// assert_eq!(keypair1.to_bytes(), keypair2.to_bytes());
     /// ```
-    #[cfg(feature = "deterministic-keygen")]
     #[must_use]
     pub fn generate_from_seed(seed: &[u8; 32]) -> Self {
         // Derive independent seeds for each component using BLAKE3
@@ -563,7 +562,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "deterministic-keygen")]
     fn test_generate_from_seed_deterministic() {
         let seed = [0x42u8; 32];
         let keypair1 = HybridKemKeypair::generate_from_seed(&seed);
@@ -578,7 +576,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "deterministic-keygen")]
     fn test_generate_from_seed_different_seeds() {
         let seed1 = [0x42u8; 32];
         let seed2 = [0x43u8; 32];
@@ -590,7 +587,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "deterministic-keygen")]
     fn test_generate_from_seed_kem_works() {
         let seed = [0x42u8; 32];
         let keypair = HybridKemKeypair::generate_from_seed(&seed);

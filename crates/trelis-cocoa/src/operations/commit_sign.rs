@@ -204,7 +204,11 @@ impl CommitContent {
         offset += 32;
 
         // Epoch
-        let epoch = u64::from_be_bytes(bytes[offset..offset + 8].try_into().unwrap());
+        let epoch = u64::from_be_bytes(
+            bytes[offset..offset + 8]
+                .try_into()
+                .map_err(|_| CryptoError::MalformedMessage)?,
+        );
         offset += 8;
 
         // Commit type
@@ -290,7 +294,7 @@ pub fn verify_commit_signature(
 ///
 /// # Note
 ///
-/// The path updates MUST be serialized in canonical order (by node index:
+/// The path updates MUST be serialised in canonical order (by node index:
 /// depth ascending, then position ascending) before passing to this function.
 /// Use [`canonicalise_path_updates`] to ensure correct ordering.
 #[must_use]
@@ -362,11 +366,7 @@ pub struct ExtendedCommitContent {
 impl ExtendedCommitContent {
     /// Creates extended content for an add operation.
     #[must_use]
-    pub fn new_add(
-        base: CommitContent,
-        added_member: UserId,
-        added_position: u32,
-    ) -> Self {
+    pub fn new_add(base: CommitContent, added_member: UserId, added_position: u32) -> Self {
         Self {
             base,
             added_member: Some(added_member),
@@ -378,11 +378,7 @@ impl ExtendedCommitContent {
 
     /// Creates extended content for a remove operation.
     #[must_use]
-    pub fn new_remove(
-        base: CommitContent,
-        removed_member: UserId,
-        removed_position: u32,
-    ) -> Self {
+    pub fn new_remove(base: CommitContent, removed_member: UserId, removed_position: u32) -> Self {
         Self {
             base,
             added_member: None,
@@ -461,9 +457,18 @@ mod tests {
 
     #[test]
     fn test_commit_type_roundtrip() {
-        assert_eq!(CommitType::from_byte(CommitType::Add.as_byte()).unwrap(), CommitType::Add);
-        assert_eq!(CommitType::from_byte(CommitType::Remove.as_byte()).unwrap(), CommitType::Remove);
-        assert_eq!(CommitType::from_byte(CommitType::Update.as_byte()).unwrap(), CommitType::Update);
+        assert_eq!(
+            CommitType::from_byte(CommitType::Add.as_byte()).unwrap(),
+            CommitType::Add
+        );
+        assert_eq!(
+            CommitType::from_byte(CommitType::Remove.as_byte()).unwrap(),
+            CommitType::Remove
+        );
+        assert_eq!(
+            CommitType::from_byte(CommitType::Update.as_byte()).unwrap(),
+            CommitType::Update
+        );
     }
 
     #[test]
@@ -474,12 +479,7 @@ mod tests {
 
     #[test]
     fn test_commit_content_serialisation() {
-        let content = CommitContent::new_add(
-            [0x42u8; 32],
-            42,
-            [0xAAu8; 32],
-            [0xBBu8; 32],
-        );
+        let content = CommitContent::new_add([0x42u8; 32], 42, [0xAAu8; 32], [0xBBu8; 32]);
 
         let bytes = content.to_bytes();
         assert_eq!(bytes.len(), COMMIT_CONTENT_SIZE);
@@ -495,12 +495,7 @@ mod tests {
     #[test]
     fn test_sign_verify_commit() {
         let identity = test_identity();
-        let content = CommitContent::new_update(
-            [0x42u8; 32],
-            1,
-            [0xAAu8; 32],
-            [0xBBu8; 32],
-        );
+        let content = CommitContent::new_update([0x42u8; 32], 1, [0xAAu8; 32], [0xBBu8; 32]);
 
         let signature = sign_commit(&identity, &content).unwrap();
         assert!(verify_commit_signature(identity.public_key(), &content, &signature).is_ok());
@@ -510,12 +505,7 @@ mod tests {
     fn test_wrong_identity_fails() {
         let identity1 = test_identity();
         let identity2 = test_identity();
-        let content = CommitContent::new_update(
-            [0x42u8; 32],
-            1,
-            [0xAAu8; 32],
-            [0xBBu8; 32],
-        );
+        let content = CommitContent::new_update([0x42u8; 32], 1, [0xAAu8; 32], [0xBBu8; 32]);
 
         let signature = sign_commit(&identity1, &content).unwrap();
         assert!(verify_commit_signature(identity2.public_key(), &content, &signature).is_err());
@@ -524,12 +514,7 @@ mod tests {
     #[test]
     fn test_modified_content_fails() {
         let identity = test_identity();
-        let content = CommitContent::new_update(
-            [0x42u8; 32],
-            1,
-            [0xAAu8; 32],
-            [0xBBu8; 32],
-        );
+        let content = CommitContent::new_update([0x42u8; 32], 1, [0xAAu8; 32], [0xBBu8; 32]);
 
         let signature = sign_commit(&identity, &content).unwrap();
 
@@ -562,46 +547,37 @@ mod tests {
     #[test]
     fn test_extended_commit_add() {
         let identity = test_identity();
-        let base = CommitContent::new_add(
-            [0x42u8; 32],
-            1,
-            [0xAAu8; 32],
-            [0xBBu8; 32],
-        );
+        let base = CommitContent::new_add([0x42u8; 32], 1, [0xAAu8; 32], [0xBBu8; 32]);
         let extended = ExtendedCommitContent::new_add(base, [0xCCu8; 32], 5);
 
         let signature = sign_extended_commit(&identity, &extended).unwrap();
-        assert!(verify_extended_commit_signature(identity.public_key(), &extended, &signature).is_ok());
+        assert!(
+            verify_extended_commit_signature(identity.public_key(), &extended, &signature).is_ok()
+        );
     }
 
     #[test]
     fn test_extended_commit_remove() {
         let identity = test_identity();
-        let base = CommitContent::new_remove(
-            [0x42u8; 32],
-            2,
-            [0xAAu8; 32],
-            [0xBBu8; 32],
-        );
+        let base = CommitContent::new_remove([0x42u8; 32], 2, [0xAAu8; 32], [0xBBu8; 32]);
         let extended = ExtendedCommitContent::new_remove(base, [0xDDu8; 32], 3);
 
         let signature = sign_extended_commit(&identity, &extended).unwrap();
-        assert!(verify_extended_commit_signature(identity.public_key(), &extended, &signature).is_ok());
+        assert!(
+            verify_extended_commit_signature(identity.public_key(), &extended, &signature).is_ok()
+        );
     }
 
     #[test]
     fn test_extended_commit_update() {
         let identity = test_identity();
-        let base = CommitContent::new_update(
-            [0x42u8; 32],
-            3,
-            [0xAAu8; 32],
-            [0xBBu8; 32],
-        );
+        let base = CommitContent::new_update([0x42u8; 32], 3, [0xAAu8; 32], [0xBBu8; 32]);
         let extended = ExtendedCommitContent::new_update(base);
 
         let signature = sign_extended_commit(&identity, &extended).unwrap();
-        assert!(verify_extended_commit_signature(identity.public_key(), &extended, &signature).is_ok());
+        assert!(
+            verify_extended_commit_signature(identity.public_key(), &extended, &signature).is_ok()
+        );
     }
 
     #[test]
@@ -617,10 +593,10 @@ mod tests {
 
         // Create indices in random order
         let indices = vec![
-            NodeIndex::new(0, 0),  // root
-            NodeIndex::new(2, 1),  // leaf
-            NodeIndex::new(1, 0),  // intermediate
-            NodeIndex::new(2, 0),  // leaf
+            NodeIndex::new(0, 0), // root
+            NodeIndex::new(2, 1), // leaf
+            NodeIndex::new(1, 0), // intermediate
+            NodeIndex::new(2, 0), // leaf
         ];
 
         let order = canonicalise_path_update_order(&indices);

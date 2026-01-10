@@ -748,7 +748,7 @@ pub fn key_fingerprint(public_key: &[u8]) -> Result<Vec<u8>, JsValue> {
 /// * `signing_secret` - 4,089-byte signing secret key (compromised key or recovery key)
 ///
 /// # Returns
-/// Serialized compromise notice (3,496 bytes)
+/// Serialised compromise notice (3,496 bytes)
 #[wasm_bindgen]
 pub fn compromise_notice_create(
     compromised_fingerprint: &[u8],
@@ -779,7 +779,7 @@ pub fn compromise_notice_create(
 /// Verify a compromise notice.
 ///
 /// # Arguments
-/// * `notice_bytes` - Serialized compromise notice
+/// * `notice_bytes` - Serialised compromise notice
 /// * `signer_public` - 2,009-byte public key of the expected signer
 ///
 /// # Returns
@@ -845,7 +845,7 @@ pub fn compromise_notice_verify(
 /// * `expiration` - Unix timestamp when bundle expires
 ///
 /// # Returns
-/// Serialized pre-key bundle (4,461 bytes)
+/// Serialised pre-key bundle (4,461 bytes)
 #[wasm_bindgen]
 pub fn x3dh_create_bundle(
     identity_signing_public: &[u8],
@@ -1165,7 +1165,7 @@ fn parse_signed_bundle(bytes: &[u8]) -> Result<trelis_x3dh_pq::SignedPreKeyBundl
 // KEM Ratchet (Per-Message Forward Secrecy)
 // ============================================================================
 
-/// Initialize a KEM ratchet as the session initiator (Alice).
+/// Initialise a KEM ratchet as the session initiator (Alice).
 ///
 /// Call this after X3DH-PQ completes with the derived session key.
 ///
@@ -1175,7 +1175,7 @@ fn parse_signed_bundle(bytes: &[u8]) -> Result<trelis_x3dh_pq::SignedPreKeyBundl
 /// * `current_time` - Current Unix timestamp
 ///
 /// # Returns
-/// Object with `state` (serialized ratchet state) and `our_public_key`
+/// Object with `state` (serialised ratchet state) and `our_public_key`
 #[wasm_bindgen]
 pub fn ratchet_init_initiator(
     session_key: &[u8],
@@ -1197,7 +1197,7 @@ pub fn ratchet_init_initiator(
         trelis_ratchet::KemRatchet::init_initiator(&session_key_arr, their_pk, current_time)
             .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
-    // Serialize state for JavaScript storage
+    // Serialise state for JavaScript storage
     let state_bytes = serialize_ratchet_state(&state);
     let our_pk = state.our_keypair().public_key().to_bytes();
 
@@ -1216,7 +1216,7 @@ pub fn ratchet_init_initiator(
     Ok(obj.into())
 }
 
-/// Initialize a KEM ratchet as the session responder (Bob).
+/// Initialise a KEM ratchet as the session responder (Bob).
 ///
 /// Call this after receiving and processing an X3DH-PQ initial message.
 ///
@@ -1226,7 +1226,7 @@ pub fn ratchet_init_initiator(
 /// * `current_time` - Current Unix timestamp
 ///
 /// # Returns
-/// Object with `state` (serialized ratchet state) and `our_public_key`
+/// Object with `state` (serialised ratchet state) and `our_public_key`
 #[wasm_bindgen]
 pub fn ratchet_init_responder(
     session_key: &[u8],
@@ -1268,7 +1268,7 @@ pub fn ratchet_init_responder(
 /// Encrypt a message using the KEM ratchet.
 ///
 /// # Arguments
-/// * `state` - Serialized ratchet state
+/// * `state` - Serialised ratchet state
 /// * `plaintext` - Message to encrypt
 /// * `current_time` - Current Unix timestamp
 ///
@@ -1313,7 +1313,7 @@ pub fn ratchet_send(state: &[u8], plaintext: &[u8], current_time: u64) -> Result
 /// Decrypt a message using the KEM ratchet.
 ///
 /// # Arguments
-/// * `state` - Serialized ratchet state
+/// * `state` - Serialised ratchet state
 /// * `header` - Message header bytes
 /// * `nonce` - 24-byte nonce
 /// * `ciphertext` - Encrypted message
@@ -1365,7 +1365,7 @@ pub fn ratchet_receive(
     Ok(obj.into())
 }
 
-// Internal helper to serialize KemRatchet state
+// Internal helper to serialise KemRatchet state
 fn serialize_ratchet_state(state: &trelis_ratchet::KemRatchet) -> Vec<u8> {
     // Format: our_keypair (1819) + root_key (32) + their_pk (1214 or 0) + counters (16) + status (1)
     let their_pk = state.their_public_key();
@@ -1461,7 +1461,7 @@ fn deserialize_ratchet_state(bytes: &[u8]) -> trelis_error::Result<trelis_ratche
 /// * `creator_user_id` - 32-byte user identifier
 ///
 /// # Returns
-/// Object with `session` (serialized), `group_id`, and `welcomes` array
+/// Object with `session` (serialised), `group_id`, and `welcomes` array
 #[wasm_bindgen]
 pub fn cocoa_create_group(
     creator_identity_secret: &[u8],
@@ -1538,11 +1538,11 @@ pub fn cocoa_create_group(
 /// Encrypt a message for the CoCoA group.
 ///
 /// # Arguments
-/// * `session` - Serialized CoCoA session state
+/// * `session` - Serialised CoCoA session state
 /// * `plaintext` - Message to encrypt
 ///
 /// # Returns
-/// Object with updated `session` and `encrypted_message` (serialized EncryptedMessage)
+/// Object with updated `session` and `encrypted_message` (serialised EncryptedMessage)
 #[wasm_bindgen]
 pub fn cocoa_encrypt(session: &[u8], plaintext: &[u8]) -> Result<JsValue, JsValue> {
     let mut cocoa_session =
@@ -1572,8 +1572,8 @@ pub fn cocoa_encrypt(session: &[u8], plaintext: &[u8]) -> Result<JsValue, JsValu
 /// Decrypt a CoCoA group message.
 ///
 /// # Arguments
-/// * `session` - Serialized CoCoA session state
-/// * `encrypted_message` - Serialized EncryptedMessage
+/// * `session` - Serialised CoCoA session state
+/// * `encrypted_message` - Serialised EncryptedMessage
 ///
 /// # Returns
 /// Object with `plaintext`
@@ -1602,7 +1602,7 @@ pub fn cocoa_decrypt(session: &[u8], encrypted_message: &[u8]) -> Result<JsValue
 /// Get CoCoA session information.
 ///
 /// # Arguments
-/// * `session` - Serialized CoCoA session state
+/// * `session` - Serialised CoCoA session state
 ///
 /// # Returns
 /// Object with session metadata
@@ -1641,10 +1641,10 @@ pub fn cocoa_session_info(session: &[u8]) -> Result<JsValue, JsValue> {
 /// # Arguments
 /// * `our_user_id` - 32-byte user identifier
 /// * `our_kem_secret` - 1,819-byte KEM secret key (matching bundle used)
-/// * `welcome_bytes` - Serialized welcome message
+/// * `welcome_bytes` - Serialised welcome message
 ///
 /// # Returns
-/// Object with `session` (serialized CoCoA session)
+/// Object with `session` (serialised CoCoA session)
 #[wasm_bindgen]
 pub fn cocoa_process_welcome(
     our_user_id: &[u8],
@@ -1681,7 +1681,7 @@ pub fn cocoa_process_welcome(
 /// Advance a CoCoA session to the next epoch.
 ///
 /// # Arguments
-/// * `session` - Serialized CoCoA session state
+/// * `session` - Serialised CoCoA session state
 /// * `delta_root` - 32-byte delta root from commit
 /// * `transcript_hash` - 32-byte new transcript hash
 ///
@@ -1733,7 +1733,7 @@ pub fn cocoa_advance_epoch(
 /// This should be called periodically to maintain forward secrecy.
 ///
 /// # Arguments
-/// * `session` - Serialized CoCoA session state
+/// * `session` - Serialised CoCoA session state
 ///
 /// # Returns
 /// Object with updated `session` and new `public_key`
@@ -1764,7 +1764,7 @@ pub fn cocoa_rotate_keypair(session: &[u8]) -> Result<JsValue, JsValue> {
     Ok(obj.into())
 }
 
-// Internal helper to serialize a Welcome message
+// Internal helper to serialise a Welcome message
 fn serialize_welcome(welcome: &trelis_cocoa::operations::Welcome) -> Vec<u8> {
     // Format: group_id (32) + epoch (8) + leaf_position (4) + tree_depth (4) +
     // member_count (4) + encrypted_info_len (4) + encrypted_info + encapsulation_len (4) + encapsulation
@@ -1835,7 +1835,7 @@ fn deserialize_welcome(bytes: &[u8]) -> Result<trelis_cocoa::operations::Welcome
     })
 }
 
-// Internal helper to serialize CocoaSession
+// Internal helper to serialise CocoaSession
 fn serialize_cocoa_session(session: &trelis_cocoa::CocoaSession) -> Vec<u8> {
     // Format v2: group_id (32) + user_id (32) + epoch_number (8) + leaf_pos (4) +
     // member_count (4) + tree_depth (4) + transcript_hash (32) + init_secret (32) +
@@ -1952,7 +1952,7 @@ pub fn device_fingerprint(public_key: &[u8]) -> Result<Vec<u8>, JsValue> {
 /// * `signing_secret` - 4,089-byte signing secret key
 ///
 /// # Returns
-/// Serialized approval certificate
+/// Serialised approval certificate
 #[wasm_bindgen]
 pub fn device_approval_create(
     approving_device_id: &[u8],
@@ -1990,7 +1990,7 @@ pub fn device_approval_create(
 /// Verify a device approval certificate.
 ///
 /// # Arguments
-/// * `certificate_bytes` - Serialized approval certificate
+/// * `certificate_bytes` - Serialised approval certificate
 /// * `approver_public` - 2,009-byte approving device's signing public key
 ///
 /// # Returns
@@ -2038,7 +2038,7 @@ pub fn device_approval_verify(
 /// * `signing_secret` - 4,089-byte signing secret key (user's identity key)
 ///
 /// # Returns
-/// Serialized revocation certificate
+/// Serialised revocation certificate
 #[wasm_bindgen]
 pub fn device_revocation_create(
     device_id: &[u8],
@@ -2069,7 +2069,7 @@ pub fn device_revocation_create(
 /// Verify a device revocation certificate.
 ///
 /// # Arguments
-/// * `revocation_bytes` - Serialized revocation certificate
+/// * `revocation_bytes` - Serialised revocation certificate
 /// * `user_public` - 2,009-byte user's identity signing public key
 ///
 /// # Returns
@@ -2120,7 +2120,7 @@ pub fn device_revocation_verify(
 /// * `epoch` - CoCoA epoch number
 ///
 /// # Returns
-/// Serialized DeviceKeyWrap (1,175 bytes)
+/// Serialised DeviceKeyWrap (1,175 bytes)
 #[wasm_bindgen]
 pub fn device_key_wrap_create(
     secret: &[u8],
@@ -2173,7 +2173,7 @@ pub fn device_key_wrap_create(
 /// Unwrap a DeviceKeyWrap to recover the secret.
 ///
 /// # Arguments
-/// * `wrap_bytes` - Serialized DeviceKeyWrap (1,175 bytes)
+/// * `wrap_bytes` - Serialised DeviceKeyWrap (1,175 bytes)
 /// * `recipient_kem_secret` - 1,819-byte recipient's KEM secret key
 /// * `recipient_key_id` - 8-byte recipient key ID
 /// * `purpose` - Expected wrap purpose
@@ -2287,16 +2287,18 @@ pub fn thread_settings_create(
 /// Add a member to a CoCoA group.
 ///
 /// # Arguments
-/// * `session` - Serialized CoCoA session state
+/// * `session` - Serialised CoCoA session state
+/// * `identity_secret` - 5,908-byte our identity secret key for signing
 /// * `new_member_id` - 32-byte user ID of the new member
 /// * `new_member_identity_public` - 3,223-byte identity public key
 /// * `new_member_otk` - 1,222-byte one-time key (8-byte key_id + 1,214-byte KEM public)
 ///
 /// # Returns
-/// Object with updated `session`, `commit` (serialized AddCommit), and `welcome` (serialized Welcome)
+/// Object with updated `session`, `commit` (serialised AddCommit), and `welcome` (serialised Welcome)
 #[wasm_bindgen]
 pub fn cocoa_add_member(
     session: &[u8],
+    identity_secret: &[u8],
     new_member_id: &[u8],
     new_member_identity_public: &[u8],
     new_member_otk: &[u8],
@@ -2307,6 +2309,10 @@ pub fn cocoa_add_member(
 
     let mut cocoa_session =
         deserialize_cocoa_session(session).map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+
+    // Parse our identity keypair for signing
+    let identity = trelis_hybrid::HybridIdentityKeypair::from_bytes(identity_secret)
+        .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
     let mut member_id = [0u8; 32];
     member_id.copy_from_slice(new_member_id);
@@ -2323,7 +2329,7 @@ pub fn cocoa_add_member(
     let bundle = trelis_hybrid::HybridPreKeyBundle::new(&identity_pk, otk);
 
     let (commit, welcome) =
-        trelis_cocoa::operations::add_member(&mut cocoa_session, &bundle, member_id)
+        trelis_cocoa::operations::add_member(&mut cocoa_session, &identity, &bundle, member_id)
             .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
     let new_session = serialize_cocoa_session(&cocoa_session);
@@ -2353,19 +2359,28 @@ pub fn cocoa_add_member(
 /// Process an add commit from another group member.
 ///
 /// # Arguments
-/// * `session` - Serialized CoCoA session state
-/// * `commit_bytes` - Serialized AddCommit
+/// * `session` - Serialised CoCoA session state
+/// * `commit_bytes` - Serialised AddCommit
+/// * `adder_identity_public` - 3,223-byte adder's identity public key for signature verification
 ///
 /// # Returns
 /// Object with updated `session`
 #[wasm_bindgen]
-pub fn cocoa_process_add(session: &[u8], commit_bytes: &[u8]) -> Result<JsValue, JsValue> {
+pub fn cocoa_process_add(
+    session: &[u8],
+    commit_bytes: &[u8],
+    adder_identity_public: &[u8],
+) -> Result<JsValue, JsValue> {
     let mut cocoa_session =
         deserialize_cocoa_session(session).map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
     let commit = deserialize_add_commit(commit_bytes)?;
 
-    trelis_cocoa::operations::process_add(&mut cocoa_session, &commit)
+    // Parse the adder's identity public key for signature verification
+    let adder_identity = trelis_hybrid::HybridIdentityPublicKey::from_bytes(adder_identity_public)
+        .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+
+    trelis_cocoa::operations::process_add(&mut cocoa_session, &commit, &adder_identity)
         .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
     let new_session = serialize_cocoa_session(&cocoa_session);
@@ -2388,16 +2403,21 @@ pub fn cocoa_process_add(session: &[u8], commit_bytes: &[u8]) -> Result<JsValue,
 /// Create an update commit for post-compromise security.
 ///
 /// # Arguments
-/// * `session` - Serialized CoCoA session state
+/// * `session` - Serialised CoCoA session state
+/// * `identity_secret` - 5,908-byte our identity secret key for signing
 ///
 /// # Returns
-/// Object with updated `session` and `commit` (serialized UpdateCommit)
+/// Object with updated `session` and `commit` (serialised UpdateCommit)
 #[wasm_bindgen]
-pub fn cocoa_create_update(session: &[u8]) -> Result<JsValue, JsValue> {
+pub fn cocoa_create_update(session: &[u8], identity_secret: &[u8]) -> Result<JsValue, JsValue> {
     let mut cocoa_session =
         deserialize_cocoa_session(session).map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
-    let commit = trelis_cocoa::operations::create_update(&mut cocoa_session)
+    // Parse our identity keypair for signing
+    let identity = trelis_hybrid::HybridIdentityKeypair::from_bytes(identity_secret)
+        .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+
+    let commit = trelis_cocoa::operations::create_update(&mut cocoa_session, &identity)
         .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
     let new_session = serialize_cocoa_session(&cocoa_session);
@@ -2426,19 +2446,29 @@ pub fn cocoa_create_update(session: &[u8]) -> Result<JsValue, JsValue> {
 /// Process an update commit from another group member.
 ///
 /// # Arguments
-/// * `session` - Serialized CoCoA session state
-/// * `commit_bytes` - Serialized UpdateCommit
+/// * `session` - Serialised CoCoA session state
+/// * `commit_bytes` - Serialised UpdateCommit
+/// * `updater_identity_public` - 3,223-byte updater's identity public key for signature verification
 ///
 /// # Returns
 /// Object with updated `session`
 #[wasm_bindgen]
-pub fn cocoa_process_update(session: &[u8], commit_bytes: &[u8]) -> Result<JsValue, JsValue> {
+pub fn cocoa_process_update(
+    session: &[u8],
+    commit_bytes: &[u8],
+    updater_identity_public: &[u8],
+) -> Result<JsValue, JsValue> {
     let mut cocoa_session =
         deserialize_cocoa_session(session).map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
     let commit = deserialize_update_commit(commit_bytes)?;
 
-    trelis_cocoa::operations::process_update(&mut cocoa_session, &commit)
+    // Parse the updater's identity public key for signature verification
+    let updater_identity =
+        trelis_hybrid::HybridIdentityPublicKey::from_bytes(updater_identity_public)
+            .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+
+    trelis_cocoa::operations::process_update(&mut cocoa_session, &commit, &updater_identity)
         .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
     let new_session = serialize_cocoa_session(&cocoa_session);
@@ -2461,15 +2491,17 @@ pub fn cocoa_process_update(session: &[u8], commit_bytes: &[u8]) -> Result<JsVal
 /// Remove a member from the CoCoA group.
 ///
 /// # Arguments
-/// * `session` - Serialized CoCoA session state
+/// * `session` - Serialised CoCoA session state
+/// * `identity_secret` - 5,908-byte our identity secret key for signing
 /// * `removed_member_id` - 32-byte user ID of the member to remove
 /// * `removed_position` - Leaf position of the member to remove
 ///
 /// # Returns
-/// Object with updated `session` and `commit` (serialized RemoveCommit)
+/// Object with updated `session` and `commit` (serialised RemoveCommit)
 #[wasm_bindgen]
 pub fn cocoa_remove_member(
     session: &[u8],
+    identity_secret: &[u8],
     removed_member_id: &[u8],
     removed_position: u32,
 ) -> Result<JsValue, JsValue> {
@@ -2480,12 +2512,20 @@ pub fn cocoa_remove_member(
     let mut cocoa_session =
         deserialize_cocoa_session(session).map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
+    // Parse our identity keypair for signing
+    let identity = trelis_hybrid::HybridIdentityKeypair::from_bytes(identity_secret)
+        .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+
     let mut member_id = [0u8; 32];
     member_id.copy_from_slice(removed_member_id);
 
-    let commit =
-        trelis_cocoa::operations::remove_member(&mut cocoa_session, member_id, removed_position)
-            .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+    let commit = trelis_cocoa::operations::remove_member(
+        &mut cocoa_session,
+        &identity,
+        member_id,
+        removed_position,
+    )
+    .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
     let new_session = serialize_cocoa_session(&cocoa_session);
     let commit_bytes = serialize_remove_commit(&commit);
@@ -2513,19 +2553,29 @@ pub fn cocoa_remove_member(
 /// Process a remove commit from another group member.
 ///
 /// # Arguments
-/// * `session` - Serialized CoCoA session state
-/// * `commit_bytes` - Serialized RemoveCommit
+/// * `session` - Serialised CoCoA session state
+/// * `commit_bytes` - Serialised RemoveCommit
+/// * `remover_identity_public` - 3,223-byte remover's identity public key for signature verification
 ///
 /// # Returns
 /// Object with updated `session`
 #[wasm_bindgen]
-pub fn cocoa_process_remove(session: &[u8], commit_bytes: &[u8]) -> Result<JsValue, JsValue> {
+pub fn cocoa_process_remove(
+    session: &[u8],
+    commit_bytes: &[u8],
+    remover_identity_public: &[u8],
+) -> Result<JsValue, JsValue> {
     let mut cocoa_session =
         deserialize_cocoa_session(session).map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
     let commit = deserialize_remove_commit(commit_bytes)?;
 
-    trelis_cocoa::operations::process_remove(&mut cocoa_session, &commit)
+    // Parse the remover's identity public key for signature verification
+    let remover_identity =
+        trelis_hybrid::HybridIdentityPublicKey::from_bytes(remover_identity_public)
+            .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+
+    trelis_cocoa::operations::process_remove(&mut cocoa_session, &commit, &remover_identity)
         .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
     let new_session = serialize_cocoa_session(&cocoa_session);
@@ -2545,7 +2595,7 @@ pub fn cocoa_process_remove(session: &[u8], commit_bytes: &[u8]) -> Result<JsVal
     Ok(obj.into())
 }
 
-// Serialization helpers for CoCoA commits
+// Serialisation helpers for CoCoA commits
 fn serialize_add_commit(commit: &trelis_cocoa::operations::AddCommit) -> Vec<u8> {
     let sig_bytes = commit.signature.to_bytes();
     let mut buf = Vec::with_capacity(32 + 32 + 4 + 8 + 32 + sig_bytes.len());
@@ -2698,7 +2748,7 @@ fn deserialize_remove_commit(
 /// * `timestamp` - Unix timestamp when the message was sent/received
 ///
 /// # Returns
-/// 80-byte serialized retained key
+/// 80-byte serialised retained key
 #[wasm_bindgen]
 pub fn retained_key_create(
     message_id: &[u8],
@@ -2726,7 +2776,7 @@ pub fn retained_key_create(
 /// Parse a retained key from bytes.
 ///
 /// # Arguments
-/// * `bytes` - 80-byte serialized retained key
+/// * `bytes` - 80-byte serialised retained key
 ///
 /// # Returns
 /// Object with message_id, sequence, and timestamp (message_key is protected)
@@ -2759,12 +2809,12 @@ pub fn retained_key_parse(bytes: &[u8]) -> Result<JsValue, JsValue> {
 ///
 /// # Arguments
 /// * `thread_id` - 32-byte thread identifier
-/// * `retained_keys` - Array of 80-byte serialized retained keys
+/// * `retained_keys` - Array of 80-byte serialised retained keys
 /// * `signing_secret` - 4,089-byte signing secret key
 /// * `shared_at` - Unix timestamp
 ///
 /// # Returns
-/// Serialized HistoryKeyShareMessage
+/// Serialised HistoryKeyShareMessage
 #[wasm_bindgen]
 pub fn history_key_share_create(
     thread_id: &[u8],
@@ -2804,7 +2854,7 @@ pub fn history_key_share_create(
 /// Verify a history key share message.
 ///
 /// # Arguments
-/// * `message_bytes` - Serialized HistoryKeyShareMessage
+/// * `message_bytes` - Serialised HistoryKeyShareMessage
 /// * `sender_public` - 2,009-byte sender's signing public key
 ///
 /// # Returns
@@ -2846,10 +2896,10 @@ pub fn history_key_share_verify(
 /// Extract retained keys from a verified history key share message.
 ///
 /// # Arguments
-/// * `message_bytes` - Serialized HistoryKeyShareMessage
+/// * `message_bytes` - Serialised HistoryKeyShareMessage
 ///
 /// # Returns
-/// Array of 80-byte serialized retained keys
+/// Array of 80-byte serialised retained keys
 #[wasm_bindgen]
 pub fn history_key_share_extract_keys(message_bytes: &[u8]) -> Result<Vec<u8>, JsValue> {
     let msg = trelis_multidevice::HistoryKeyShareMessage::from_bytes(message_bytes)
@@ -2873,7 +2923,7 @@ pub fn history_key_share_extract_keys(message_bytes: &[u8]) -> Result<Vec<u8>, J
 /// * `thread_id` - 32-byte thread identifier
 ///
 /// # Returns
-/// Serialized ThreadKeyStore (initially empty)
+/// Serialised ThreadKeyStore (initially empty)
 #[wasm_bindgen]
 pub fn thread_key_store_create(thread_id: &[u8]) -> Result<Vec<u8>, JsValue> {
     if thread_id.len() != 32 {
@@ -2890,11 +2940,11 @@ pub fn thread_key_store_create(thread_id: &[u8]) -> Result<Vec<u8>, JsValue> {
 /// Retain a message key in the store.
 ///
 /// # Arguments
-/// * `store_bytes` - Serialized ThreadKeyStore
-/// * `retained_key` - 80-byte serialized RetainedKey
+/// * `store_bytes` - Serialised ThreadKeyStore
+/// * `retained_key` - 80-byte serialised RetainedKey
 ///
 /// # Returns
-/// Updated serialized ThreadKeyStore
+/// Updated serialised ThreadKeyStore
 #[wasm_bindgen]
 pub fn thread_key_store_retain(
     store_bytes: &[u8],
@@ -2913,10 +2963,10 @@ pub fn thread_key_store_retain(
 /// Get all retained keys from a store.
 ///
 /// # Arguments
-/// * `store_bytes` - Serialized ThreadKeyStore
+/// * `store_bytes` - Serialised ThreadKeyStore
 ///
 /// # Returns
-/// Concatenated 80-byte serialized retained keys
+/// Concatenated 80-byte serialised retained keys
 #[wasm_bindgen]
 pub fn thread_key_store_get_all_keys(store_bytes: &[u8]) -> Result<Vec<u8>, JsValue> {
     let store = deserialize_thread_key_store(store_bytes)?;
@@ -2932,7 +2982,7 @@ pub fn thread_key_store_get_all_keys(store_bytes: &[u8]) -> Result<Vec<u8>, JsVa
 /// Get info about a thread key store.
 ///
 /// # Arguments
-/// * `store_bytes` - Serialized ThreadKeyStore
+/// * `store_bytes` - Serialised ThreadKeyStore
 ///
 /// # Returns
 /// Object with thread_id, key_count, sequence_range
@@ -2963,11 +3013,11 @@ pub fn thread_key_store_info(store_bytes: &[u8]) -> Result<JsValue, JsValue> {
 /// Prune keys older than a timestamp.
 ///
 /// # Arguments
-/// * `store_bytes` - Serialized ThreadKeyStore
+/// * `store_bytes` - Serialised ThreadKeyStore
 /// * `before_timestamp` - Unix timestamp cutoff
 ///
 /// # Returns
-/// Updated serialized ThreadKeyStore
+/// Updated serialised ThreadKeyStore
 #[wasm_bindgen]
 pub fn thread_key_store_prune(
     store_bytes: &[u8],
@@ -2981,11 +3031,11 @@ pub fn thread_key_store_prune(
 /// Merge keys from another store (deduplicating by message_id).
 ///
 /// # Arguments
-/// * `store_bytes` - Serialized ThreadKeyStore
-/// * `other_keys` - Concatenated 80-byte serialized retained keys to merge
+/// * `store_bytes` - Serialised ThreadKeyStore
+/// * `other_keys` - Concatenated 80-byte serialised retained keys to merge
 ///
 /// # Returns
-/// Updated serialized ThreadKeyStore
+/// Updated serialised ThreadKeyStore
 #[wasm_bindgen]
 pub fn thread_key_store_merge(store_bytes: &[u8], other_keys: &[u8]) -> Result<Vec<u8>, JsValue> {
     if other_keys.len() % 80 != 0 {
@@ -3007,7 +3057,7 @@ pub fn thread_key_store_merge(store_bytes: &[u8], other_keys: &[u8]) -> Result<V
     Ok(serialize_thread_key_store(&store))
 }
 
-// Thread key store serialization helpers
+// Thread key store serialisation helpers
 fn serialize_thread_key_store(store: &trelis_multidevice::ThreadKeyStore) -> Vec<u8> {
     let key_count = store.len();
     let mut buf = Vec::with_capacity(32 + 8 + key_count * 80);
@@ -3329,7 +3379,7 @@ mod native_tests {
         let session_key: [u8; 32] = trelis_primitives::generate_bytes().unwrap();
         let bob_keypair = trelis_hybrid::HybridKemKeypair::generate().unwrap();
 
-        // Alice initializes as initiator
+        // Alice initialises as initiator
         let mut alice = trelis_ratchet::KemRatchet::init_initiator(
             &session_key,
             bob_keypair.public_key().clone(),
@@ -3337,7 +3387,7 @@ mod native_tests {
         )
         .unwrap();
 
-        // Bob initializes as responder
+        // Bob initialises as responder
         let mut bob = trelis_ratchet::KemRatchet::init_responder(&session_key, bob_keypair, 1000);
 
         // Alice sends a message
@@ -3386,7 +3436,7 @@ mod native_tests {
     }
 
     // ========================================================================
-    // Serialization Roundtrip Tests
+    // Serialisation Roundtrip Tests
     // ========================================================================
 
     #[test]
@@ -3403,7 +3453,7 @@ mod native_tests {
         )
         .unwrap();
 
-        // Serialize
+        // Serialise
         let bytes = serialize_ratchet_state(&state);
 
         // Deserialize
@@ -3426,7 +3476,7 @@ mod native_tests {
         let (session, _) =
             trelis_cocoa::operations::create_group(&identity, kem, user_id, &[]).unwrap();
 
-        // Serialize
+        // Serialise
         let bytes = serialize_cocoa_session(&session);
 
         // Deserialize

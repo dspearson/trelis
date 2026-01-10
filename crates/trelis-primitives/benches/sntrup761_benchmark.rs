@@ -374,7 +374,7 @@ fn bench_fq_recip(c: &mut Criterion) {
     group.finish();
 }
 
-/// Benchmark Rq polynomial inversion: optimized vs ntrulp.
+/// Benchmark Rq polynomial inversion: optimised vs ntrulp.
 fn bench_rq_recip(c: &mut Criterion) {
     use ntrulp::poly::r3::R3;
     use trelis_primitives::sntrup761_fq::Rq as FastRq;
@@ -405,6 +405,244 @@ fn bench_rq_recip(c: &mut Criterion) {
         })
     });
 
+    // Hybrid: our algorithm structure with ntrulp's freeze
+    group.bench_function("hybrid_ntrulp_freeze", |bench| {
+        use ntrulp::math::nums::{i16_negative_mask, i16_nonzero_mask};
+        use ntrulp::poly::fq::freeze as ntrulp_freeze;
+        use ntrulp::poly::fq::recip as ntrulp_fq_recip;
+
+        const P: usize = 761;
+
+        let mut input = [0i16; P];
+        for i in 0..P {
+            input[i] = coeffs_i8[i] as i16;
+        }
+
+        bench.iter(|| {
+            let mut out = [0i16; P];
+            let mut f = [0i16; P + 1];
+            let mut g = [0i16; P + 1];
+            let mut v = [0i16; P + 1];
+            let mut r = [0i16; P + 1];
+
+            r[0] = ntrulp_fq_recip(3);
+            f[0] = 1;
+            f[P - 1] = -1;
+            f[P] = -1;
+
+            for i in 0..P {
+                g[P - 1 - i] = input[i];
+            }
+            g[P] = 0;
+
+            let mut delta: i16 = 1;
+
+            for _ in 0..2 * P - 1 {
+                for i in (1..=P).rev() {
+                    v[i] = v[i - 1];
+                }
+                v[0] = 0;
+
+                let swap: i16 = i16_negative_mask(-delta) & i16_nonzero_mask(g[0]);
+                delta ^= swap & (delta ^ -delta);
+                delta += 1;
+
+                for i in 0..=P {
+                    let t = swap & (f[i] ^ g[i]);
+                    f[i] ^= t;
+                    g[i] ^= t;
+                    let t = swap & (v[i] ^ r[i]);
+                    v[i] ^= t;
+                    r[i] ^= t;
+                }
+
+                let f0 = f[0] as i32;
+                let g0 = g[0] as i32;
+
+                for i in 0..=P {
+                    g[i] = ntrulp_freeze(f0 * g[i] as i32 - g0 * f[i] as i32);
+                }
+                for i in 0..=P {
+                    r[i] = ntrulp_freeze(f0 * r[i] as i32 - g0 * v[i] as i32);
+                }
+
+                for i in 0..P {
+                    g[i] = g[i + 1];
+                }
+                g[P] = 0;
+            }
+
+            let scale = ntrulp_fq_recip(f[0]);
+            for i in 0..P {
+                out[i] = ntrulp_freeze(scale as i32 * v[P - 1 - i] as i32);
+            }
+
+            black_box(out)
+        })
+    });
+
+    // Exact copy of ntrulp's structure with closure
+    group.bench_function("exact_ntrulp_structure", |bench| {
+        use ntrulp::math::nums::{i16_negative_mask, i16_nonzero_mask};
+        use ntrulp::poly::fq;
+
+        const P: usize = 761;
+
+        let mut input_arr = [0i16; P];
+        for i in 0..P {
+            input_arr[i] = coeffs_i8[i] as i16;
+        }
+
+        bench.iter(|| {
+            let input = input_arr; // Copy like ntrulp does
+            let mut out = [0i16; P];
+            let mut f = [0i16; P + 1];
+            let mut g = [0i16; P + 1];
+            let mut v = [0i16; P + 1];
+            let mut r = [0i16; P + 1];
+            let mut delta: i16;
+            let mut swap: i16;
+            let mut t: i16;
+            let mut f0: i32;
+            let mut g0: i32;
+
+            // Closure exactly like ntrulp
+            let quotient = |out: &mut [i16], f0: i32, g0: i32, fv: &[i16]| {
+                for i in 0..P + 1 {
+                    let x = f0 * out[i] as i32 - g0 * fv[i] as i32;
+                    out[i] = fq::freeze(x);
+                }
+            };
+
+            r[0] = fq::recip(3);
+            f[0] = 1;
+            f[P - 1] = -1;
+            f[P] = -1;
+
+            for i in 0..P {
+                g[P - 1 - i] = input[i];
+            }
+
+            g[P] = 0;
+            delta = 1;
+
+            for _ in 0..2 * P - 1 {
+                for i in (1..=P).rev() {
+                    v[i] = v[i - 1];
+                }
+                v[0] = 0;
+
+                swap = i16_negative_mask(-delta) & i16_nonzero_mask(g[0]);
+                delta ^= swap & (delta ^ -delta);
+                delta += 1;
+
+                for i in 0..P + 1 {
+                    t = swap & (f[i] ^ g[i]);
+                    f[i] ^= t;
+                    g[i] ^= t;
+                    t = swap & (v[i] ^ r[i]);
+                    v[i] ^= t;
+                    r[i] ^= t;
+                }
+
+                f0 = f[0] as i32;
+                g0 = g[0] as i32;
+
+                quotient(&mut g, f0, g0, &f);
+                quotient(&mut r, f0, g0, &v);
+
+                for i in 0..P {
+                    g[i] = g[i + 1];
+                }
+
+                g[P] = 0;
+            }
+
+            let scale = fq::recip(f[0]);
+
+            for i in 0..P {
+                let x = scale as i32 * (v[P - 1 - i] as i32);
+                out[i] = fq::freeze(x);
+            }
+
+            black_box(out)
+        })
+    });
+
+    group.finish();
+}
+
+/// Benchmark freeze function: optimised vs ntrulp.
+fn bench_freeze(c: &mut Criterion) {
+    use ntrulp::poly::fq::freeze as ntrulp_freeze;
+    use trelis_primitives::sntrup761_fq::freeze as fast_freeze;
+
+    let mut group = c.benchmark_group("sntrup761_freeze");
+
+    // Test values covering typical range
+    let test_values: Vec<i32> = (-5000..5000).collect();
+
+    group.bench_function("optimized", |bench| {
+        bench.iter(|| {
+            let mut sum = 0i16;
+            for &x in &test_values {
+                sum = sum.wrapping_add(fast_freeze(black_box(x)));
+            }
+            black_box(sum)
+        })
+    });
+
+    group.bench_function("ntrulp", |bench| {
+        bench.iter(|| {
+            let mut sum = 0i16;
+            for &x in &test_values {
+                sum = sum.wrapping_add(ntrulp_freeze(black_box(x)));
+            }
+            black_box(sum)
+        })
+    });
+
+    group.finish();
+}
+
+/// Benchmark R3 polynomial inversion: optimised vs ntrulp.
+fn bench_r3_recip(c: &mut Criterion) {
+    use ntrulp::poly::r3::R3 as NtrulpR3;
+    use trelis_primitives::sntrup761_fq::R3 as FastR3;
+
+    let mut group = c.benchmark_group("sntrup761_r3_recip");
+    group.sample_size(10); // Polynomial inversion is slow
+
+    // Create a deterministic test polynomial (simple pattern that's invertible)
+    let mut coeffs_i8 = [0i8; 761];
+    // Create a small polynomial that's likely invertible
+    coeffs_i8[0] = 1;
+    for (i, coeff) in coeffs_i8.iter_mut().enumerate().take(50).skip(1) {
+        *coeff = if i % 3 == 0 {
+            1
+        } else if i % 3 == 1 {
+            -1
+        } else {
+            0
+        };
+    }
+
+    group.bench_function("optimized", |bench| {
+        let g = FastR3::from(coeffs_i8);
+        bench.iter(|| {
+            let result = g.recip();
+            black_box(result)
+        })
+    });
+
+    group.bench_function("ntrulp", |bench| {
+        let g = NtrulpR3::from(coeffs_i8);
+        bench.iter(|| {
+            let result = g.recip();
+            black_box(result)
+        })
+    });
+
     group.finish();
 }
 
@@ -420,6 +658,8 @@ criterion_group!(
     bench_poly_mult,
     bench_fq_recip,
     bench_rq_recip,
+    bench_freeze,
+    bench_r3_recip,
 );
 
 criterion_main!(benches);

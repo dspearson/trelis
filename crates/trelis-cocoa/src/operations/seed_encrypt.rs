@@ -307,8 +307,7 @@ mod tests {
         let position1 = NodeIndex::new(2, 3);
         let position2 = NodeIndex::new(2, 4);
 
-        let encrypted =
-            encrypt_seed_to_recipient(&seed, keypair.public_key(), &position1).unwrap();
+        let encrypted = encrypt_seed_to_recipient(&seed, keypair.public_key(), &position1).unwrap();
 
         // Decrypting with wrong position should fail
         let result = decrypt_seed(&encrypted, &keypair, &position2);
@@ -322,8 +321,7 @@ mod tests {
         let keypair2 = test_keypair();
         let position = NodeIndex::new(2, 3);
 
-        let encrypted =
-            encrypt_seed_to_recipient(&seed, keypair1.public_key(), &position).unwrap();
+        let encrypted = encrypt_seed_to_recipient(&seed, keypair1.public_key(), &position).unwrap();
 
         // Decrypting with wrong keypair should fail
         let result = decrypt_seed(&encrypted, &keypair2, &position);

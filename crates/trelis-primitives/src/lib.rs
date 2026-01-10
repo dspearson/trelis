@@ -140,28 +140,10 @@ pub mod sntrup761_encoding;
 /// Optimised field and polynomial arithmetic for sntrup761.
 ///
 /// Provides fast extended GCD for field inversion (O(log q) vs O(q) Fermat).
-#[cfg(any(
-    feature = "wasm",
-    feature = "deterministic-keygen",
-    target_os = "windows",
-    target_arch = "wasm32"
-))]
 pub mod sntrup761_fq;
 /// Optimised polynomial arithmetic for sntrup761 (Karatsuba, NTT).
-#[cfg(any(
-    feature = "wasm",
-    feature = "deterministic-keygen",
-    target_os = "windows",
-    target_arch = "wasm32"
-))]
 pub mod sntrup761_poly;
-/// Pure Rust sntrup761 KEM (WASM builds, Windows, and deterministic keygen).
-#[cfg(any(
-    feature = "wasm",
-    feature = "deterministic-keygen",
-    target_os = "windows",
-    target_arch = "wasm32"
-))]
+/// Pure Rust sntrup761 KEM (always included for deterministic keygen).
 pub mod sntrup761_wasm;
 
 // Re-export key types for convenience

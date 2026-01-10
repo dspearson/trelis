@@ -122,14 +122,6 @@ pub fn get_seed_at_level(leaf_seed: &Seed, levels_up: u32) -> Seed {
 ///
 /// A hybrid KEM keypair deterministically derived from the seed.
 ///
-/// # Note
-///
-/// This function requires the `deterministic-keygen` feature.
-#[cfg(any(
-    feature = "deterministic-keygen",
-    target_os = "windows",
-    target_arch = "wasm32"
-))]
 #[must_use]
 pub fn derive_node_keypair(seed: &Seed) -> HybridKemKeypair {
     HybridKemKeypair::generate_from_seed(seed)
@@ -225,11 +217,6 @@ mod tests {
         }
     }
 
-    #[cfg(any(
-        feature = "deterministic-keygen",
-        target_os = "windows",
-        target_arch = "wasm32"
-    ))]
     #[test]
     fn test_derive_node_keypair_deterministic() {
         let seed = [0x42u8; 32];
@@ -244,11 +231,6 @@ mod tests {
         );
     }
 
-    #[cfg(any(
-        feature = "deterministic-keygen",
-        target_os = "windows",
-        target_arch = "wasm32"
-    ))]
     #[test]
     fn test_derive_node_keypair_different_seeds() {
         let seed1 = [0x42u8; 32];

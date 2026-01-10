@@ -195,8 +195,8 @@ impl MlDsa65SigningKey {
     ///
     /// The returned `GuardedBox` provides:
     /// - Guard pages before and after the key to detect buffer overflows
-    /// - Memory locking to prevent swapping to disk (if privileges allow)
-    /// - Automatic zeroization on drop
+    /// - Memory locking to prevent swapping to disc (if privileges allow)
+    /// - Automatic zeroisation on drop
     ///
     /// # Example
     ///

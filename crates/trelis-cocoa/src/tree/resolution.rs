@@ -594,9 +594,7 @@ mod tests {
         // Same unmerged leaf returned for multiple resolution nodes
         let unmerged_leaf = NodeIndex::new(2, 2);
 
-        let res = compute_lj(&lookup, path_node, |_| {
-            vec![unmerged_leaf]
-        });
+        let res = compute_lj(&lookup, path_node, |_| vec![unmerged_leaf]);
 
         // Should deduplicate: sibling (1) + unmerged (1) = 2 total
         assert_eq!(res.len(), 2);
