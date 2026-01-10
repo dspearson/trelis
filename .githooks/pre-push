@@ -1,5 +1,5 @@
 #!/bin/sh
-# Pre-push hook: runs fmt check, clippy, and tests when pushing to master
+# Pre-push hook: runs fmt check, clippy, doc, and tests when pushing to master
 #
 # Install with: git config core.hooksPath .githooks
 
@@ -22,14 +22,28 @@ while read local_ref local_sha remote_ref remote_sha; do
         fi
 
         echo "==> Running clippy..."
-        RUSTFLAGS="-Dwarnings" cargo clippy --all-features --all-targets -- -D warnings
+        RUSTFLAGS="-Dwarnings" cargo clippy --workspace --all-features --all-targets -- -D warnings
         if [ $? -ne 0 ]; then
             echo "ERROR: Clippy found issues."
             exit 1
         fi
 
+        echo "==> Checking documentation..."
+        RUSTDOCFLAGS="-Dwarnings" cargo doc --workspace --no-deps --all-features
+        if [ $? -ne 0 ]; then
+            echo "ERROR: Documentation check failed."
+            exit 1
+        fi
+
+        echo "==> Building WASM..."
+        cargo build -p trelis-wasm --target wasm32-unknown-unknown
+        if [ $? -ne 0 ]; then
+            echo "ERROR: WASM build failed."
+            exit 1
+        fi
+
         echo "==> Running tests..."
-        cargo test --all
+        cargo test --workspace --all-features
         if [ $? -ne 0 ]; then
             echo "ERROR: Tests failed."
             exit 1

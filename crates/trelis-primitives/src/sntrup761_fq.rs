@@ -55,13 +55,6 @@ pub const Q12: i32 = (Q - 1) / 2; // 2295
 /// Constant for fast division: 2^31
 const V: u32 = 0x8000_0000;
 
-/// Precomputed: 2^31 / Q = 2147483648 / 4591 = 467811
-/// This avoids a division in every freeze() call.
-const V_DIV_Q: u32 = V / Q as u32;
-
-/// Precomputed: 2^31 mod Q = 2147483648 mod 4591 = 2727
-const V_MOD_Q: u32 = V % Q as u32;
-
 /// Fast unsigned division and modulo for 14-bit modulus.
 ///
 /// Returns (quotient, remainder) for x / m.
@@ -96,36 +89,6 @@ fn u32_divmod_u14(x: u32, m: u16) -> (u32, u16) {
     (final_q, added_x as u16)
 }
 
-/// Optimised unsigned divmod for Q=4591 using precomputed reciprocal.
-///
-/// This avoids the division `V / m` that happens in the generic version.
-#[inline(always)]
-fn u32_divmod_q(x: u32) -> (u32, u16) {
-    let v = V_DIV_Q;
-
-    let mut q = 0u32;
-
-    // First approximation
-    let qpart = ((x as u64 * v as u64) >> 31) as u32;
-    let new_x = x.wrapping_sub(qpart * Q as u32);
-    q += qpart;
-
-    // Second refinement
-    let qpart = (new_x as u64 * v as u64) as u32 >> 31;
-    let final_x = new_x.wrapping_sub(qpart * Q as u32);
-    q += qpart;
-
-    // Final correction
-    let sub_x = final_x.wrapping_sub(Q as u32);
-    q += 1;
-
-    let mask = if sub_x >> 31 != 0 { u32::MAX } else { 0 };
-    let added_x = sub_x.wrapping_add(mask & Q as u32);
-    let final_q = q.wrapping_add(mask);
-
-    (final_q, added_x as u16)
-}
-
 /// Fast signed division and modulo for 14-bit modulus.
 ///
 /// Returns (quotient, remainder) for x / m where x is signed.
@@ -148,43 +111,10 @@ fn i32_divmod_u14(x: i32, m: u16) -> (u32, u32) {
     (uq, ur)
 }
 
-/// Precomputed: u32_divmod_u14(V, Q) = (467811, 2727)
-/// quotient = 2^31 / 4591 = 467811
-/// remainder = 2^31 mod 4591 = 2727
-const V_DIVMOD_Q: (u32, u32) = (V_DIV_Q, V_MOD_Q);
-
-/// Optimised signed divmod for Q=4591 using precomputed constants.
-///
-/// This eliminates the call to u32_divmod_u14(V, Q) that happens every freeze().
-#[inline(always)]
-fn i32_divmod_q(x: i32) -> (u32, u32) {
-    // Add V to make x positive, divide, then adjust
-    let (mut uq, ur) = u32_divmod_q(V.wrapping_add(x as u32));
-    let mut ur = ur as u32;
-
-    // Use precomputed V mod Q instead of recomputing
-    ur = ur.wrapping_sub(V_DIVMOD_Q.1);
-    uq = uq.wrapping_sub(V_DIVMOD_Q.0);
-
-    // Fix negative remainder
-    let mask: u32 = if ur >> 15 != 0 { u32::MAX } else { 0 };
-    ur = ur.wrapping_add(mask & Q as u32);
-    uq = uq.wrapping_add(mask);
-
-    (uq, ur)
-}
-
 /// Fast signed modulo for 14-bit modulus.
 #[inline(always)]
-#[allow(dead_code)]
 fn i32_mod_u14(x: i32, m: u16) -> u32 {
     i32_divmod_u14(x, m).1
-}
-
-/// Optimised signed mod for Q=4591.
-#[inline(always)]
-fn i32_mod_q(x: i32) -> u32 {
-    i32_divmod_q(x).1
 }
 
 // ============================================================================
@@ -208,12 +138,11 @@ pub fn f3_freeze(a: i16) -> i8 {
 /// Reduce a value to the centred range [-(q-1)/2, (q-1)/2].
 ///
 /// This is equivalent to ntrulp's `fq::freeze()`.
-/// Uses precomputed constants for Q=4591 to avoid division.
+/// Uses fixed-point multiplication to avoid slow division/modulo.
 #[inline(always)]
 pub fn freeze(x: i32) -> i16 {
     // Compute (x + Q12) mod Q, then subtract Q12 to centre
-    // Uses optimised i32_mod_q with precomputed reciprocal
-    let r = i32_mod_q(x + Q12);
+    let r = i32_mod_u14(x + Q12, Q as u16);
     r as i16 - Q12 as i16
 }
 
