@@ -79,11 +79,37 @@ pub struct HybridKemKeypair {
 impl HybridKemKeypair {
     /// Generates a new random hybrid KEM keypair.
     ///
+    /// On Windows, this spawns a thread with larger stack to avoid overflow
+    /// (the default 1MB stack is insufficient for sntrup761 key generation
+    /// when combined with other operations).
+    ///
     /// # Errors
     ///
     /// Returns `RngFailure` if the system CSPRNG fails, or `KeyGenerationFailed`
     /// if key generation fails internally.
+    #[cfg(target_os = "windows")]
     pub fn generate() -> Result<Self> {
+        std::thread::Builder::new()
+            .stack_size(4 * 1024 * 1024)
+            .spawn(Self::generate_inner)
+            .map_err(|_| CryptoError::KeyGenerationFailed)?
+            .join()
+            .map_err(|_| CryptoError::KeyGenerationFailed)?
+    }
+
+    /// Generates a new random hybrid KEM keypair.
+    ///
+    /// # Errors
+    ///
+    /// Returns `RngFailure` if the system CSPRNG fails, or `KeyGenerationFailed`
+    /// if key generation fails internally.
+    #[cfg(not(target_os = "windows"))]
+    pub fn generate() -> Result<Self> {
+        Self::generate_inner()
+    }
+
+    /// Internal generation logic.
+    fn generate_inner() -> Result<Self> {
         let x448_secret = X448Secret::generate()?;
         let sntrup_secret = Sntrup761SecretKey::generate();
 
