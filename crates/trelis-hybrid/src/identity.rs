@@ -69,13 +69,36 @@ pub struct HybridIdentityKeypair {
 impl HybridIdentityKeypair {
     /// Generates a new random hybrid identity keypair.
     ///
+    /// On Windows, this spawns a thread with larger stack to avoid overflow
+    /// (the default 1MB stack is insufficient for hybrid key generation).
+    ///
     /// # Errors
     ///
     /// Returns `RngFailure` if the system CSPRNG fails, or `KeyGenerationFailed`
     /// if key generation fails internally.
+    #[cfg(target_os = "windows")]
     pub fn generate() -> Result<Self> {
-        // Box keypairs immediately to move them to the heap and reduce stack usage.
-        // This is critical on Windows where the default stack is 1MB.
+        std::thread::Builder::new()
+            .stack_size(4 * 1024 * 1024)
+            .spawn(Self::generate_inner)
+            .map_err(|_| trelis_error::CryptoError::KeyGenerationFailed)?
+            .join()
+            .map_err(|_| trelis_error::CryptoError::KeyGenerationFailed)?
+    }
+
+    /// Generates a new random hybrid identity keypair.
+    ///
+    /// # Errors
+    ///
+    /// Returns `RngFailure` if the system CSPRNG fails, or `KeyGenerationFailed`
+    /// if key generation fails internally.
+    #[cfg(not(target_os = "windows"))]
+    pub fn generate() -> Result<Self> {
+        Self::generate_inner()
+    }
+
+    /// Internal generation logic.
+    fn generate_inner() -> Result<Self> {
         let signing = Box::new(HybridSigningKeypair::generate()?);
         let kem = Box::new(HybridKemKeypair::generate()?);
 

@@ -21,30 +21,33 @@
 //! domain-separated BLAKE3 key derivation. This allows users to regenerate their
 //! recovery key from a memorised or backed-up seed phrase.
 //!
-//! ```ignore
-//! use trelis_hybrid::recovery::derive_recovery_keypair;
+//! ```
+//! use trelis_hybrid::recovery::{derive_recovery_keypair, CompromiseNotice, CompromiseReason};
+//! use trelis_primitives::MlDsa65Fips204;
 //!
 //! // Derive recovery keypair from seed (e.g., from mnemonic phrase)
 //! let seed = [0x42u8; 32];
-//! let recovery_keypair = derive_recovery_keypair(&seed).unwrap();
+//! let recovery_keypair = derive_recovery_keypair::<MlDsa65Fips204>(&seed).unwrap();
 //!
 //! // Use recovery keypair to sign a CompromiseNotice
+//! let compromised_fingerprint = [0xAAu8; 32];
 //! let notice = CompromiseNotice::new(
 //!     compromised_fingerprint,
 //!     CompromiseReason::KeyExfiltration,
-//!     timestamp,
+//!     1704067200,
 //!     &recovery_keypair,
 //! ).unwrap();
 //! ```
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```
 //! use trelis_hybrid::recovery::{CompromiseNotice, CompromiseReason};
-//! use trelis_hybrid::HybridSigningKeypair;
+//! use trelis_hybrid::signature::HybridSigningKeypair;
+//! use trelis_primitives::MlDsa65Fips204;
 //!
 //! // User creates a compromise notice
-//! let signing_key = HybridSigningKeypair::generate().unwrap();
+//! let signing_key = HybridSigningKeypair::<MlDsa65Fips204>::generate().unwrap();
 //! let compromised_fingerprint = [0xAA; 32]; // Fingerprint of compromised key
 //!
 //! let notice = CompromiseNotice::new(
@@ -394,7 +397,7 @@ pub const RECOVERY_SEED_SIZE: usize = 32;
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```
 /// use trelis_hybrid::recovery::derive_recovery_keypair;
 /// use trelis_primitives::MlDsa65Fips204;
 ///
