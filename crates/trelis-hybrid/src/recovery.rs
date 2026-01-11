@@ -21,7 +21,9 @@
 //! domain-separated BLAKE3 key derivation. This allows users to regenerate their
 //! recovery key from a memorised or backed-up seed phrase.
 //!
-//! ```
+//! ```no_run
+//! # // no_run: Windows doctest threads have 1MB stack which may overflow
+//! # // with ML-DSA-65 key derivation. Unit tests cover this functionality.
 //! use trelis_hybrid::recovery::{derive_recovery_keypair, CompromiseNotice, CompromiseReason};
 //! use trelis_primitives::MlDsa65Fips204;
 //!
@@ -41,7 +43,9 @@
 //!
 //! # Example
 //!
-//! ```
+//! ```no_run
+//! # // no_run: Windows doctest threads have 1MB stack which may overflow
+//! # // with ML-DSA-65 key generation. Unit tests cover this functionality.
 //! use trelis_hybrid::recovery::{CompromiseNotice, CompromiseReason};
 //! use trelis_hybrid::signature::HybridSigningKeypair;
 //! use trelis_primitives::MlDsa65Fips204;
@@ -397,7 +401,9 @@ pub const RECOVERY_SEED_SIZE: usize = 32;
 ///
 /// # Example
 ///
-/// ```
+/// ```no_run
+/// # // no_run: Windows doctest threads have 1MB stack which may overflow
+/// # // with ML-DSA-65 key derivation. Unit tests cover this functionality.
 /// use trelis_hybrid::recovery::derive_recovery_keypair;
 /// use trelis_primitives::MlDsa65Fips204;
 ///
