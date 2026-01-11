@@ -458,13 +458,8 @@ pub fn process_update(
     }
 
     // Update tree with new public keys from path updates
-    // Note: We derive a simple updater ID from leaf position for now
-    // A full implementation would include the updater's identity in the commit
-    let updater_id = {
-        let mut id = [0u8; 32];
-        id[0..4].copy_from_slice(&commit.updater_leaf_position.to_le_bytes());
-        id
-    };
+    // Derive user ID from the updater's identity public key
+    let updater_id = derive_user_id_from_identity(updater_identity);
     update_tree_from_path_updates(session, &commit.path_updates, &commit.signature, updater_id);
 
     // Clear our unmerged status from the updater's path nodes
@@ -597,14 +592,21 @@ fn clear_unmerged_on_path(session: &mut CocoaSession, updater_leaf_position: u32
     }
 }
 
+/// Derives a user ID from an identity public key.
+///
+/// Uses BLAKE3 KDF with a domain separator to derive a deterministic
+/// 32-byte user ID from the identity public key bytes.
+#[must_use]
+fn derive_user_id_from_identity(identity: &HybridIdentityPublicKey) -> crate::UserId {
+    use trelis_primitives::blake3_kdf::derive_key;
+    derive_key("cocoa-sa-v1-user-id", &identity.to_bytes())
+}
+
 /// Constant-time comparison of two 32-byte arrays.
 #[must_use]
 fn constant_time_eq(a: &[u8; 32], b: &[u8; 32]) -> bool {
-    let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
+    use subtle::ConstantTimeEq;
+    a.ct_eq(b).into()
 }
 
 #[cfg(test)]

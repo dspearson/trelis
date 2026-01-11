@@ -344,12 +344,22 @@ where
 {
     type Output = NttPolynomial<F>;
 
+    /// Compute the dot product of two NTT vectors.
+    ///
+    /// Optimised to use a single accumulator array instead of creating
+    /// K intermediate NttPolynomial allocations via fold.
     fn mul(self, rhs: &NttVector<F, K>) -> NttPolynomial<F> {
-        self.0
-            .iter()
-            .zip(rhs.0.iter())
-            .map(|(x, y)| x * y)
-            .fold(NttPolynomial::default(), |x, y| &x + &y)
+        // Use explicit accumulator to avoid K temporary NttPolynomial allocations
+        let mut acc = Array::<Elem<F>, U256>::default();
+
+        for (x_poly, y_poly) in self.0.iter().zip(rhs.0.iter()) {
+            for i in 0..256 {
+                // Multiply corresponding coefficients and accumulate
+                acc[i] = acc[i] + (x_poly.0[i] * y_poly.0[i]);
+            }
+        }
+
+        NttPolynomial::new(acc)
     }
 }
 

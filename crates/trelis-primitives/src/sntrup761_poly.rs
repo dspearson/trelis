@@ -73,6 +73,8 @@ fn schoolbook_mult(a: &[i32], b: &[i32]) -> Vec<i32> {
 
 /// Karatsuba polynomial multiplication.
 /// Returns a polynomial of degree len(a) + len(b) - 2.
+///
+/// Optimised to use `with_capacity` for pre-allocation where possible.
 fn karatsuba_mult(a: &[i32], b: &[i32]) -> Vec<i32> {
     let n = a.len().max(b.len());
 
@@ -81,10 +83,12 @@ fn karatsuba_mult(a: &[i32], b: &[i32]) -> Vec<i32> {
         return schoolbook_mult(a, b);
     }
 
-    // Pad to same length
-    let mut a_padded = a.to_vec();
-    let mut b_padded = b.to_vec();
+    // Pad to same length (required for correct splitting)
+    let mut a_padded = Vec::with_capacity(n);
+    let mut b_padded = Vec::with_capacity(n);
+    a_padded.extend_from_slice(a);
     a_padded.resize(n, 0);
+    b_padded.extend_from_slice(b);
     b_padded.resize(n, 0);
 
     let m = n / 2;
@@ -100,20 +104,32 @@ fn karatsuba_mult(a: &[i32], b: &[i32]) -> Vec<i32> {
     let z2 = karatsuba_mult(a_high, b_high);
 
     // z1 = (A_low + A_high) * (B_low + B_high) - z0 - z2
-    let a_sum: Vec<i32> = a_low
-        .iter()
-        .zip(a_high.iter())
-        .map(|(&x, &y)| x + y)
-        .chain(a_low.iter().skip(a_high.len()).copied())
-        .chain(a_high.iter().skip(a_low.len()).copied())
-        .collect();
-    let b_sum: Vec<i32> = b_low
-        .iter()
-        .zip(b_high.iter())
-        .map(|(&x, &y)| x + y)
-        .chain(b_low.iter().skip(b_high.len()).copied())
-        .chain(b_high.iter().skip(b_low.len()).copied())
-        .collect();
+    // Pre-allocate sum vectors
+    let sum_len = a_low.len().max(a_high.len());
+    let mut a_sum = Vec::with_capacity(sum_len);
+    let mut b_sum = Vec::with_capacity(sum_len);
+
+    // Build sums: for overlapping indices, add; for non-overlapping, copy
+    let overlap = a_low.len().min(a_high.len());
+    for i in 0..overlap {
+        a_sum.push(a_low[i] + a_high[i]);
+    }
+    // Extend with remaining elements (only one of these will be non-empty)
+    if a_low.len() > a_high.len() {
+        a_sum.extend_from_slice(&a_low[overlap..]);
+    } else if a_high.len() > a_low.len() {
+        a_sum.extend_from_slice(&a_high[overlap..]);
+    }
+
+    let overlap = b_low.len().min(b_high.len());
+    for i in 0..overlap {
+        b_sum.push(b_low[i] + b_high[i]);
+    }
+    if b_low.len() > b_high.len() {
+        b_sum.extend_from_slice(&b_low[overlap..]);
+    } else if b_high.len() > b_low.len() {
+        b_sum.extend_from_slice(&b_high[overlap..]);
+    }
 
     let z1_full = karatsuba_mult(&a_sum, &b_sum);
 
@@ -396,31 +412,36 @@ fn reduce_mod_3(x: i32) -> i8 {
 // - etc.
 
 /// Reduce polynomial modulo (x^P - x - 1) with coefficients in Rq.
+///
+/// After multiplication, we have a polynomial of degree up to 2P-2.
+/// Since x^P ≡ x + 1 (mod x^P - x - 1), each coefficient at x^(P+k)
+/// contributes to both x^k and x^(k+1).
 fn reduce_ring_rq(poly: &[i32]) -> [i16; P] {
     let mut result = [0i32; P];
 
-    // Copy lower coefficients
-    for (i, &v) in poly.iter().enumerate().take(P) {
-        result[i] = v;
-    }
+    // Copy lower coefficients directly using slice copy
+    let low_len = P.min(poly.len());
+    result[..low_len].copy_from_slice(&poly[..low_len]);
 
     // Reduce higher coefficients: x^(P+k) ≡ x^(k+1) + x^k
-    for (i, &v) in poly.iter().enumerate().skip(P) {
-        let k = i - P;
-        // x^(P+k) = x^P * x^k = (x+1) * x^k = x^(k+1) + x^k
-        result[k] += v;
-        result[k + 1] += v;
-
-        // Handle overflow: if k+1 >= P, reduce again
-        if k + 1 >= P {
-            // x^P = x + 1
-            result[0] += v;
-            result[1] += v;
-            result[k + 1 - P] += v;
+    // For standard polynomial multiplication (degree 2P-2), k ranges 0 to P-2
+    // so k+1 never reaches P and the wrap-around case doesn't trigger.
+    if poly.len() > P {
+        for (k, &v) in poly[P..].iter().enumerate() {
+            result[k] += v;
+            if k + 1 < P {
+                result[k + 1] += v;
+            } else {
+                // Wrap-around: x^P = x + 1, so x^(k+1) where k+1 >= P
+                // contributes to x^0, x^1, and x^(k+1-P)
+                result[0] += v;
+                result[1] += v;
+                result[k + 1 - P] += v;
+            }
         }
     }
 
-    // Final reduction modulo q
+    // Final reduction modulo q - use array::map for cleaner code
     let mut final_result = [0i16; P];
     for i in 0..P {
         final_result[i] = reduce_mod_q(result[i]);
@@ -432,21 +453,21 @@ fn reduce_ring_rq(poly: &[i32]) -> [i16; P] {
 fn reduce_ring_r3(poly: &[i32]) -> [i8; P] {
     let mut result = [0i32; P];
 
-    // Copy lower coefficients
-    for (i, &v) in poly.iter().enumerate().take(P) {
-        result[i] = v;
-    }
+    // Copy lower coefficients directly using slice copy
+    let low_len = P.min(poly.len());
+    result[..low_len].copy_from_slice(&poly[..low_len]);
 
-    // Reduce higher coefficients
-    for (i, &v) in poly.iter().enumerate().skip(P) {
-        let k = i - P;
-        result[k] += v;
-        result[k + 1] += v;
-
-        if k + 1 >= P {
-            result[0] += v;
-            result[1] += v;
-            result[k + 1 - P] += v;
+    // Reduce higher coefficients: x^(P+k) ≡ x^(k+1) + x^k
+    if poly.len() > P {
+        for (k, &v) in poly[P..].iter().enumerate() {
+            result[k] += v;
+            if k + 1 < P {
+                result[k + 1] += v;
+            } else {
+                result[0] += v;
+                result[1] += v;
+                result[k + 1 - P] += v;
+            }
         }
     }
 
@@ -673,6 +694,358 @@ mod tests {
                 ntt_result[i], karatsuba_result[i],
                 "Mismatch at index {}: ntt={}, karatsuba={}",
                 i, ntt_result[i], karatsuba_result[i]
+            );
+        }
+    }
+
+    // =========================================================================
+    // Edge Case Tests for Karatsuba Optimisation
+    // =========================================================================
+    //
+    // These tests verify the optimised Karatsuba implementation handles
+    // boundary conditions correctly, particularly around:
+    // - Empty and single-element polynomials
+    // - Threshold boundary (KARATSUBA_THRESHOLD = 32)
+    // - Odd vs even length polynomials
+    // - Unequal length operands
+    // - Coefficient overflow scenarios
+
+    /// Test multiplication with empty polynomials
+    #[test]
+    fn karatsuba_empty_polynomials() {
+        let empty: Vec<i32> = vec![];
+        let non_empty = vec![1, 2, 3];
+
+        let expected_empty: Vec<i32> = vec![];
+        assert_eq!(karatsuba_mult(&empty, &non_empty), expected_empty);
+        assert_eq!(karatsuba_mult(&non_empty, &empty), expected_empty);
+        assert_eq!(karatsuba_mult(&empty, &empty), expected_empty);
+    }
+
+    /// Test multiplication with single coefficient
+    #[test]
+    fn karatsuba_single_coefficient() {
+        let a = vec![7];
+        let b = vec![11];
+        assert_eq!(karatsuba_mult(&a, &b), vec![77]);
+
+        // Single times multi
+        let c = vec![2, 3, 4];
+        assert_eq!(karatsuba_mult(&a, &c), vec![14, 21, 28]);
+    }
+
+    /// Test at the Karatsuba threshold boundary (32)
+    /// This is where the algorithm switches between schoolbook and Karatsuba
+    #[test]
+    fn karatsuba_threshold_boundary() {
+        // Just below threshold - uses schoolbook
+        let a31: Vec<i32> = (0..31).map(|i| (i % 5) as i32 - 2).collect();
+        let b31: Vec<i32> = (0..31).map(|i| ((i * 3) % 7) as i32 - 3).collect();
+
+        // At threshold - first Karatsuba level
+        let a32: Vec<i32> = (0..32).map(|i| (i % 5) as i32 - 2).collect();
+        let b32: Vec<i32> = (0..32).map(|i| ((i * 3) % 7) as i32 - 3).collect();
+
+        // Just above threshold
+        let a33: Vec<i32> = (0..33).map(|i| (i % 5) as i32 - 2).collect();
+        let b33: Vec<i32> = (0..33).map(|i| ((i * 3) % 7) as i32 - 3).collect();
+
+        // All should match schoolbook
+        assert_eq!(
+            karatsuba_mult(&a31, &b31),
+            schoolbook_mult(&a31, &b31),
+            "Failed at size 31"
+        );
+        assert_eq!(
+            karatsuba_mult(&a32, &b32),
+            schoolbook_mult(&a32, &b32),
+            "Failed at size 32"
+        );
+        assert_eq!(
+            karatsuba_mult(&a33, &b33),
+            schoolbook_mult(&a33, &b33),
+            "Failed at size 33"
+        );
+    }
+
+    /// Test with odd-length polynomials (exercises unequal split handling)
+    #[test]
+    fn karatsuba_odd_lengths() {
+        for size in [33, 47, 63, 65, 127, 255, 513] {
+            let a: Vec<i32> = (0..size).map(|i| (i % 11) as i32 - 5).collect();
+            let b: Vec<i32> = (0..size).map(|i| ((i * 7) % 13) as i32 - 6).collect();
+
+            let karatsuba = karatsuba_mult(&a, &b);
+            let schoolbook = schoolbook_mult(&a, &b);
+
+            assert_eq!(karatsuba, schoolbook, "Mismatch at odd size {}", size);
+        }
+    }
+
+    /// Test with unequal length operands
+    #[test]
+    fn karatsuba_unequal_lengths() {
+        // Helper to trim trailing zeros for comparison
+        // (Karatsuba may pad results due to power-of-2 sizing)
+        fn trim_trailing_zeros(v: &[i32]) -> &[i32] {
+            let len = v.iter().rposition(|&x| x != 0).map_or(0, |i| i + 1);
+            &v[..len]
+        }
+
+        let test_cases = [
+            (16, 64),   // Small vs large
+            (33, 47),   // Both odd
+            (32, 33),   // Threshold boundary
+            (100, 761), // Realistic sntrup761 case
+            (1, 100),   // Single vs many
+        ];
+
+        for (len_a, len_b) in test_cases {
+            let a: Vec<i32> = (0..len_a).map(|i| (i % 7) as i32 - 3).collect();
+            let b: Vec<i32> = (0..len_b).map(|i| ((i * 5) % 9) as i32 - 4).collect();
+
+            let karatsuba = karatsuba_mult(&a, &b);
+            let schoolbook = schoolbook_mult(&a, &b);
+
+            // Karatsuba may have trailing zeros due to padding; compare meaningful parts
+            assert_eq!(
+                trim_trailing_zeros(&karatsuba),
+                trim_trailing_zeros(&schoolbook),
+                "Mismatch for lengths {} x {}",
+                len_a,
+                len_b
+            );
+
+            // Also test reversed order
+            let karatsuba_rev = karatsuba_mult(&b, &a);
+            let schoolbook_rev = schoolbook_mult(&b, &a);
+
+            assert_eq!(
+                trim_trailing_zeros(&karatsuba_rev),
+                trim_trailing_zeros(&schoolbook_rev),
+                "Mismatch for reversed lengths {} x {}",
+                len_b,
+                len_a
+            );
+        }
+    }
+
+    /// Test with all-zero polynomials
+    #[test]
+    fn karatsuba_zero_polynomial() {
+        let zero = vec![0i32; 100];
+        let nonzero: Vec<i32> = (0..100).map(|i| i as i32).collect();
+
+        let result = karatsuba_mult(&zero, &nonzero);
+        assert!(
+            result.iter().all(|&x| x == 0),
+            "Zero times anything should be zero"
+        );
+    }
+
+    /// Test with larger coefficient values (within sntrup761 range)
+    /// sntrup761 uses q = 4591, so coefficients are in [-2295, 2295]
+    #[test]
+    fn karatsuba_large_coefficients() {
+        // Use values near sntrup761 bounds: q/2 ~ 2295
+        // For 64 terms: max accumulation = 2295^2 * 64 ~ 337M << i32::MAX (2.1B)
+        let max_coeff = 2000i32;
+
+        let a: Vec<i32> = (0..64)
+            .map(|i| if i % 2 == 0 { max_coeff } else { -max_coeff })
+            .collect();
+        let b: Vec<i32> = (0..64)
+            .map(|i| {
+                if i % 3 == 0 {
+                    max_coeff
+                } else {
+                    -max_coeff / 2
+                }
+            })
+            .collect();
+
+        let karatsuba = karatsuba_mult(&a, &b);
+        let schoolbook = schoolbook_mult(&a, &b);
+
+        assert_eq!(karatsuba, schoolbook, "Large coefficient mismatch");
+
+        // Verify no unexpected zeros (sanity check)
+        assert!(
+            karatsuba.iter().any(|&x| x != 0),
+            "Result should be non-zero"
+        );
+    }
+
+    // =========================================================================
+    // Edge Case Tests for Ring Reduction Optimisation
+    // =========================================================================
+    //
+    // These tests verify the optimised ring reduction handles:
+    // - Short inputs (< P)
+    // - Exactly P length inputs
+    // - Standard 2P-1 length inputs
+    // - Coefficient accumulation edge cases
+
+    /// Test ring reduction with short input (< P)
+    #[test]
+    fn ring_reduce_short_input() {
+        let short = vec![1, 2, 3, 4, 5];
+        let result = reduce_ring_rq(&short);
+
+        // Should just copy with zeros
+        assert_eq!(result[0], 1);
+        assert_eq!(result[1], 2);
+        assert_eq!(result[4], 5);
+        for i in 5..P {
+            assert_eq!(result[i], 0, "Position {} should be zero", i);
+        }
+    }
+
+    /// Test ring reduction with exactly P coefficients
+    #[test]
+    fn ring_reduce_exact_p() {
+        let mut input = vec![0i32; P];
+        for i in 0..P {
+            input[i] = (i % 100) as i32;
+        }
+
+        let result = reduce_ring_rq(&input);
+
+        // Should be identity (just mod q reduction)
+        for i in 0..P {
+            assert_eq!(result[i], (i % 100) as i16, "Mismatch at {}", i);
+        }
+    }
+
+    /// Test ring reduction with standard 2P-1 length (normal multiplication result)
+    #[test]
+    fn ring_reduce_standard_length() {
+        // Create input where we know the expected output
+        // Use x^P which should reduce to x + 1
+        let mut input = vec![0i32; 2 * P - 1];
+        input[P] = 1; // x^P term
+
+        let result = reduce_ring_rq(&input);
+
+        // x^P ≡ x + 1 (mod x^P - x - 1)
+        assert_eq!(result[0], 1, "Constant term should be 1");
+        assert_eq!(result[1], 1, "Linear term should be 1");
+        for i in 2..P {
+            assert_eq!(result[i], 0, "Higher terms should be 0");
+        }
+    }
+
+    /// Test ring reduction: x^(P+k) ≡ x^(k+1) + x^k
+    #[test]
+    fn ring_reduce_higher_powers() {
+        for k in [0, 1, 10, 100, P / 2, P - 2] {
+            let mut input = vec![0i32; P + k + 1];
+            input[P + k] = 1; // x^(P+k) term
+
+            let result = reduce_ring_rq(&input);
+
+            // x^(P+k) ≡ x^(k+1) + x^k
+            assert_eq!(result[k], 1, "x^{} coefficient wrong for k={}", k, k);
+            if k + 1 < P {
+                assert_eq!(
+                    result[k + 1],
+                    1,
+                    "x^{} coefficient wrong for k={}",
+                    k + 1,
+                    k
+                );
+            }
+        }
+    }
+
+    /// Test ring reduction with coefficients that need mod q reduction
+    #[test]
+    fn ring_reduce_needs_mod_q() {
+        let mut input = vec![0i32; P];
+        input[0] = Q + 100; // Should reduce to 100
+        input[1] = -Q + 50; // Should reduce to 50
+        input[2] = 2 * Q; // Should reduce to 0
+        input[3] = Q_HALF + 100; // Should reduce to centred representation
+
+        let result = reduce_ring_rq(&input);
+
+        assert_eq!(result[0], 100);
+        assert_eq!(result[1], 50);
+        assert_eq!(result[2], 0);
+        // Q_HALF + 100 > Q_HALF, so it becomes (Q_HALF + 100 - Q)
+        let expected = (Q_HALF + 100 - Q) as i16;
+        assert_eq!(result[3], expected);
+    }
+
+    /// Test R3 ring reduction
+    #[test]
+    fn ring_reduce_r3_basic() {
+        let mut input = vec![0i32; P];
+        input[0] = 4; // Should reduce to 1 (mod 3)
+        input[1] = 5; // Should reduce to -1 (mod 3)
+        input[2] = 6; // Should reduce to 0 (mod 3)
+        input[3] = -1; // Should stay -1
+
+        let result = reduce_ring_r3(&input);
+
+        assert_eq!(result[0], 1);
+        assert_eq!(result[1], -1);
+        assert_eq!(result[2], 0);
+        assert_eq!(result[3], -1);
+    }
+
+    /// Regression test: verify Karatsuba + reduction matches reference
+    #[test]
+    fn karatsuba_reduction_end_to_end() {
+        // Use the public API functions
+        let mut a = [0i16; P];
+        let mut b = [0i8; P];
+
+        // Create polynomials with known structure
+        a[0] = 1;
+        a[1] = 2;
+        a[P - 1] = 3;
+
+        b[0] = 1;
+        b[1] = -1;
+        b[P - 1] = 1;
+
+        let result = rq_mult_r3(&a, &b);
+
+        // Verify using NTT reference
+        let ntt_result = rq_mult_r3_ntt(&a, &b);
+
+        for i in 0..P {
+            assert_eq!(
+                result[i], ntt_result[i],
+                "Karatsuba/NTT mismatch at index {}",
+                i
+            );
+        }
+    }
+
+    /// Test full-size P=761 polynomial multiplication (the actual sntrup761 size)
+    #[test]
+    fn karatsuba_full_sntrup761_size() {
+        let mut a = [0i16; P];
+        let mut b = [0i8; P];
+
+        // Fill with varied values
+        for i in 0..P {
+            a[i] = ((i * 17 + 31) % 2000) as i16 - 1000;
+            b[i] = ((i * 7 + 13) % 3) as i8 - 1;
+        }
+
+        // This should complete without panic
+        let result = rq_mult_r3(&a, &b);
+
+        // Verify all coefficients are in valid range
+        for (i, &c) in result.iter().enumerate() {
+            assert!(
+                c >= -Q_HALF as i16 && c <= Q_HALF as i16,
+                "Coefficient {} at index {} out of range",
+                c,
+                i
             );
         }
     }

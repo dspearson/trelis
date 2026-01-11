@@ -2598,20 +2598,21 @@ pub fn cocoa_process_remove(
 // Serialisation helpers for CoCoA commits
 fn serialize_add_commit(commit: &trelis_cocoa::operations::AddCommit) -> Vec<u8> {
     let sig_bytes = commit.signature.to_bytes();
-    let mut buf = Vec::with_capacity(32 + 32 + 4 + 8 + 32 + sig_bytes.len());
+    let mut buf = Vec::with_capacity(32 + 32 + 4 + 8 + 32 + 32 + sig_bytes.len());
 
     buf.extend_from_slice(&commit.group_id);
     buf.extend_from_slice(&commit.new_member_id);
     buf.extend_from_slice(&commit.new_leaf_position.to_le_bytes());
     buf.extend_from_slice(&commit.epoch.to_le_bytes());
     buf.extend_from_slice(&commit.round_hash);
+    buf.extend_from_slice(&commit.confirmation_tag);
     buf.extend_from_slice(&sig_bytes);
 
     buf
 }
 
 fn deserialize_add_commit(bytes: &[u8]) -> Result<trelis_cocoa::operations::AddCommit, JsValue> {
-    if bytes.len() < 32 + 32 + 4 + 8 + 32 {
+    if bytes.len() < 32 + 32 + 4 + 8 + 32 + 32 {
         return Err(JsValue::from_str("AddCommit too short"));
     }
 
@@ -2627,7 +2628,10 @@ fn deserialize_add_commit(bytes: &[u8]) -> Result<trelis_cocoa::operations::AddC
     let mut round_hash = [0u8; 32];
     round_hash.copy_from_slice(&bytes[76..108]);
 
-    let signature = trelis_hybrid::HybridSignature::from_bytes(&bytes[108..])
+    let mut confirmation_tag = [0u8; 32];
+    confirmation_tag.copy_from_slice(&bytes[108..140]);
+
+    let signature = trelis_hybrid::HybridSignature::from_bytes(&bytes[140..])
         .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
     Ok(trelis_cocoa::operations::AddCommit {
@@ -2638,6 +2642,7 @@ fn deserialize_add_commit(bytes: &[u8]) -> Result<trelis_cocoa::operations::AddC
         path_updates: Vec::new(),
         signature,
         round_hash,
+        confirmation_tag,
     })
 }
 
@@ -2690,13 +2695,14 @@ fn deserialize_update_commit(
 
 fn serialize_remove_commit(commit: &trelis_cocoa::operations::RemoveCommit) -> Vec<u8> {
     let sig_bytes = commit.signature.to_bytes();
-    let mut buf = Vec::with_capacity(32 + 32 + 4 + 8 + 32 + sig_bytes.len());
+    let mut buf = Vec::with_capacity(32 + 32 + 4 + 8 + 32 + 32 + sig_bytes.len());
 
     buf.extend_from_slice(&commit.group_id);
     buf.extend_from_slice(&commit.removed_member_id);
     buf.extend_from_slice(&commit.removed_leaf_position.to_le_bytes());
     buf.extend_from_slice(&commit.epoch.to_le_bytes());
     buf.extend_from_slice(&commit.round_hash);
+    buf.extend_from_slice(&commit.confirmation_tag);
     buf.extend_from_slice(&sig_bytes);
 
     buf
@@ -2705,7 +2711,7 @@ fn serialize_remove_commit(commit: &trelis_cocoa::operations::RemoveCommit) -> V
 fn deserialize_remove_commit(
     bytes: &[u8],
 ) -> Result<trelis_cocoa::operations::RemoveCommit, JsValue> {
-    if bytes.len() < 32 + 32 + 4 + 8 + 32 {
+    if bytes.len() < 32 + 32 + 4 + 8 + 32 + 32 {
         return Err(JsValue::from_str("RemoveCommit too short"));
     }
 
@@ -2721,7 +2727,10 @@ fn deserialize_remove_commit(
     let mut round_hash = [0u8; 32];
     round_hash.copy_from_slice(&bytes[76..108]);
 
-    let signature = trelis_hybrid::HybridSignature::from_bytes(&bytes[108..])
+    let mut confirmation_tag = [0u8; 32];
+    confirmation_tag.copy_from_slice(&bytes[108..140]);
+
+    let signature = trelis_hybrid::HybridSignature::from_bytes(&bytes[140..])
         .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
     Ok(trelis_cocoa::operations::RemoveCommit {
@@ -2732,6 +2741,7 @@ fn deserialize_remove_commit(
         path_updates: Vec::new(),
         signature,
         round_hash,
+        confirmation_tag,
     })
 }
 

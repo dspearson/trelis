@@ -143,7 +143,10 @@ impl Mul<&NttPolynomial> for &NttPolynomial {
 #[allow(clippy::as_conversions)]
 #[allow(clippy::cast_possible_truncation)]
 mod test {
+    extern crate alloc;
+
     use super::*;
+    use alloc::vec::Vec;
     use hybrid_array::{
         Array,
         typenum::{U2, U3},
@@ -229,5 +232,193 @@ mod test {
         let v_out: NttVector<U3> =
             NttVector::new(Array([const_ntt(5), const_ntt(11), const_ntt(17)]));
         assert_eq!(&a * &v_in, v_out);
+    }
+
+    // =========================================================================
+    // Edge Case Tests for Dot Product Accumulator Optimisation
+    // =========================================================================
+    //
+    // These tests verify the optimised dot product implementation handles
+    // boundary conditions correctly, particularly around:
+    // - Zero vectors
+    // - Large coefficient values near the field modulus
+    // - Accumulation patterns that could overflow without proper reduction
+
+    use hybrid_array::typenum::U1;
+
+    /// Test dot product with zero vectors - result should be zero polynomial
+    #[test]
+    fn dot_product_zero_vectors() {
+        let zero: NttVector<U3> = NttVector::default();
+        let v: NttVector<U3> = NttVector::new(Array([const_ntt(1), const_ntt(2), const_ntt(3)]));
+
+        // 0 · v = 0
+        let result = &zero * &v;
+        let expected = NttPolynomial::default();
+        assert_eq!(result, expected, "Zero dot any should be zero");
+
+        // v · 0 = 0
+        let result = &v * &zero;
+        assert_eq!(result, expected, "Any dot zero should be zero");
+
+        // 0 · 0 = 0
+        let result = &zero * &zero;
+        assert_eq!(result, expected, "Zero dot zero should be zero");
+    }
+
+    /// Test dot product with single-element vectors (U1)
+    #[test]
+    fn dot_product_single_element() {
+        let v1: NttVector<U1> = NttVector::new(Array([const_ntt(7)]));
+        let v2: NttVector<U1> = NttVector::new(Array([const_ntt(11)]));
+
+        let result = &v1 * &v2;
+        let expected = const_ntt(77);
+        assert_eq!(result, expected, "Single element dot product failed");
+    }
+
+    /// Test dot product with coefficients near Q (field modulus)
+    /// This verifies Barrett reduction works correctly at boundaries
+    #[test]
+    fn dot_product_large_coefficients() {
+        // Q = 8380417, use values near Q-1
+        let large_val = BaseField::Q - 1; // Maximum valid coefficient
+
+        // Create polynomials with large coefficients
+        let mut p1 = Polynomial::default();
+        let mut p2 = Polynomial::default();
+        p1.0[0] = Elem::new(large_val);
+        p2.0[0] = Elem::new(large_val);
+
+        let ntt1 = p1.ntt();
+        let ntt2 = p2.ntt();
+
+        let v1: NttVector<U2> = NttVector::new(Array([ntt1.clone(), ntt1.clone()]));
+        let v2: NttVector<U2> = NttVector::new(Array([ntt2.clone(), ntt2.clone()]));
+
+        // This should not overflow - result should be properly reduced
+        let result = &v1 * &v2;
+
+        // Verify result is in valid range (all coefficients < Q)
+        for elem in result.0.iter() {
+            assert!(
+                elem.0 < BaseField::Q,
+                "Coefficient {} exceeds Q={}",
+                elem.0,
+                BaseField::Q
+            );
+        }
+    }
+
+    /// Test dot product accumulation doesn't overflow
+    /// Uses values that when squared and summed could overflow u32
+    #[test]
+    fn dot_product_accumulation_stress() {
+        // Create vectors where accumulation could be problematic
+        // Each element contributes (val * val) to the sum
+        let val = 2000u32; // Chosen so val^2 * K doesn't overflow intermediates
+
+        let mut p = Polynomial::default();
+        p.0[0] = Elem::new(val);
+        let ntt_p = p.ntt();
+
+        // Vector of 4 identical polynomials
+        use hybrid_array::typenum::U4;
+        let v: NttVector<U4> = NttVector::new(Array([
+            ntt_p.clone(),
+            ntt_p.clone(),
+            ntt_p.clone(),
+            ntt_p.clone(),
+        ]));
+
+        // v · v should equal 4 * (val^2) for the constant coefficient
+        let result = &v * &v;
+        let result_poly = result.ntt_inverse();
+
+        // 4 * 2000^2 = 16,000,000 which is > Q, so it wraps
+        // Expected: 16000000 mod 8380417 = 7619583
+        let expected = (4u64 * val as u64 * val as u64) % (BaseField::Q as u64);
+        assert_eq!(
+            result_poly.0[0].0, expected as u32,
+            "Accumulation gave wrong result"
+        );
+    }
+
+    /// Test that dot product is commutative: a · b = b · a
+    #[test]
+    fn dot_product_commutativity() {
+        let v1: NttVector<U3> = NttVector::new(Array([const_ntt(3), const_ntt(7), const_ntt(11)]));
+        let v2: NttVector<U3> = NttVector::new(Array([const_ntt(2), const_ntt(5), const_ntt(13)]));
+
+        let ab = &v1 * &v2;
+        let ba = &v2 * &v1;
+
+        assert_eq!(ab, ba, "Dot product should be commutative");
+    }
+
+    /// Test dot product with mixed positive values (in centred representation)
+    /// Verifies handling of "negative" values (stored as Q - x)
+    #[test]
+    fn dot_product_centred_representation() {
+        // In centred representation, -1 is stored as Q-1
+        let neg_one = BaseField::Q - 1;
+
+        let mut p_pos = Polynomial::default();
+        let mut p_neg = Polynomial::default();
+        p_pos.0[0] = Elem::new(1);
+        p_neg.0[0] = Elem::new(neg_one); // This represents -1
+
+        let ntt_pos = p_pos.ntt();
+        let ntt_neg = p_neg.ntt();
+
+        let v1: NttVector<U2> = NttVector::new(Array([ntt_pos.clone(), ntt_neg.clone()]));
+        let v2: NttVector<U2> = NttVector::new(Array([ntt_pos.clone(), ntt_pos.clone()]));
+
+        // (1, -1) · (1, 1) = 1*1 + (-1)*1 = 0
+        let result = &v1 * &v2;
+        let result_poly = result.ntt_inverse();
+
+        assert_eq!(result_poly.0[0].0, 0, "1 + (-1) should equal 0");
+    }
+
+    /// Regression test: verify optimised dot product matches fold-based reference
+    #[test]
+    fn dot_product_reference_comparison() {
+        // Create test vectors with varied coefficients
+        let polys: Vec<NttPolynomial> = (0..4)
+            .map(|i| {
+                let mut p = Polynomial::default();
+                for j in 0..256 {
+                    p.0[j] = Elem::new(((i * 256 + j) % 1000) as u32);
+                }
+                p.ntt()
+            })
+            .collect();
+
+        use hybrid_array::typenum::U4;
+        let v1: NttVector<U4> = NttVector::new(Array([
+            polys[0].clone(),
+            polys[1].clone(),
+            polys[2].clone(),
+            polys[3].clone(),
+        ]));
+        let v2: NttVector<U4> = NttVector::new(Array([
+            polys[3].clone(),
+            polys[2].clone(),
+            polys[1].clone(),
+            polys[0].clone(),
+        ]));
+
+        // Compute using optimised implementation
+        let result = &v1 * &v2;
+
+        // Compute reference using explicit fold (the old algorithm)
+        let reference: NttPolynomial =
+            v1.0.iter()
+                .zip(v2.0.iter())
+                .map(|(x, y)| x * y)
+                .fold(NttPolynomial::default(), |acc, prod| &acc + &prod);
+
+        assert_eq!(result, reference, "Optimised should match reference");
     }
 }

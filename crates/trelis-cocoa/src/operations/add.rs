@@ -64,6 +64,8 @@ pub struct AddCommit {
     pub signature: HybridSignature,
     /// Round hash for this commit.
     pub round_hash: [u8; 32],
+    /// Confirmation tag for epoch verification.
+    pub confirmation_tag: [u8; 32],
 }
 
 /// A single path node update in a commit.
@@ -220,6 +222,10 @@ pub fn add_member(
         &new_transcript,
     )?;
 
+    // Step 14b: Compute confirmation tag
+    let confirmation_tag =
+        compute_confirmation_tag(&delta_root, &new_transcript, session.epoch_number() + 1);
+
     let commit = AddCommit {
         group_id: *session.group_id(),
         new_member_id,
@@ -228,6 +234,7 @@ pub fn add_member(
         path_updates,
         signature,
         round_hash,
+        confirmation_tag,
     };
 
     // Step 15: Mark new member as unmerged on blank nodes in their path
@@ -645,6 +652,12 @@ pub fn process_add(
     // Update transcript hash
     let new_transcript = h3_transcript_hash(session.transcript_hash(), &commit.round_hash);
 
+    // Verify confirmation tag
+    let expected_tag = compute_confirmation_tag(&delta_root, &new_transcript, commit.epoch);
+    if !constant_time_eq(&expected_tag, &commit.confirmation_tag) {
+        return Err(trelis_error::CryptoError::SignatureVerificationFailed);
+    }
+
     // Advance epoch with the derived delta_root
     session.advance_epoch(&delta_root, new_transcript);
 
@@ -745,6 +758,29 @@ fn update_tree_from_path_updates(
 /// to be included in resolution sets for future commits. This function marks
 /// them as unmerged on all blank nodes from their leaf to the root.
 ///
+/// Computes the confirmation tag for commit verification.
+///
+/// The confirmation tag binds the commit to the epoch state and
+/// allows recipients to verify they computed the same secrets.
+#[must_use]
+fn compute_confirmation_tag(delta_root: &Seed, transcript: &[u8; 32], epoch: u64) -> [u8; 32] {
+    use trelis_primitives::blake3_kdf::derive_key;
+
+    let mut input = [0u8; 72];
+    input[..32].copy_from_slice(delta_root);
+    input[32..64].copy_from_slice(transcript);
+    input[64..72].copy_from_slice(&epoch.to_le_bytes());
+
+    derive_key("cocoa-sa-v1-confirmation-tag", &input)
+}
+
+/// Constant-time comparison for confirmation tags.
+#[must_use]
+fn constant_time_eq(a: &[u8; 32], b: &[u8; 32]) -> bool {
+    use subtle::ConstantTimeEq;
+    a.ct_eq(b).into()
+}
+
 /// # Arguments
 ///
 /// * `session` - The session with the tree to update
@@ -958,6 +994,7 @@ mod tests {
             path_updates: Vec::new(),
             signature,
             round_hash,
+            confirmation_tag: [0u8; 32], // Placeholder - test fails before tag verification
         };
 
         // Try to verify with wrong identity - should fail
@@ -986,6 +1023,7 @@ mod tests {
             path_updates: Vec::new(),
             signature,
             round_hash,
+            confirmation_tag: [0u8; 32], // Placeholder - test fails before tag verification
         };
 
         // Group ID check happens before signature verification
@@ -1095,6 +1133,11 @@ mod tests {
             CommitContent::new_add(*session.group_id(), 1, round_hash, path_updates_hash);
         let signature = sign_commit(&adder_identity, &commit_content).unwrap();
 
+        // Compute correct confirmation tag for empty path updates
+        let new_transcript = h3_transcript_hash(session.transcript_hash(), &round_hash);
+        let delta_root = [0u8; 32]; // Empty path updates = zero delta_root
+        let confirmation_tag = compute_confirmation_tag(&delta_root, &new_transcript, 1);
+
         let commit = AddCommit {
             group_id: *session.group_id(),
             new_member_id: [0x02u8; 32],
@@ -1103,6 +1146,7 @@ mod tests {
             path_updates: Vec::new(),
             signature,
             round_hash,
+            confirmation_tag,
         };
 
         process_add(&mut session, &commit, adder_identity.public_key()).unwrap();
@@ -1137,6 +1181,11 @@ mod tests {
             CommitContent::new_add(*session.group_id(), 1, round_hash, path_updates_hash);
         let signature = sign_commit(&adder_identity, &commit_content).unwrap();
 
+        // Compute correct confirmation tag for empty path updates
+        let new_transcript = h3_transcript_hash(session.transcript_hash(), &round_hash);
+        let delta_root = [0u8; 32]; // Empty path updates = zero delta_root
+        let confirmation_tag = compute_confirmation_tag(&delta_root, &new_transcript, 1);
+
         let commit = AddCommit {
             group_id: *session.group_id(),
             new_member_id: [0x02u8; 32],
@@ -1145,6 +1194,7 @@ mod tests {
             path_updates: Vec::new(),
             signature,
             round_hash,
+            confirmation_tag,
         };
 
         process_add(&mut session, &commit, adder_identity.public_key()).unwrap();
