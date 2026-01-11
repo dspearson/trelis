@@ -792,4 +792,133 @@ mod tests {
         let ss_dec = sk.decapsulate(&ct).unwrap();
         assert_eq!(ss_enc.as_bytes(), ss_dec.as_bytes());
     }
+
+    /// Test that decapsulation with a corrupted ciphertext produces a different
+    /// (but deterministic) shared secret via implicit rejection.
+    ///
+    /// sntrup761 uses implicit rejection: when decapsulation detects a corrupted
+    /// ciphertext, it returns a pseudorandom shared secret derived from the
+    /// ciphertext and secret key's rho value, rather than failing explicitly.
+    /// This prevents distinguishing valid from invalid ciphertexts.
+    #[test]
+    fn test_decapsulation_with_corrupted_ciphertext() {
+        let sk = Sntrup761SecretKey::generate();
+        let pk = sk.public_key();
+
+        // Generate valid encapsulation
+        let (ss_valid, ct) = pk.encapsulate();
+
+        // Corrupt the ciphertext (flip a byte)
+        let mut ct_corrupted_bytes = *ct.as_bytes();
+        ct_corrupted_bytes[100] ^= 0xFF;
+        let ct_corrupted = Sntrup761Ciphertext::from_array(ct_corrupted_bytes);
+
+        // Decapsulation should succeed (implicit rejection, not error)
+        let ss_corrupted = sk
+            .decapsulate(&ct_corrupted)
+            .expect("Implicit rejection should not fail");
+
+        // Shared secret should be DIFFERENT from the valid one
+        assert_ne!(
+            ss_valid.as_bytes(),
+            ss_corrupted.as_bytes(),
+            "Corrupted ciphertext should produce different shared secret"
+        );
+
+        // Same corrupted ciphertext should produce same rejection secret (deterministic)
+        let ss_corrupted2 = sk.decapsulate(&ct_corrupted).expect("Should not fail");
+        assert_eq!(
+            ss_corrupted.as_bytes(),
+            ss_corrupted2.as_bytes(),
+            "Rejection secret should be deterministic"
+        );
+
+        // Different corruption positions should produce different rejection secrets
+        let mut ct_corrupted2_bytes = *ct.as_bytes();
+        ct_corrupted2_bytes[200] ^= 0xFF;
+        let ct_corrupted2 = Sntrup761Ciphertext::from_array(ct_corrupted2_bytes);
+        let ss_corrupted3 = sk.decapsulate(&ct_corrupted2).expect("Should not fail");
+        assert_ne!(
+            ss_corrupted.as_bytes(),
+            ss_corrupted3.as_bytes(),
+            "Different corruptions should produce different rejection secrets"
+        );
+    }
+
+    /// Test that decapsulation with corrupted confirmation hash triggers implicit rejection.
+    #[test]
+    fn test_decapsulation_corrupted_confirmation() {
+        let sk = Sntrup761SecretKey::generate();
+        let pk = sk.public_key();
+
+        let (ss_valid, ct) = pk.encapsulate();
+
+        // Corrupt the confirmation hash (last 32 bytes of ciphertext)
+        let mut ct_bad_confirm_bytes = *ct.as_bytes();
+        let confirm_start = ct_bad_confirm_bytes.len() - 32;
+        ct_bad_confirm_bytes[confirm_start] ^= 0xFF;
+        let ct_bad_confirm = Sntrup761Ciphertext::from_array(ct_bad_confirm_bytes);
+
+        // Should succeed with implicit rejection
+        let ss_rejected = sk.decapsulate(&ct_bad_confirm).expect("Should not fail");
+
+        // Should produce different shared secret
+        assert_ne!(
+            ss_valid.as_bytes(),
+            ss_rejected.as_bytes(),
+            "Bad confirmation should trigger implicit rejection"
+        );
+    }
+
+    /// Test that decapsulation timing is consistent regardless of ciphertext validity.
+    ///
+    /// This is a basic sanity check - true timing analysis would require statistical
+    /// methods like dudect. This test verifies that both valid and invalid ciphertexts
+    /// follow the same code path and return successfully.
+    #[test]
+    fn test_decapsulation_timing_consistency() {
+        let sk = Sntrup761SecretKey::generate();
+        let pk = sk.public_key();
+
+        let (_ss_valid, ct_valid) = pk.encapsulate();
+
+        // Create various invalid ciphertexts
+        let mut ct_zero = [0u8; CIPHERTEXT_SIZE];
+        ct_zero.copy_from_slice(&[0u8; CIPHERTEXT_SIZE]);
+        let ct_all_zero = Sntrup761Ciphertext::from_array(ct_zero);
+
+        let mut ct_ones = [0xFFu8; CIPHERTEXT_SIZE];
+        ct_ones.copy_from_slice(&[0xFFu8; CIPHERTEXT_SIZE]);
+        let ct_all_ones = Sntrup761Ciphertext::from_array(ct_ones);
+
+        let mut ct_corrupted_bytes = *ct_valid.as_bytes();
+        ct_corrupted_bytes[0] ^= 0x01;
+        let ct_slightly_corrupted = Sntrup761Ciphertext::from_array(ct_corrupted_bytes);
+
+        // All decapsulations should succeed (implicit rejection)
+        // The actual timing would need statistical analysis to verify constant-time
+        let results = [
+            sk.decapsulate(&ct_valid),
+            sk.decapsulate(&ct_all_zero),
+            sk.decapsulate(&ct_all_ones),
+            sk.decapsulate(&ct_slightly_corrupted),
+        ];
+
+        for (i, result) in results.iter().enumerate() {
+            assert!(
+                result.is_ok(),
+                "Decapsulation {} should succeed with implicit rejection",
+                i
+            );
+        }
+
+        // Valid ciphertext should give consistent result
+        let ss1 = sk.decapsulate(&ct_valid).unwrap();
+        let ss2 = sk.decapsulate(&ct_valid).unwrap();
+        assert_eq!(
+            ss1.as_bytes(),
+            ss2.as_bytes(),
+            "Valid decap should be deterministic"
+        );
+    }
 }

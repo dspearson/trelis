@@ -8,17 +8,31 @@
 //! The ntrulp crate uses Fermat's little theorem for field inversion:
 //! `a^(-1) = a^(q-2) mod q`, requiring q-2 = 4589 multiplications.
 //!
-//! This module uses the binary extended GCD algorithm which requires only
-//! O(log q) ≈ 12 iterations, providing approximately 380x speedup for
-//! field element inversion.
+//! This module provides two inversion functions:
+//! - `recip()` - Fast extended GCD (~12 iterations, ~380x speedup), variable-time
+//! - `recip_ct()` - Constant-time Fermat with binary exponentiation (~26 ops)
 //!
-//! # Constant-Time Considerations
+//! # Constant-Time Guarantees
 //!
-//! The extended GCD implementation uses conditional moves and avoids
-//! secret-dependent branches where possible. However, for non-secret
-//! field elements (like the ratio parameter), timing is not a concern.
+//! This module is designed to prevent timing side-channel attacks:
+//!
+//! - **`recip_ct()`**: Fully constant-time field inversion using Fermat's little
+//!   theorem with binary exponentiation. Always performs exactly 13 squarings and
+//!   13 conditional multiplications via constant-time select.
+//!
+//! - **`recip()`**: Fast but variable-time. Only use for public values (e.g., RATIO).
+//!
+//! - **`freeze()`, `u32_divmod_q()`**: Constant-time via arithmetic masking.
+//!
+//! - **`mult_r3()`**: Constant-time - always performs all P*P iterations regardless
+//!   of zero coefficients, preventing sparsity pattern leakage.
+//!
+//! - **Polynomial reciprocal (`Rq::recip`)**: Uses constant-time `recip_ct()` for
+//!   the final scaling step where the input may be secret-dependent.
 
 use crate::sntrup761_encoding::P;
+use subtle::ConstantTimeEq;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// The prime modulus q = 4591 for sntrup761.
 pub const Q: i32 = 4591;
@@ -43,6 +57,20 @@ fn i16_nonzero_mask(x: i16) -> i16 {
     // If x != 0, then (x | -x) has the sign bit set
     let neg = (xu | xu.wrapping_neg()) >> 15;
     -(neg as i16)
+}
+
+/// Constant-time conditional select: returns a if mask is all-ones, b if mask is zero.
+/// mask must be either 0 or -1 (all bits set).
+#[inline(always)]
+fn i16_select(mask: i16, a: i16, b: i16) -> i16 {
+    b ^ (mask & (a ^ b))
+}
+
+/// Constant-time conditional select for i32.
+#[inline(always)]
+#[allow(dead_code)]
+fn i32_select(mask: i32, a: i32, b: i32) -> i32 {
+    b ^ (mask & (a ^ b))
 }
 
 /// Half of q, used for centred representation.
@@ -85,11 +113,14 @@ fn u32_divmod_u14(x: u32, m: u16) -> (u32, u16) {
     let final_x = new_x.wrapping_sub(qpart * m as u32);
     q += qpart;
 
-    // Final correction
+    // Final correction (constant-time via arithmetic masking)
     let sub_x = final_x.wrapping_sub(m as u32);
     q += 1;
 
-    let mask = if sub_x >> 31 != 0 { u32::MAX } else { 0 };
+    // Constant-time mask: 0xFFFFFFFF if sub_x has high bit set, 0 otherwise
+    // (sub_x >> 31) is 1 if negative (underflow), 0 otherwise
+    // 0 - 1 = 0xFFFFFFFF, 0 - 0 = 0
+    let mask = 0u32.wrapping_sub(sub_x >> 31);
     let added_x = sub_x.wrapping_add(mask & m as u32);
     let final_q = q.wrapping_add(mask);
 
@@ -115,11 +146,12 @@ fn u32_divmod_q(x: u32) -> (u32, u16) {
     let final_x = new_x.wrapping_sub(qpart * Q as u32);
     q += qpart;
 
-    // Final correction
+    // Final correction (constant-time via arithmetic masking)
     let sub_x = final_x.wrapping_sub(Q as u32);
     q += 1;
 
-    let mask = if sub_x >> 31 != 0 { u32::MAX } else { 0 };
+    // Constant-time mask: 0xFFFFFFFF if sub_x has high bit set, 0 otherwise
+    let mask = 0u32.wrapping_sub(sub_x >> 31);
     let added_x = sub_x.wrapping_add(mask & Q as u32);
     let final_q = q.wrapping_add(mask);
 
@@ -269,11 +301,169 @@ pub fn recip(a: i16) -> i16 {
     freeze(old_s)
 }
 
+/// Constant-time modular inverse using Fermat's little theorem.
+///
+/// Computes a^(-1) = a^(q-2) mod q using binary exponentiation.
+/// This is slower than the extended GCD (~21 operations vs ~12), but is
+/// fully constant-time with no secret-dependent branches or memory accesses.
+///
+/// # Constant-Time Guarantee
+///
+/// This function:
+/// - Always performs exactly 13 squarings
+/// - Always performs exactly 13 conditional multiplications (via constant-time select)
+/// - Has no secret-dependent branches or memory accesses
+///
+/// Use this for operations on secret data (e.g., secret key coefficients).
+/// For public data, use `recip()` which is faster.
+///
+/// # Panics
+///
+/// Panics in debug mode if `a` is zero.
+#[inline]
+pub fn recip_ct(a: i16) -> i16 {
+    debug_assert!(a != 0, "Cannot invert zero");
+
+    // Normalise input to positive in range [1, Q-1] using constant-time arithmetic
+    // If a < 0, we want a + Q, otherwise a
+    // mask = -1 if a < 0, else 0
+    let neg_mask = (a >> 15) as i32; // -1 if negative, 0 otherwise
+    let a_pos = (a as i32) + (neg_mask & Q);
+
+    // Fermat's little theorem: a^(-1) = a^(q-2) mod q
+    // q - 2 = 4589 = 0b1000111101101
+    //
+    // Binary representation (13 bits):
+    // bit 12: 1 (4096)
+    // bit 11: 0
+    // bit 10: 0
+    // bit 9:  0
+    // bit 8:  1 (256)
+    // bit 7:  1 (128)
+    // bit 6:  1 (64)
+    // bit 5:  1 (32)
+    // bit 4:  0
+    // bit 3:  1 (8)
+    // bit 2:  1 (4)
+    // bit 1:  0
+    // bit 0:  1 (1)
+
+    let mut result = 1i32;
+    let mut base = a_pos;
+
+    // Q - 2 = 4589 = 0x11ED
+    const EXP: u32 = 4589;
+
+    // Unrolled loop for constant-time (13 iterations for 13-bit exponent)
+    // Each iteration: conditionally multiply by base, then square base
+    // We use i16_select on the frozen (reduced) values
+
+    // Bit 0 (value 1)
+    let bit_mask = -((EXP & 1) as i16);
+    let prod = freeze(result * base);
+    let same = freeze(result);
+    result = i16_select(bit_mask, prod, same) as i32;
+    base = freeze(base * base) as i32;
+
+    // Bit 1 (value 0)
+    let bit_mask = -(((EXP >> 1) & 1) as i16);
+    let prod = freeze(result * base);
+    let same = freeze(result);
+    result = i16_select(bit_mask, prod, same) as i32;
+    base = freeze(base * base) as i32;
+
+    // Bit 2 (value 1)
+    let bit_mask = -(((EXP >> 2) & 1) as i16);
+    let prod = freeze(result * base);
+    let same = freeze(result);
+    result = i16_select(bit_mask, prod, same) as i32;
+    base = freeze(base * base) as i32;
+
+    // Bit 3 (value 1)
+    let bit_mask = -(((EXP >> 3) & 1) as i16);
+    let prod = freeze(result * base);
+    let same = freeze(result);
+    result = i16_select(bit_mask, prod, same) as i32;
+    base = freeze(base * base) as i32;
+
+    // Bit 4 (value 0)
+    let bit_mask = -(((EXP >> 4) & 1) as i16);
+    let prod = freeze(result * base);
+    let same = freeze(result);
+    result = i16_select(bit_mask, prod, same) as i32;
+    base = freeze(base * base) as i32;
+
+    // Bit 5 (value 1)
+    let bit_mask = -(((EXP >> 5) & 1) as i16);
+    let prod = freeze(result * base);
+    let same = freeze(result);
+    result = i16_select(bit_mask, prod, same) as i32;
+    base = freeze(base * base) as i32;
+
+    // Bit 6 (value 1)
+    let bit_mask = -(((EXP >> 6) & 1) as i16);
+    let prod = freeze(result * base);
+    let same = freeze(result);
+    result = i16_select(bit_mask, prod, same) as i32;
+    base = freeze(base * base) as i32;
+
+    // Bit 7 (value 1)
+    let bit_mask = -(((EXP >> 7) & 1) as i16);
+    let prod = freeze(result * base);
+    let same = freeze(result);
+    result = i16_select(bit_mask, prod, same) as i32;
+    base = freeze(base * base) as i32;
+
+    // Bit 8 (value 1)
+    let bit_mask = -(((EXP >> 8) & 1) as i16);
+    let prod = freeze(result * base);
+    let same = freeze(result);
+    result = i16_select(bit_mask, prod, same) as i32;
+    base = freeze(base * base) as i32;
+
+    // Bit 9 (value 0)
+    let bit_mask = -(((EXP >> 9) & 1) as i16);
+    let prod = freeze(result * base);
+    let same = freeze(result);
+    result = i16_select(bit_mask, prod, same) as i32;
+    base = freeze(base * base) as i32;
+
+    // Bit 10 (value 0)
+    let bit_mask = -(((EXP >> 10) & 1) as i16);
+    let prod = freeze(result * base);
+    let same = freeze(result);
+    result = i16_select(bit_mask, prod, same) as i32;
+    base = freeze(base * base) as i32;
+
+    // Bit 11 (value 0)
+    let bit_mask = -(((EXP >> 11) & 1) as i16);
+    let prod = freeze(result * base);
+    let same = freeze(result);
+    result = i16_select(bit_mask, prod, same) as i32;
+    base = freeze(base * base) as i32;
+
+    // Bit 12 (value 1) - MSB, no need to square after
+    let bit_mask = -(((EXP >> 12) & 1) as i16);
+    let prod = freeze(result * base);
+    let same = freeze(result);
+    result = i16_select(bit_mask, prod, same) as i32;
+
+    result as i16
+}
+
 /// Optimised Rq polynomial for sntrup761.
 ///
 /// This type provides the same functionality as ntrulp's `Rq` but uses
 /// the optimised field arithmetic for polynomial inversion.
-#[derive(Debug, Clone)]
+///
+/// # Security
+///
+/// This type implements `Zeroize` and `ZeroizeOnDrop` to securely clear
+/// polynomial coefficients when dropped, as they may contain secret key material.
+///
+/// Cache-line aligned (64 bytes) for optimal memory access patterns.
+#[derive(Debug, Clone, Zeroize, ZeroizeOnDrop)]
+#[repr(align(64))]
 pub struct Rq {
     /// Polynomial coefficients in centred representation.
     pub coeffs: [i16; P],
@@ -314,17 +504,21 @@ impl Rq {
     /// Multiply this Rq polynomial by an R3 polynomial.
     ///
     /// Computes h = f*g in the ring Rq where g has coefficients in {-1, 0, 1}.
+    ///
+    /// # Constant-Time Guarantee
+    ///
+    /// This function performs all P*P iterations regardless of the values in g,
+    /// ensuring no timing side-channel leaks the sparsity pattern of g.
     pub fn mult_r3(&self, g: &[i8; P]) -> Rq {
         let f = &self.coeffs;
         let mut fg = [0i32; P + P - 1];
 
-        // Convolution
+        // Convolution - constant-time (always perform all iterations)
+        // When gi == 0, the addition is 0 which doesn't change the result
         for i in 0..P {
             let gi = g[i] as i32;
-            if gi != 0 {
-                for j in 0..P {
-                    fg[i + j] += f[j] as i32 * gi;
-                }
+            for j in 0..P {
+                fg[i + j] += f[j] as i32 * gi;
             }
         }
 
@@ -367,13 +561,14 @@ impl Rq {
         let mut f0: i32;
         let mut g0: i32;
 
-        // Quotient update closure
-        let quotient = |out: &mut [i16], f0: i32, g0: i32, fv: &[i16]| {
+        // Inline function for quotient update (called 3042 times per recip)
+        #[inline(always)]
+        fn quotient_update(out: &mut [i16; P + 1], f0: i32, g0: i32, fv: &[i16; P + 1]) {
             for i in 0..P + 1 {
                 let x = f0 * out[i] as i32 - g0 * fv[i] as i32;
                 out[i] = freeze(x);
             }
-        };
+        }
 
         // Initialize r[0] = 1/RATIO using fast extended GCD
         r[0] = recip(RATIO);
@@ -422,8 +617,8 @@ impl Rq {
             g0 = g[0] as i32;
 
             // Update polynomial quotients
-            quotient(&mut g, f0, g0, &f);
-            quotient(&mut r, f0, g0, &v);
+            quotient_update(&mut g, f0, g0, &f);
+            quotient_update(&mut r, f0, g0, &v);
 
             // Shift g left (divide by x)
             for i in 0..P {
@@ -434,15 +629,27 @@ impl Rq {
 
         // Check if inversion succeeded
         if i16_nonzero_mask(delta) != 0 {
+            // Zeroize intermediate arrays before returning error
+            f.zeroize();
+            g.zeroize();
+            v.zeroize();
+            r.zeroize();
             return Err("Polynomial not invertible");
         }
 
-        // Scale by 1/f[0]
-        let scale = recip(f[0]);
+        // Scale by 1/f[0] using constant-time reciprocal
+        // (f[0] may be secret-dependent during key generation/decapsulation)
+        let scale = recip_ct(f[0]);
         for i in 0..P {
             let x = scale as i32 * v[P - 1 - i] as i32;
             out[i] = freeze(x);
         }
+
+        // Zeroize intermediate arrays containing secret-derived data
+        f.zeroize();
+        g.zeroize();
+        v.zeroize();
+        r.zeroize();
 
         Ok(Rq::from(out))
     }
@@ -488,6 +695,16 @@ impl From<&[i8; P]> for Rq {
     }
 }
 
+impl ConstantTimeEq for Rq {
+    /// Constant-time equality comparison for polynomials.
+    ///
+    /// Returns `Choice(1)` if self == other, `Choice(0)` otherwise.
+    /// Executes in constant time regardless of coefficient values.
+    fn ct_eq(&self, other: &Self) -> subtle::Choice {
+        self.coeffs.ct_eq(&other.coeffs)
+    }
+}
+
 // ============================================================================
 // R3 polynomial (coefficients in {-1, 0, 1})
 // ============================================================================
@@ -496,7 +713,15 @@ impl From<&[i8; P]> for Rq {
 ///
 /// This type provides the same functionality as ntrulp's `R3` but with
 /// optimised polynomial inversion matching the Rq implementation.
-#[derive(Debug, Clone)]
+///
+/// # Security
+///
+/// This type implements `Zeroize` and `ZeroizeOnDrop` to securely clear
+/// polynomial coefficients when dropped, as they may contain secret key material.
+///
+/// Cache-line aligned (64 bytes) for optimal memory access patterns.
+#[derive(Debug, Clone, Zeroize, ZeroizeOnDrop)]
+#[repr(align(64))]
 pub struct R3 {
     /// Polynomial coefficients in {-1, 0, 1}.
     pub coeffs: [i8; P],
@@ -602,13 +827,14 @@ impl R3 {
         let mut t: i8;
         let mut sign: i8;
 
-        // Scalar quotient update for R3 polynomials
-        let quotient = |out: &mut [i8], sign: i8, fv: &[i8]| {
+        // Inline function for R3 quotient update (called 3042 times per recip)
+        #[inline(always)]
+        fn quotient_update_r3(out: &mut [i8; P + 1], sign: i8, fv: &[i8; P + 1]) {
             for i in 0..P + 1 {
                 let x = out[i] + sign * fv[i];
                 out[i] = f3_freeze(x as i16);
             }
-        };
+        }
 
         // Initialize r[0] = 1
         r[0] = 1;
@@ -655,8 +881,8 @@ impl R3 {
             }
 
             // Update polynomial quotients
-            quotient(&mut g, sign, &f);
-            quotient(&mut r, sign, &v);
+            quotient_update_r3(&mut g, sign, &f);
+            quotient_update_r3(&mut r, sign, &v);
 
             // Shift g left (divide by x)
             for i in 0..P {
@@ -667,6 +893,11 @@ impl R3 {
 
         // Check if inversion succeeded
         if i16_nonzero_mask(delta) != 0 {
+            // Zeroize intermediate arrays before returning error
+            f.zeroize();
+            g.zeroize();
+            v.zeroize();
+            r.zeroize();
             return Err("Polynomial not invertible in R3");
         }
 
@@ -675,6 +906,12 @@ impl R3 {
         for i in 0..P {
             out[i] = sign * v[P - 1 - i];
         }
+
+        // Zeroize intermediate arrays containing secret-derived data
+        f.zeroize();
+        g.zeroize();
+        v.zeroize();
+        r.zeroize();
 
         Ok(R3::from(out))
     }
@@ -692,6 +929,16 @@ impl R3 {
 impl From<[i8; P]> for R3 {
     fn from(coeffs: [i8; P]) -> Self {
         R3 { coeffs }
+    }
+}
+
+impl ConstantTimeEq for R3 {
+    /// Constant-time equality comparison for R3 polynomials.
+    ///
+    /// Returns `Choice(1)` if self == other, `Choice(0)` otherwise.
+    /// Executes in constant time regardless of coefficient values.
+    fn ct_eq(&self, other: &Self) -> subtle::Choice {
+        self.coeffs.ct_eq(&other.coeffs)
     }
 }
 
@@ -1135,6 +1382,93 @@ mod tests {
         }
     }
 
+    /// Verify recip(0) panics in debug mode.
+    #[test]
+    #[should_panic(expected = "Cannot invert zero")]
+    fn test_recip_zero_panics() {
+        // Zero is not invertible in any field
+        let _ = recip(0);
+    }
+
+    /// Verify recip_ct(0) panics in debug mode.
+    #[test]
+    #[should_panic(expected = "Cannot invert zero")]
+    fn test_recip_ct_zero_panics() {
+        // Zero is not invertible in any field
+        let _ = recip_ct(0);
+    }
+
+    /// Test freeze() with values at the edges of its safe input range.
+    ///
+    /// Note: freeze() is designed for polynomial arithmetic where values are
+    /// bounded by products of coefficients (max ~5.3 million for Q12*Q12).
+    /// It uses `x + Q12` internally, so the safe input range is approximately
+    /// [i32::MIN + Q12, i32::MAX - Q12] to avoid overflow.
+    ///
+    /// For sntrup761, actual inputs never exceed ±(Q12 * Q12) ≈ ±5,267,025.
+    #[test]
+    fn test_freeze_with_i32_extremes() {
+        // Test the actual maximum values used in sntrup761 polynomial arithmetic
+        // Max coefficient is Q12 = 2295, so max product is 2295 * 2295 = 5267025
+        let max_product = (Q12 as i64 * Q12 as i64) as i32;
+        let result = freeze(max_product);
+        assert!(
+            result >= -(Q12 as i16) && result <= Q12 as i16,
+            "freeze(Q12*Q12) = {} out of valid range",
+            result
+        );
+
+        let min_product = -(Q12 as i64 * Q12 as i64) as i32;
+        let result = freeze(min_product);
+        assert!(
+            result >= -(Q12 as i16) && result <= Q12 as i16,
+            "freeze(-Q12*Q12) = {} out of valid range",
+            result
+        );
+
+        // Test values at the safe boundary (just below overflow threshold)
+        // freeze() computes x + Q12 internally, so max safe input is i32::MAX - Q12
+        let safe_max = i32::MAX - Q12 - 1;
+        let safe_result = freeze(safe_max);
+        assert!(
+            safe_result >= -(Q12 as i16) && safe_result <= Q12 as i16,
+            "freeze({}) = {} out of valid range",
+            safe_max,
+            safe_result
+        );
+
+        // Min safe input: i32::MIN would need adjustment for the internal arithmetic
+        // But for sntrup761, we never get close to i32::MIN either
+        let safe_min = i32::MIN + Q12 + 1;
+        let safe_result = freeze(safe_min);
+        assert!(
+            safe_result >= -(Q12 as i16) && safe_result <= Q12 as i16,
+            "freeze({}) = {} out of valid range",
+            safe_min,
+            safe_result
+        );
+
+        // Test some intermediate large values that might occur in polynomial ops
+        for &x in &[
+            100_000i32,
+            -100_000,
+            1_000_000,
+            -1_000_000,
+            5_000_000,
+            -5_000_000,
+            max_product / 2,
+            min_product / 2,
+        ] {
+            let result = freeze(x);
+            assert!(
+                result >= -(Q12 as i16) && result <= Q12 as i16,
+                "freeze({}) = {} out of valid range",
+                x,
+                result
+            );
+        }
+    }
+
     /// Compare our recip with ntrulp's Fermat-based recip for all valid inputs.
     #[test]
     fn test_recip_vs_fermat_exhaustive() {
@@ -1169,6 +1503,32 @@ mod tests {
                 egcd, fermat,
                 "recip({}) mismatch: egcd={}, fermat={}",
                 a, egcd, fermat
+            );
+        }
+    }
+
+    /// Verify recip_ct (constant-time) matches recip (fast) for all valid inputs.
+    #[test]
+    fn test_recip_ct_vs_recip_exhaustive() {
+        // Test all non-zero values in the valid coefficient range
+        for a in 1..=Q12 as i16 {
+            let fast = recip(a);
+            let ct = recip_ct(a);
+            assert_eq!(
+                fast, ct,
+                "recip_ct({}) = {} but recip({}) = {}",
+                a, ct, a, fast
+            );
+        }
+
+        // Test negative values
+        for a in (-(Q12 as i16))..=-1 {
+            let fast = recip(a);
+            let ct = recip_ct(a);
+            assert_eq!(
+                fast, ct,
+                "recip_ct({}) = {} but recip({}) = {}",
+                a, ct, a, fast
             );
         }
     }

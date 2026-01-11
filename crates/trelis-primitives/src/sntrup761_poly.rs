@@ -53,6 +53,87 @@ const NTT_PRIME: u64 = 998244353;
 /// Primitive root of unity for NTT_PRIME.
 const NTT_PRIMITIVE_ROOT: u64 = 3;
 
+// ============================================================================
+// Precomputed NTT Twiddle Factor Roots
+// ============================================================================
+//
+// For NTT_SIZE = 2048, we have 11 stages (len = 2, 4, 8, ..., 2048).
+// Precomputing stage roots avoids mod_pow calls during NTT execution.
+//
+// Forward root[i] = g^((p-1) / 2^(i+1)) mod p where g = 3, p = 998244353
+// Inverse root[i] = g^(-(p-1) / 2^(i+1)) mod p = forward_root[i]^(p-2) mod p
+
+/// Precomputed forward NTT stage roots for len = 2^(i+1), i = 0..11
+/// FORWARD_ROOTS[i] is the primitive 2^(i+1)-th root of unity
+const FORWARD_ROOTS: [u64; 11] = {
+    // Computed as: g^((p-1)/2^(i+1)) mod p for i = 0..10
+    // p-1 = 998244352 = 119 * 2^23
+    // g = 3
+    const fn compute_forward_roots() -> [u64; 11] {
+        let mut roots = [0u64; 11];
+        let mut i = 0;
+        while i < 11 {
+            // exponent = (p-1) / 2^(i+1)
+            let exp = (NTT_PRIME - 1) >> (i + 1);
+            roots[i] = const_mod_pow(NTT_PRIMITIVE_ROOT, exp);
+            i += 1;
+        }
+        roots
+    }
+    compute_forward_roots()
+};
+
+/// Precomputed inverse NTT stage roots (inverses of forward roots)
+const INVERSE_ROOTS: [u64; 11] = {
+    const fn compute_inverse_roots() -> [u64; 11] {
+        let mut roots = [0u64; 11];
+        let mut i = 0;
+        while i < 11 {
+            // inverse = forward^(p-2) mod p (Fermat's little theorem)
+            roots[i] = const_mod_pow(FORWARD_ROOTS[i], NTT_PRIME - 2);
+            i += 1;
+        }
+        roots
+    }
+    compute_inverse_roots()
+};
+
+/// Precomputed 1/NTT_SIZE mod NTT_PRIME for inverse NTT scaling
+const NTT_SIZE_INV: u64 = const_mod_pow(NTT_SIZE as u64, NTT_PRIME - 2);
+
+/// Const-compatible modular exponentiation for precomputation
+const fn const_mod_pow(base: u64, exp: u64) -> u64 {
+    let mut result = 1u64;
+    let mut b = base % NTT_PRIME;
+    let mut e = exp;
+    while e > 0 {
+        if e & 1 == 1 {
+            result = const_mod_mul(result, b);
+        }
+        e >>= 1;
+        b = const_mod_mul(b, b);
+    }
+    result
+}
+
+/// Const-compatible modular multiplication (no 128-bit in const yet, use careful overflow handling)
+const fn const_mod_mul(a: u64, b: u64) -> u64 {
+    // For const contexts we need to avoid 128-bit ops
+    // Use checked arithmetic with manual reduction
+    let mut result = 0u64;
+    let mut a_shift = a % NTT_PRIME;
+    let mut b_remaining = b;
+
+    while b_remaining > 0 {
+        if b_remaining & 1 == 1 {
+            result = (result + a_shift) % NTT_PRIME;
+        }
+        a_shift = (a_shift * 2) % NTT_PRIME;
+        b_remaining >>= 1;
+    }
+    result
+}
+
 /// Schoolbook polynomial multiplication (for small polynomials).
 /// Result has length a.len() + b.len() - 1.
 fn schoolbook_mult(a: &[i32], b: &[i32]) -> Vec<i32> {
@@ -181,6 +262,8 @@ fn karatsuba_mult(a: &[i32], b: &[i32]) -> Vec<i32> {
 const BARRETT_MU: u64 = ((1u128 << 64) / NTT_PRIME as u128) as u64;
 
 /// Modular exponentiation: base^exp mod modulus
+/// Note: Now unused at runtime due to precomputation, kept for reference/testing.
+#[allow(dead_code)]
 #[inline]
 fn mod_pow(mut base: u64, mut exp: u64, modulus: u64) -> u64 {
     let mut result = 1u64;
@@ -198,6 +281,7 @@ fn mod_pow(mut base: u64, mut exp: u64, modulus: u64) -> u64 {
 /// Modular multiplication using Barrett reduction.
 /// Computes (a * b) mod NTT_PRIME without 128-bit division.
 /// Assumes inputs are in [0, NTT_PRIME-1].
+/// Branchless implementation for constant-time execution.
 #[inline(always)]
 fn mod_mul(a: u64, b: u64) -> u64 {
     let prod = a as u128 * b as u128;
@@ -205,33 +289,38 @@ fn mod_mul(a: u64, b: u64) -> u64 {
     // q = floor(prod * BARRETT_MU / 2^64)
     let q = ((prod * BARRETT_MU as u128) >> 64) as u64;
     // r = prod - q * NTT_PRIME (may be off by one NTT_PRIME)
-    let mut r = (prod - q as u128 * NTT_PRIME as u128) as u64;
-    // Single correction if needed
-    if r >= NTT_PRIME {
-        r -= NTT_PRIME;
-    }
-    r
+    let r = (prod - q as u128 * NTT_PRIME as u128) as u64;
+    // Branchless correction: subtract NTT_PRIME if r >= NTT_PRIME
+    let mask = ((r >= NTT_PRIME) as u64).wrapping_neg();
+    r - (mask & NTT_PRIME)
 }
 
 /// Modular addition: (a + b) mod NTT_PRIME
+/// Branchless implementation using conditional subtraction via masking.
 #[inline(always)]
 fn mod_add(a: u64, b: u64) -> u64 {
     let sum = a + b;
-    if sum >= NTT_PRIME {
-        sum - NTT_PRIME
-    } else {
-        sum
-    }
+    // Branchless: subtract NTT_PRIME if sum >= NTT_PRIME
+    // mask = 0 if sum < NTT_PRIME, all-ones if sum >= NTT_PRIME
+    let mask = ((sum >= NTT_PRIME) as u64).wrapping_neg();
+    sum - (mask & NTT_PRIME)
 }
 
 /// Modular subtraction: (a - b) mod NTT_PRIME
+/// Branchless implementation using conditional addition via masking.
 #[inline(always)]
 fn mod_sub(a: u64, b: u64) -> u64 {
-    if a >= b { a - b } else { NTT_PRIME - b + a }
+    let diff = a.wrapping_sub(b);
+    // Branchless: add NTT_PRIME if a < b (i.e., if borrow occurred)
+    // mask = all-ones if a < b, 0 otherwise
+    let mask = ((a < b) as u64).wrapping_neg();
+    diff.wrapping_add(mask & NTT_PRIME)
 }
 
 /// Compute twiddle factors for a specific butterfly stage.
 /// Returns the primitive root of unity for this stage.
+/// Note: Now unused at runtime due to precomputation, kept for reference/testing.
+#[allow(dead_code)]
 #[inline]
 fn compute_stage_root(len: usize, inverse: bool) -> u64 {
     let order = NTT_PRIME - 1;
@@ -261,11 +350,13 @@ fn ntt_forward(a: &mut [u64]) {
         }
     }
 
-    // Cooley-Tukey butterfly with on-the-fly twiddle computation
+    // Cooley-Tukey butterfly with precomputed twiddle roots
     let mut len = 2;
+    let mut stage = 0usize;
     while len <= n {
         let half = len / 2;
-        let root = compute_stage_root(len, false);
+        // Use precomputed root: FORWARD_ROOTS[stage] is the 2^(stage+1)-th root of unity
+        let root = FORWARD_ROOTS[stage];
 
         for start in (0..n).step_by(len) {
             let mut w = 1u64;
@@ -278,6 +369,7 @@ fn ntt_forward(a: &mut [u64]) {
             }
         }
         len *= 2;
+        stage += 1;
     }
 }
 
@@ -294,11 +386,13 @@ fn ntt_inverse(a: &mut [u64]) {
         }
     }
 
-    // Inverse butterfly with on-the-fly twiddle computation
+    // Inverse butterfly with precomputed twiddle roots
     let mut len = 2;
+    let mut stage = 0usize;
     while len <= n {
         let half = len / 2;
-        let root = compute_stage_root(len, true);
+        // Use precomputed inverse root: INVERSE_ROOTS[stage] is the inverse of 2^(stage+1)-th root
+        let root = INVERSE_ROOTS[stage];
 
         for start in (0..n).step_by(len) {
             let mut w = 1u64;
@@ -311,16 +405,17 @@ fn ntt_inverse(a: &mut [u64]) {
             }
         }
         len *= 2;
+        stage += 1;
     }
 
-    // Multiply by 1/n
-    let n_inv = mod_pow(n as u64, NTT_PRIME - 2, NTT_PRIME);
+    // Multiply by precomputed 1/n
+    let n_inv = NTT_SIZE_INV;
     for x in a.iter_mut() {
         *x = mod_mul(*x, n_inv);
     }
 }
 
-/// NTT-based polynomial multiplication.
+/// NTT-based polynomial multiplication using Barrett reduction.
 fn ntt_mult(a: &[i32], b: &[i32]) -> Vec<i32> {
     if a.is_empty() || b.is_empty() {
         return vec![];

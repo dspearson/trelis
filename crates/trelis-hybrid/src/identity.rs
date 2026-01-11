@@ -24,6 +24,7 @@
 //! assert_eq!(shared_secret.as_bytes(), recovered.as_bytes());
 //! ```
 
+use alloc::boxed::Box;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::combiner::HybridSharedSecret;
@@ -54,12 +55,15 @@ pub const SECRET_KEY_SIZE: usize = SIGNING_SK_SIZE + KEM_SK_SIZE;
 /// This is the primary identity type in the Trelis protocol. It contains
 /// both hybrid signing keys (for authentication) and hybrid KEM keys
 /// (for key exchange).
+///
+/// The keypairs are heap-allocated to avoid stack overflow on platforms
+/// with limited stack size (e.g., Windows default 1MB).
 #[derive(Clone, Zeroize, ZeroizeOnDrop)]
 pub struct HybridIdentityKeypair {
     #[zeroize(skip)]
     public_key: HybridIdentityPublicKey,
-    signing: HybridSigningKeypair,
-    kem: HybridKemKeypair,
+    signing: Box<HybridSigningKeypair>,
+    kem: Box<HybridKemKeypair>,
 }
 
 impl HybridIdentityKeypair {
@@ -70,8 +74,10 @@ impl HybridIdentityKeypair {
     /// Returns `RngFailure` if the system CSPRNG fails, or `KeyGenerationFailed`
     /// if key generation fails internally.
     pub fn generate() -> Result<Self> {
-        let signing = HybridSigningKeypair::generate()?;
-        let kem = HybridKemKeypair::generate()?;
+        // Box keypairs immediately to move them to the heap and reduce stack usage.
+        // This is critical on Windows where the default stack is 1MB.
+        let signing = Box::new(HybridSigningKeypair::generate()?);
+        let kem = Box::new(HybridKemKeypair::generate()?);
 
         let public_key = HybridIdentityPublicKey {
             signing: signing.public_key().clone(),
@@ -134,8 +140,8 @@ impl HybridIdentityKeypair {
             });
         }
 
-        let signing = HybridSigningKeypair::from_bytes(&bytes[..SIGNING_SK_SIZE])?;
-        let kem = HybridKemKeypair::from_bytes(&bytes[SIGNING_SK_SIZE..])?;
+        let signing = Box::new(HybridSigningKeypair::from_bytes(&bytes[..SIGNING_SK_SIZE])?);
+        let kem = Box::new(HybridKemKeypair::from_bytes(&bytes[SIGNING_SK_SIZE..])?);
 
         let public_key = HybridIdentityPublicKey {
             signing: signing.public_key().clone(),

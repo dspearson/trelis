@@ -920,4 +920,85 @@ mod c_comparison_tests {
             );
         }
     }
+
+    /// Test that malformed/arbitrary byte sequences are handled gracefully by decoders.
+    ///
+    /// The decoders should not panic or produce undefined behavior when given
+    /// arbitrary byte sequences. They may produce invalid polynomial coefficients
+    /// (e.g., small_decode may return values outside {-1, 0, 1}), but the
+    /// subsequent KEM operations will detect this via implicit rejection.
+    ///
+    /// Note: These decoders do NOT validate input - they just decode bytes.
+    /// Validation happens at a higher level (KEM re-encapsulation check).
+    #[test]
+    fn test_malformed_encoding_handling() {
+        // Test rq_decode with all-zero bytes
+        let zero_bytes = [0u8; RQ_BYTES];
+        let coeffs = rq_decode(&zero_bytes);
+        // Should not panic, produces P coefficients
+        assert_eq!(coeffs.len(), P);
+
+        // Test rq_decode with all-0xFF bytes
+        let max_bytes = [0xFFu8; RQ_BYTES];
+        let coeffs = rq_decode(&max_bytes);
+        assert_eq!(coeffs.len(), P);
+
+        // Test rq_decode with alternating pattern
+        let mut alt_bytes = [0u8; RQ_BYTES];
+        for (i, b) in alt_bytes.iter_mut().enumerate() {
+            *b = if i % 2 == 0 { 0xAA } else { 0x55 };
+        }
+        let coeffs = rq_decode(&alt_bytes);
+        assert_eq!(coeffs.len(), P);
+
+        // Test small_decode with all zeros - should produce valid {-1, 0, 1} coefficients
+        let zero_small = [0u8; SMALL_BYTES];
+        let small_coeffs = small_decode(&zero_small);
+        assert_eq!(small_coeffs.len(), P);
+        // All-zeros is a valid encoding, should produce valid coefficients
+        for &c in &small_coeffs {
+            assert!(
+                c >= -1 && c <= 1,
+                "small coefficient {} out of range for zero input",
+                c
+            );
+        }
+
+        // Test small_decode with arbitrary data - may produce invalid coefficients
+        // (this is expected - the decoder doesn't validate, KEM implicit rejection handles it)
+        let max_small = [0xFFu8; SMALL_BYTES];
+        let small_coeffs = small_decode(&max_small);
+        assert_eq!(small_coeffs.len(), P);
+        // Note: Coefficients may be outside {-1, 0, 1} for malformed input
+        // The test just verifies the decoder doesn't panic
+
+        // Test rounded_decode with random-ish data
+        let mut rounded_bytes = [0u8; ROUNDED_BYTES];
+        for (i, b) in rounded_bytes.iter_mut().enumerate() {
+            *b = ((i * 37) % 256) as u8;
+        }
+        let rounded_coeffs = rounded_decode(&rounded_bytes);
+        assert_eq!(rounded_coeffs.len(), P);
+        // The test just verifies no panic
+
+        // Verify encode(decode(x)) produces valid output (not necessarily x)
+        // This is a sanity check that the roundtrip doesn't panic
+        let random_bytes = {
+            let mut b = [0u8; RQ_BYTES];
+            for (i, byte) in b.iter_mut().enumerate() {
+                *byte = ((i * 127 + 31) % 256) as u8;
+            }
+            b
+        };
+        let decoded = rq_decode(&random_bytes);
+        let re_encoded = rq_encode(&decoded);
+        assert_eq!(re_encoded.len(), RQ_BYTES);
+
+        // Verify small_encode(small_decode(valid)) roundtrips correctly
+        // First create a valid small polynomial encoding
+        let valid_small: [i8; P] = [0i8; P]; // All zeros is valid
+        let encoded = small_encode(&valid_small);
+        let decoded = small_decode(&encoded);
+        assert_eq!(valid_small, decoded);
+    }
 }
