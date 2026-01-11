@@ -9,7 +9,9 @@
 //!
 //! # Example
 //!
-//! ```
+//! ```no_run
+//! # // no_run: Windows doctest threads have 1MB stack which overflows with
+//! # // combined ML-DSA-65 + sntrup761 key generation. Unit tests cover this.
 //! use trelis_hybrid::identity::HybridIdentityKeypair;
 //!
 //! let identity = HybridIdentityKeypair::generate().unwrap();
