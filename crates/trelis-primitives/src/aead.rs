@@ -43,7 +43,7 @@ use alloc::vec::Vec;
 
 use chacha20poly1305::{
     XChaCha20Poly1305, XNonce,
-    aead::{Aead, KeyInit, Payload},
+    aead::{Aead, AeadInPlace, KeyInit, Payload},
 };
 use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -276,46 +276,73 @@ pub fn decrypt(key: &AeadKey, nonce: &Nonce, ciphertext: &[u8], aad: &[u8]) -> R
         .map_err(|_| CryptoError::AeadAuthenticationFailed)
 }
 
-/// Encrypts in place (for no_std without alloc).
+/// Encrypts plaintext in place, returning the authentication tag.
 ///
-/// # Arguments
+/// `buffer[..plaintext_len]` contains the plaintext on entry. On success,
+/// `buffer[..plaintext_len]` is replaced with ciphertext of the same length.
+/// The returned [`Tag`] (16 bytes) must be appended or stored separately by
+/// the caller.
 ///
-/// * `key` - The 256-bit encryption key.
-/// * `nonce` - The 192-bit nonce.
-/// * `buffer` - Buffer containing plaintext; will be extended with tag.
-/// * `aad` - Associated authenticated data.
+/// This avoids all heap allocation — the underlying `AeadInPlace` trait
+/// encrypts directly in the provided buffer.
 ///
-/// # Returns
+/// # Errors
 ///
-/// The authentication tag (also appended to buffer if using alloc).
-///
-/// # Note
-///
-/// This is a lower-level API. Prefer [`encrypt`] when alloc is available.
+/// Returns an error if encryption fails (should not happen with valid inputs).
 pub fn encrypt_in_place(
     key: &AeadKey,
     nonce: &Nonce,
     buffer: &mut [u8],
-    _plaintext_len: usize,
+    plaintext_len: usize,
     aad: &[u8],
 ) -> Result<Tag> {
-    // For now, delegate to encrypt and copy back
-    // A proper in-place implementation would avoid allocation
-    #[cfg(feature = "alloc")]
-    {
-        let ciphertext = encrypt(key, nonce, buffer, aad)?;
-        let ct_len = ciphertext.len() - TAG_SIZE;
-        buffer[..ct_len].copy_from_slice(&ciphertext[..ct_len]);
-        let mut tag_bytes = [0u8; TAG_SIZE];
-        tag_bytes.copy_from_slice(&ciphertext[ct_len..]);
-        Ok(Tag(tag_bytes))
-    }
+    let cipher =
+        XChaCha20Poly1305::new_from_slice(&key.0).map_err(|_| CryptoError::InvalidKeyLength {
+            expected: KEY_SIZE,
+            actual: key.0.len(),
+        })?;
 
-    #[cfg(not(feature = "alloc"))]
-    {
-        let _ = (key, nonce, buffer, aad);
-        Err(CryptoError::DecryptionFailed)
-    }
+    let xnonce = XNonce::from_slice(&nonce.0);
+    let tag = cipher
+        .encrypt_in_place_detached(xnonce, aad, &mut buffer[..plaintext_len])
+        .map_err(|_| CryptoError::DecryptionFailed)?;
+
+    let mut tag_bytes = [0u8; TAG_SIZE];
+    tag_bytes.copy_from_slice(&tag);
+    Ok(Tag(tag_bytes))
+}
+
+/// Decrypts ciphertext in place using a detached authentication tag.
+///
+/// `buffer[..ciphertext_len]` contains the ciphertext on entry. The `tag`
+/// is verified and, on success, `buffer[..ciphertext_len]` is replaced with
+/// the plaintext (same length, since XChaCha20 is a stream cipher).
+///
+/// This avoids all heap allocation — the underlying `AeadInPlace` trait
+/// decrypts directly in the provided buffer.
+///
+/// # Errors
+///
+/// Returns `AeadAuthenticationFailed` if the tag is invalid.
+pub fn decrypt_in_place(
+    key: &AeadKey,
+    nonce: &Nonce,
+    buffer: &mut [u8],
+    ciphertext_len: usize,
+    tag: &Tag,
+    aad: &[u8],
+) -> Result<()> {
+    let cipher =
+        XChaCha20Poly1305::new_from_slice(&key.0).map_err(|_| CryptoError::InvalidKeyLength {
+            expected: KEY_SIZE,
+            actual: key.0.len(),
+        })?;
+
+    let xnonce = XNonce::from_slice(&nonce.0);
+    let aead_tag = chacha20poly1305::aead::generic_array::GenericArray::from_slice(&tag.0);
+    cipher
+        .decrypt_in_place_detached(xnonce, aad, &mut buffer[..ciphertext_len], aead_tag)
+        .map_err(|_| CryptoError::AeadAuthenticationFailed)
 }
 
 #[cfg(test)]
@@ -517,5 +544,71 @@ mod tests {
         let decrypted = decrypt(&key, &nonce, &ciphertext, b"").unwrap();
 
         assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_encrypt_in_place_roundtrip() {
+        let key = AeadKey::from_bytes([0x42; KEY_SIZE]);
+        let nonce = Nonce::from_bytes([0x00; NONCE_SIZE]);
+        let plaintext = b"Hello, in-place!";
+        let aad = b"aad";
+
+        // Encrypt in place
+        let mut buf = plaintext.to_vec();
+        let tag = encrypt_in_place(&key, &nonce, &mut buf, plaintext.len(), aad).unwrap();
+
+        // Ciphertext should differ from plaintext
+        assert_ne!(&buf[..plaintext.len()], plaintext.as_slice());
+
+        // Decrypt in place
+        decrypt_in_place(&key, &nonce, &mut buf, plaintext.len(), &tag, aad).unwrap();
+        assert_eq!(&buf[..plaintext.len()], plaintext.as_slice());
+    }
+
+    #[test]
+    fn test_in_place_matches_allocating() {
+        let key = AeadKey::from_bytes([0x42; KEY_SIZE]);
+        let nonce = Nonce::from_bytes([0x00; NONCE_SIZE]);
+        let plaintext = b"consistency check";
+        let aad = b"";
+
+        // Allocating path
+        let ct_alloc = encrypt(&key, &nonce, plaintext, aad).unwrap();
+
+        // In-place path
+        let mut buf = plaintext.to_vec();
+        let tag = encrypt_in_place(&key, &nonce, &mut buf, plaintext.len(), aad).unwrap();
+
+        // Ciphertext should match (without tag)
+        assert_eq!(&buf[..plaintext.len()], &ct_alloc[..plaintext.len()]);
+        // Tag should match
+        assert_eq!(tag.as_bytes(), &ct_alloc[plaintext.len()..]);
+    }
+
+    #[test]
+    fn test_decrypt_in_place_wrong_tag_fails() {
+        let key = AeadKey::from_bytes([0x42; KEY_SIZE]);
+        let nonce = Nonce::from_bytes([0x00; NONCE_SIZE]);
+        let plaintext = b"test data";
+
+        let mut buf = plaintext.to_vec();
+        let _tag = encrypt_in_place(&key, &nonce, &mut buf, plaintext.len(), b"").unwrap();
+
+        // Wrong tag
+        let bad_tag = Tag::from_bytes([0xff; TAG_SIZE]);
+        let result = decrypt_in_place(&key, &nonce, &mut buf, plaintext.len(), &bad_tag, b"");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_encrypt_in_place_empty() {
+        let key = AeadKey::from_bytes([0x42; KEY_SIZE]);
+        let nonce = Nonce::from_bytes([0x00; NONCE_SIZE]);
+
+        let mut buf = vec![];
+        let tag = encrypt_in_place(&key, &nonce, &mut buf, 0, b"").unwrap();
+
+        // Decrypt empty
+        decrypt_in_place(&key, &nonce, &mut buf, 0, &tag, b"").unwrap();
     }
 }
