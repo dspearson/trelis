@@ -883,7 +883,7 @@ mod tests {
 ))]
 mod c_comparison_tests {
     use super::*;
-    use crate::sntrup761::Sntrup761SecretKey;
+    use crate::sntrup761::ffi::Sntrup761SecretKey;
 
     #[test]
     fn test_rq_encode_matches_c() {

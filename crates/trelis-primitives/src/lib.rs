@@ -125,26 +125,11 @@ pub mod x448;
 #[cfg(feature = "mlock")]
 pub mod memlock;
 
-// sntrup761 implementations (backend-specific modules)
-//
-// Backend selection:
-// - Native Unix/Linux: C FFI backend (pqcrypto-ntruprime) for performance
-// - Windows: Pure Rust backend (ntrulp) since C code doesn't compile with MSVC
-// - WASM: Pure Rust backend (ntrulp)
-
-/// C FFI sntrup761 KEM using pqcrypto-ntruprime (native Unix/Linux only).
-#[cfg(all(not(target_os = "windows"), not(target_arch = "wasm32")))]
-pub mod sntrup761;
-/// Wire format encoding for sntrup761 (standard encoding, shared by both backends).
-pub mod sntrup761_encoding;
-/// Optimised field and polynomial arithmetic for sntrup761.
+/// sntrup761 post-quantum KEM (NTRU Prime).
 ///
-/// Provides fast extended GCD for field inversion (O(log q) vs O(q) Fermat).
-pub mod sntrup761_fq;
-/// Optimised polynomial arithmetic for sntrup761 (Karatsuba, NTT).
-pub mod sntrup761_poly;
-/// Pure Rust sntrup761 KEM (always included for deterministic keygen).
-pub mod sntrup761_wasm;
+/// Contains submodules for encoding, field arithmetic, polynomial arithmetic,
+/// and both C FFI and pure Rust backends. See [`sntrup761`] module docs for details.
+pub mod sntrup761;
 
 // Re-export key types for convenience
 pub use aead::{AeadKey, Nonce, Tag, decrypt, encrypt};
@@ -184,33 +169,8 @@ pub use memlock::{
     page_size, protect_noaccess, protect_readonly, protect_readwrite, unlock_memory,
 };
 
-// ============================================================================
-// Unified sntrup761 API
-// ============================================================================
-//
-// This provides a single set of `Sntrup761*` types that automatically select
-// the appropriate backend based on target platform:
-//
-// - Native Unix/Linux: C FFI backend (pqcrypto-ntruprime)
-// - Windows: Pure Rust backend (ntrulp) - C code doesn't compile with MSVC
-// - WASM: Pure Rust backend (ntrulp)
-//
-// This allows dependent crates (like trelis-hybrid) to use `Sntrup761*` types
-// without caring about the underlying implementation.
-
-/// sntrup761 types using the C FFI backend (native Unix/Linux with std).
-#[cfg(all(
-    feature = "std",
-    not(target_os = "windows"),
-    not(target_arch = "wasm32")
-))]
+// Unified sntrup761 API — re-exported from sntrup761::mod.rs based on platform.
 pub use sntrup761::{
-    Sntrup761Ciphertext, Sntrup761PublicKey, Sntrup761SecretKey, Sntrup761SharedSecret,
-};
-
-/// sntrup761 types using the pure Rust backend (Windows, WASM, or no-std).
-#[cfg(any(target_os = "windows", target_arch = "wasm32", not(feature = "std")))]
-pub use sntrup761_wasm::{
     Sntrup761Ciphertext, Sntrup761PublicKey, Sntrup761SecretKey, Sntrup761SharedSecret,
 };
 
@@ -227,7 +187,7 @@ pub mod sntrup761_pure_rust {
     //! Only available when both `std` and `wasm` features are enabled on native Unix/Linux.
     //! This module re-exports the pure Rust implementation with prefixed names
     //! to allow comparing outputs between C FFI and pure Rust backends.
-    pub use crate::sntrup761_wasm::{
+    pub use crate::sntrup761::pure_rust::{
         CIPHERTEXT_SIZE, PUBLIC_KEY_SIZE, SECRET_KEY_SIZE, SHARED_SECRET_SIZE,
         Sntrup761Ciphertext as PureRustSntrup761Ciphertext,
         Sntrup761PublicKey as PureRustSntrup761PublicKey,

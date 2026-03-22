@@ -23,7 +23,7 @@
 //! It requires the `std` feature and native compilation.
 //!
 //! For WASM/browser builds, use the `wasm` feature which provides a pure
-//! Rust implementation (`sntrup761_wasm`) with identical wire format encoding.
+//! Rust implementation (`pure_rust`) with identical wire format encoding.
 //! Both backends produce **byte-for-byte identical outputs** and are fully
 //! interoperable.
 //!
@@ -128,7 +128,7 @@ impl Sntrup761SecretKey {
     #[must_use]
     pub fn generate_from_seed(seed: &[u8; 32]) -> Self {
         // Use the pure Rust implementation for deterministic keygen
-        let wasm_sk = crate::sntrup761_wasm::Sntrup761SecretKey::generate_from_seed(seed);
+        let wasm_sk = super::pure_rust::Sntrup761SecretKey::generate_from_seed(seed);
 
         // Convert to std format
         let mut bytes = [0u8; SECRET_KEY_SIZE];

@@ -30,7 +30,7 @@
 //! - **Polynomial reciprocal (`Rq::recip`)**: Uses constant-time `recip_ct()` for
 //!   the final scaling step where the input may be secret-dependent.
 
-use crate::sntrup761_encoding::P;
+use super::encoding::P;
 use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 

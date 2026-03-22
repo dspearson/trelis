@@ -38,12 +38,12 @@
 ))]
 
 use rayon::prelude::*;
-use trelis_primitives::sntrup761 as c_impl;
-use trelis_primitives::sntrup761_encoding::{
+use trelis_primitives::sntrup761::encoding::{
     P, Q, Q12, ROUNDED_BYTES, RQ_BYTES, SMALL_BYTES, rounded_decode, rounded_encode, rq_decode,
     rq_encode, small_decode, small_encode,
 };
-use trelis_primitives::sntrup761_wasm as rust_impl;
+use trelis_primitives::sntrup761::ffi as c_impl;
+use trelis_primitives::sntrup761::pure_rust as rust_impl;
 
 // ============================================================================
 // Encoding Roundtrip Tests

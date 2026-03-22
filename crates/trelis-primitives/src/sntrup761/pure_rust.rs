@@ -26,18 +26,18 @@ use sha2::{Digest, Sha512};
 use subtle::{ConditionallySelectable, ConstantTimeEq};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use crate::sntrup761_encoding::{
+use super::encoding::{
     P, ROUNDED_BYTES, RQ_BYTES, SECRET_KEY_BYTES, SMALL_BYTES, rounded_encode, rq_decode,
     rq_encode, small_decode, small_encode,
 };
-use crate::sntrup761_poly;
+use super::poly;
 use trelis_error::{CryptoError, Result};
 
 use ntrulp::rng::{random_small, short_random};
 use rand_core::RngCore;
 
 // Use our optimised R3 for R3::recip (ginv calculation)
-use crate::sntrup761_fq::R3;
+use super::fq::R3;
 
 // Use OsRng from our random module for cryptographic random generation
 use crate::random::OsRng;
@@ -134,12 +134,12 @@ fn round_rq(coeffs: &[i16; P]) -> [i16; P] {
 /// Optimised Rq × R3 multiplication using Karatsuba.
 /// This is the main performance bottleneck in sntrup761.
 fn rq_mult_r3_karatsuba(rq_coeffs: &[i16; P], r3_coeffs: &[i8; P]) -> [i16; P] {
-    sntrup761_poly::rq_mult_r3(rq_coeffs, r3_coeffs)
+    poly::rq_mult_r3(rq_coeffs, r3_coeffs)
 }
 
 /// Optimised R3 × R3 multiplication using Karatsuba.
 fn r3_mult_r3_karatsuba(a_coeffs: &[i8; P], b_coeffs: &[i8; P]) -> [i8; P] {
-    sntrup761_poly::r3_mult_r3(a_coeffs, b_coeffs)
+    poly::r3_mult_r3(a_coeffs, b_coeffs)
 }
 
 // ============================================================================
@@ -648,7 +648,7 @@ impl core::fmt::Debug for Sntrup761SharedSecret {
 fn decode_rounded(bytes: &[u8; ROUNDED_BYTES]) -> [i16; P] {
     // Use the rounded decoder from encoding module
     // The rounded encoding divides by 3, so we need to multiply back
-    crate::sntrup761_encoding::rounded_decode(bytes)
+    super::encoding::rounded_decode(bytes)
 }
 
 // ============================================================================

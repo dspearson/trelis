@@ -8,7 +8,7 @@
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 
 // C FFI implementation (std feature)
-use trelis_primitives::sntrup761::{
+use trelis_primitives::sntrup761::ffi::{
     Sntrup761Ciphertext as CFfiCiphertext, Sntrup761PublicKey as CFfiPublicKey,
     Sntrup761SecretKey as CFfiSecretKey,
 };
@@ -299,7 +299,7 @@ fn bench_interop(c: &mut Criterion) {
 
 /// Benchmark polynomial multiplication: NTT vs Karatsuba.
 fn bench_poly_mult(c: &mut Criterion) {
-    use trelis_primitives::sntrup761_poly::{P, rq_mult_r3, rq_mult_r3_ntt};
+    use trelis_primitives::sntrup761::poly::{P, rq_mult_r3, rq_mult_r3_ntt};
 
     let mut group = c.benchmark_group("sntrup761_poly_mult");
 
@@ -330,7 +330,7 @@ fn bench_poly_mult(c: &mut Criterion) {
 
 /// Benchmark field element inversion: Extended GCD vs Fermat.
 fn bench_fq_recip(c: &mut Criterion) {
-    use trelis_primitives::sntrup761_fq;
+    use trelis_primitives::sntrup761::fq;
 
     let mut group = c.benchmark_group("sntrup761_fq_recip");
 
@@ -340,7 +340,7 @@ fn bench_fq_recip(c: &mut Criterion) {
     group.bench_function("extended_gcd", |bench| {
         bench.iter(|| {
             for &a in &test_values {
-                black_box(sntrup761_fq::recip(black_box(a)));
+                black_box(fq::recip(black_box(a)));
             }
         })
     });
@@ -377,7 +377,7 @@ fn bench_fq_recip(c: &mut Criterion) {
 /// Benchmark Rq polynomial inversion: optimised vs ntrulp.
 fn bench_rq_recip(c: &mut Criterion) {
     use ntrulp::poly::r3::R3;
-    use trelis_primitives::sntrup761_fq::Rq as FastRq;
+    use trelis_primitives::sntrup761::fq::Rq as FastRq;
 
     let mut group = c.benchmark_group("sntrup761_rq_recip");
     group.sample_size(10); // Polynomial inversion is slow
@@ -575,7 +575,7 @@ fn bench_rq_recip(c: &mut Criterion) {
 /// Benchmark freeze function: optimised vs ntrulp.
 fn bench_freeze(c: &mut Criterion) {
     use ntrulp::poly::fq::freeze as ntrulp_freeze;
-    use trelis_primitives::sntrup761_fq::freeze as fast_freeze;
+    use trelis_primitives::sntrup761::fq::freeze as fast_freeze;
 
     let mut group = c.benchmark_group("sntrup761_freeze");
 
@@ -608,7 +608,7 @@ fn bench_freeze(c: &mut Criterion) {
 /// Benchmark R3 polynomial inversion: optimised vs ntrulp.
 fn bench_r3_recip(c: &mut Criterion) {
     use ntrulp::poly::r3::R3 as NtrulpR3;
-    use trelis_primitives::sntrup761_fq::R3 as FastR3;
+    use trelis_primitives::sntrup761::fq::R3 as FastR3;
 
     let mut group = c.benchmark_group("sntrup761_r3_recip");
     group.sample_size(10); // Polynomial inversion is slow
