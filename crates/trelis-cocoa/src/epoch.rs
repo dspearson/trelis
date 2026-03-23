@@ -15,6 +15,8 @@ use crate::key_schedule::{
 /// Secrets derived for each epoch.
 #[derive(Clone, Zeroize, ZeroizeOnDrop)]
 pub struct EpochSecrets {
+    /// Raw epoch secret — retained for server-side epoch history capture (HIST-01).
+    epoch_secret: [u8; 32],
     /// Application secret for message encryption.
     app_secret: [u8; 32],
     /// Confirmation key for commit verification.
@@ -28,10 +30,19 @@ impl EpochSecrets {
     #[must_use]
     pub fn derive(epoch_secret: &[u8; 32]) -> Self {
         Self {
+            epoch_secret: *epoch_secret,
             app_secret: derive_app_secret(epoch_secret),
             conf_key: derive_conf_key(epoch_secret),
             init_secret: derive_init_secret(epoch_secret),
         }
+    }
+
+    /// Returns the raw epoch secret. Used by server-side epoch history capture
+    /// (HIST-01). Must be read BEFORE any epoch advance — ZeroizeOnDrop clears
+    /// this value when EpochSecrets is dropped.
+    #[must_use]
+    pub fn epoch_secret(&self) -> &[u8; 32] {
+        &self.epoch_secret
     }
 
     /// Returns the app secret.
@@ -69,6 +80,7 @@ impl EpochSecrets {
 impl core::fmt::Debug for EpochSecrets {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("EpochSecrets")
+            .field("epoch_secret", &"[REDACTED]")
             .field("app_secret", &"[REDACTED]")
             .field("conf_key", &"[REDACTED]")
             .field("init_secret", &"[REDACTED]")
@@ -328,6 +340,33 @@ mod tests {
 
         assert!(debug.contains("REDACTED"));
         assert!(!debug.contains("42")); // Shouldn't leak actual values
+    }
+
+    #[test]
+    fn test_epoch_secret_round_trip() {
+        let epoch_secret = [0x42u8; 32];
+        let secrets = EpochSecrets::derive(&epoch_secret);
+        assert_eq!(
+            secrets.epoch_secret(),
+            &epoch_secret,
+            "epoch_secret() must return the exact input passed to derive()"
+        );
+    }
+
+    #[test]
+    fn test_epoch_secrets_debug_redacted_includes_epoch_secret() {
+        let secrets = EpochSecrets::derive(&[0x42u8; 32]);
+        let debug = format!("{:?}", secrets);
+        // epoch_secret field must appear and must not leak the value
+        assert!(
+            debug.contains("epoch_secret"),
+            "debug output missing epoch_secret field name"
+        );
+        assert!(debug.contains("REDACTED"));
+        assert!(
+            !debug.contains("42"),
+            "debug must not leak actual byte values"
+        );
     }
 
     #[test]
