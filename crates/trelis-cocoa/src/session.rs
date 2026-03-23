@@ -292,6 +292,50 @@ impl CocoaSession {
         aead::decrypt(&aead_key, &aead_nonce, &message.ciphertext, &aad)
     }
 
+    /// Decrypts a historical message using a supplied raw epoch secret.
+    ///
+    /// Used for history decryption where the session is at a later epoch but we
+    /// have the raw epoch secret for an older epoch (delivered via the history array
+    /// in sealed_welcome). The message's epoch number and counter are taken from
+    /// the [`EncryptedMessage`] fields — the group_id for AAD is taken from this session.
+    ///
+    /// # Arguments
+    ///
+    /// * `epoch_secret` - The 32-byte epoch secret for the epoch this message was encrypted in
+    /// * `message` - The encrypted message (epoch, counter, ciphertext)
+    ///
+    /// # Returns
+    ///
+    /// The decrypted plaintext as a byte vector.
+    ///
+    /// # Errors
+    ///
+    /// - `DecryptionFailed` if AEAD verification fails (tampered or wrong key)
+    pub fn decrypt_with_epoch_secret(
+        &self,
+        epoch_secret: &[u8; 32],
+        message: &EncryptedMessage,
+    ) -> Result<Vec<u8>> {
+        use crate::epoch::EpochSecrets;
+
+        // Derive epoch secrets from the raw epoch secret (same as the sender did)
+        let secrets = EpochSecrets::derive(epoch_secret);
+
+        // Derive message key using the counter from the message
+        let message_key = secrets.derive_message_key(message.counter);
+
+        // Construct AAD: group_id || epoch || counter (same scheme as decrypt())
+        let mut aad = Vec::with_capacity(48);
+        aad.extend_from_slice(&self.group_id);
+        aad.extend_from_slice(&message.epoch.to_le_bytes());
+        aad.extend_from_slice(&message.counter.to_le_bytes());
+
+        // Decrypt
+        let aead_key = AeadKey::from_bytes(*message_key.key());
+        let aead_nonce = Nonce::from_bytes(*message_key.nonce());
+        aead::decrypt(&aead_key, &aead_nonce, &message.ciphertext, &aad)
+    }
+
     /// Advances to a new epoch after processing a commit.
     pub fn advance_epoch(&mut self, delta_root: &[u8; 32], new_transcript_hash: [u8; 32]) {
         self.epoch = Epoch::advance(

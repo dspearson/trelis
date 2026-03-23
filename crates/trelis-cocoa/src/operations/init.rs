@@ -195,6 +195,51 @@ pub trait WelcomeInfoSerialise {
     fn to_bytes(&self) -> Vec<u8>;
 }
 
+/// Decrypts welcome information using the recipient's KEM keypair.
+///
+/// This is the inverse of [`encrypt_welcome_info`]. It decapsulates the shared
+/// secret from the encapsulation bytes and decrypts the encrypted info.
+///
+/// # Arguments
+///
+/// * `encrypted_info` - Encrypted bytes in format: nonce (24 bytes) || ciphertext
+/// * `encapsulation_bytes` - KEM encapsulation bytes from the sender
+/// * `our_kem` - The recipient's KEM keypair for decapsulation
+///
+/// # Returns
+///
+/// The decrypted plaintext bytes.
+#[cfg(all(feature = "alloc", any(feature = "std", feature = "wasm")))]
+pub fn decrypt_welcome_info(
+    encrypted_info: &[u8],
+    encapsulation_bytes: &[u8],
+    our_kem: &HybridKemKeypair,
+) -> Result<Vec<u8>> {
+    if encrypted_info.len() < 24 {
+        return Err(CryptoError::MalformedMessage);
+    }
+
+    // Parse the encapsulation
+    let encapsulation = HybridEncapsulation::from_bytes(encapsulation_bytes)?;
+
+    // Decapsulate to recover the shared secret
+    let shared_secret = our_kem.decapsulate(&encapsulation)?;
+
+    // Derive the AEAD key
+    let aead_key = derive_welcome_key(shared_secret.as_bytes());
+
+    // Parse encrypted_info: nonce (24 bytes) || ciphertext
+    let mut nonce_bytes = [0u8; 24];
+    nonce_bytes.copy_from_slice(&encrypted_info[..24]);
+    let nonce = Nonce::from_bytes(nonce_bytes);
+    let ciphertext = &encrypted_info[24..];
+
+    // Decrypt using the same AAD as encrypt_welcome_info
+    let plaintext = aead::decrypt(&aead_key, &nonce, ciphertext, b"cocoa-welcome-add")?;
+
+    Ok(plaintext)
+}
+
 /// Processes a welcome message to join a group.
 ///
 /// # Arguments

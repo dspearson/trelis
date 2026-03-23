@@ -25,7 +25,8 @@ mod update;
 
 pub use add::{AddCommit, EncryptedSeed, PathUpdate, add_member, process_add};
 pub use init::{
-    Welcome, WelcomeInfoSerialise, create_group, encrypt_welcome_info, process_welcome,
+    Welcome, WelcomeInfoSerialise, create_group, decrypt_welcome_info, encrypt_welcome_info,
+    process_welcome,
 };
 pub use remove::{RemoveCommit, process_remove, remove_member};
 pub use seed_chain::{
