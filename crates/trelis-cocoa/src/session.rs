@@ -184,6 +184,14 @@ impl CocoaSession {
         self.epoch.init_secret()
     }
 
+    /// Returns the current epoch secret. Used by server-side epoch history capture
+    /// (HIST-01/HIST-03). Must be read BEFORE any epoch advance — the secret is
+    /// zeroized when EpochSecrets is dropped during the advance.
+    #[must_use]
+    pub fn current_epoch_secret(&self) -> &[u8; 32] {
+        self.epoch.secrets().epoch_secret()
+    }
+
     /// Returns the current message counter for serialisation.
     #[must_use]
     pub fn message_counter(&self) -> u64 {
