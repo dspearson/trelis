@@ -42,7 +42,7 @@
 use core::marker::PhantomData;
 use subtle::ConstantTimeEq;
 use trelis_primitives::{
-    DefaultMlDsaScheme, Ed448Signature, Ed448SigningKey, Ed448VerifyingKey, MlDsaScheme,
+    DefaultMlDsaScheme, Ed448Signature, Ed448SigningKey, Ed448VerifyingKey, MlDsaScheme, blake3_kdf,
 };
 use zeroize::Zeroize;
 
@@ -275,6 +275,26 @@ impl<S: MlDsaScheme> HybridSigningKeypair<S> {
         })
     }
 
+    /// Signs a message using BLAKE3 prehash domain separation (spec §05.2).
+    ///
+    /// Computes `digest = blake3::derive_key(context, message)` (32 bytes) then
+    /// passes the digest to both Ed448 and ML-DSA-65 signing algorithms.
+    ///
+    /// Use with the `trelis-sig-*` context constants from
+    /// `trelis_primitives::blake3_kdf` (e.g. `SIG_COCOA_UPDATE_CONTEXT`).
+    ///
+    /// Verification: use `verify_prehashed` with the same context string.
+    pub fn sign_prehashed(&self, context: &str, message: &[u8]) -> Result<HybridSignature<S>> {
+        let digest = blake3_kdf::derive_key(context, message);
+        let ed448_sig = self.ed448_secret.sign(&digest);
+        let mldsa_sig = S::sign(&self.mldsa_secret, &digest)?;
+        Ok(HybridSignature {
+            ed448: ed448_sig,
+            mldsa: mldsa_sig,
+            _marker: PhantomData,
+        })
+    }
+
     /// Wraps this keypair in a `GuardedBox` for enhanced memory protection.
     ///
     /// The returned `GuardedBox` provides:
@@ -433,6 +453,26 @@ impl<S: MlDsaScheme> HybridSigningPublicKey<S> {
         } else {
             Err(CryptoError::SignatureVerificationFailed)
         }
+    }
+
+    /// Verifies a signature produced by `sign_prehashed`.
+    ///
+    /// Recomputes `digest = blake3::derive_key(context, message)` then verifies
+    /// both Ed448 and ML-DSA-65 signatures over that digest.
+    ///
+    /// Returns `Ok(true)` if both signatures verify successfully,
+    /// `Ok(false)` if either fails, or an error if verification encounters a fatal error.
+    pub fn verify_prehashed(
+        &self,
+        context: &str,
+        message: &[u8],
+        signature: &HybridSignature<S>,
+    ) -> Result<bool> {
+        let digest = blake3_kdf::derive_key(context, message);
+        let ed448_ok = self.ed448.verify(&digest, &signature.ed448).is_ok();
+        let mldsa_ok = S::verify(&self.mldsa, &digest, &signature.mldsa).is_ok();
+        // Bitwise AND — prevents short-circuit timing side-channel (spec §02)
+        Ok(ed448_ok & mldsa_ok)
     }
 }
 
@@ -662,6 +702,70 @@ mod tests {
             keypair.public_key().to_bytes(),
             recovered.public_key().to_bytes()
         );
+    }
+
+    #[test]
+    fn test_sign_prehashed_verify_prehashed_roundtrip() {
+        use trelis_primitives::blake3_kdf::SIG_COCOA_UPDATE_CONTEXT;
+        let keypair = HybridSigningKeypair::<MlDsa65Fips204>::generate().unwrap();
+        let pubkey = keypair.public_key();
+        let msg = b"cocoa update payload";
+        let sig = keypair
+            .sign_prehashed(SIG_COCOA_UPDATE_CONTEXT, msg)
+            .unwrap();
+        assert!(
+            pubkey
+                .verify_prehashed(SIG_COCOA_UPDATE_CONTEXT, msg, &sig)
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn test_sign_prehashed_context_separates_domains() {
+        use trelis_primitives::blake3_kdf::{
+            SIG_COCOA_UPDATE_CONTEXT, SIG_RATCHET_MESSAGE_CONTEXT,
+        };
+        let keypair = HybridSigningKeypair::<MlDsa65Fips204>::generate().unwrap();
+        let msg = b"same message bytes";
+        let sig1 = keypair
+            .sign_prehashed(SIG_COCOA_UPDATE_CONTEXT, msg)
+            .unwrap();
+        let sig2 = keypair
+            .sign_prehashed(SIG_RATCHET_MESSAGE_CONTEXT, msg)
+            .unwrap();
+        // Different contexts produce different Ed448 signatures
+        assert_ne!(sig1.ed448.as_bytes(), sig2.ed448.as_bytes());
+    }
+
+    #[test]
+    fn test_sign_prehashed_not_equal_to_raw_sign() {
+        use trelis_primitives::blake3_kdf::SIG_COCOA_UPDATE_CONTEXT;
+        let keypair = HybridSigningKeypair::<MlDsa65Fips204>::generate().unwrap();
+        let msg = b"test message";
+        let prehashed_sig = keypair
+            .sign_prehashed(SIG_COCOA_UPDATE_CONTEXT, msg)
+            .unwrap();
+        let raw_sig = keypair.sign(msg).unwrap();
+        // Prehashed signature is over derive_key(ctx, msg), not raw msg — they differ
+        assert_ne!(prehashed_sig.ed448.as_bytes(), raw_sig.ed448.as_bytes());
+    }
+
+    #[test]
+    fn test_sign_prehashed_wrong_context_fails_verify() {
+        use trelis_primitives::blake3_kdf::{
+            SIG_COCOA_UPDATE_CONTEXT, SIG_RATCHET_MESSAGE_CONTEXT,
+        };
+        let keypair = HybridSigningKeypair::<MlDsa65Fips204>::generate().unwrap();
+        let pubkey = keypair.public_key();
+        let msg = b"test message";
+        let sig = keypair
+            .sign_prehashed(SIG_COCOA_UPDATE_CONTEXT, msg)
+            .unwrap();
+        // Verifying with wrong context fails (different derive_key digest)
+        let ok = pubkey
+            .verify_prehashed(SIG_RATCHET_MESSAGE_CONTEXT, msg, &sig)
+            .unwrap();
+        assert!(!ok);
     }
 
     // Test with BLAKE3 variant if available
