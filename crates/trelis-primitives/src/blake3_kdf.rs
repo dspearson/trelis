@@ -198,13 +198,8 @@ pub const RECOVERY_ESCROW_CONTEXT: &str = "trelis-recovery-escrow-v1";
 pub const MLDSA_HEDGE_CONTEXT: &str = "trelis-mldsa-hedge-v1";
 
 // ============================================================================
-// Attachment and Sync Contexts (Spec Table 14.1)
+// Sync Contexts (Spec Table 14.1)
 // ============================================================================
-
-/// Context for attachment encryption key derivation.
-///
-/// Used to derive keys for encrypting message attachments.
-pub const ATTACHMENT_KEY_CONTEXT: &str = "trelis-attachment-key-v1";
 
 /// Context for history sync threads.
 ///
