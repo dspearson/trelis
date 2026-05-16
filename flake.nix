@@ -18,16 +18,16 @@
           inherit system overlays;
         };
 
-        # Rust toolchain (stable, requires 1.85+ for edition 2024)
-        rustToolchain = pkgs.rust-bin.stable.latest.minimal.override {
-          extensions = [ "rust-src" "rust-analyzer" "clippy" "rustfmt" ];
+        # Nightly toolchain — covers stable features and adds Miri for UB detection
+        rustToolchain = pkgs.rust-bin.nightly.latest.default.override {
+          extensions = [ "rust-src" "rust-analyzer" "clippy" "rustfmt" "miri" ];
           targets = [ "wasm32-unknown-unknown" ];
         };
 
       in {
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
-            # Rust toolchain (1.85+ for edition 2024)
+            # Rust toolchain (nightly: superset of stable, required for Miri)
             rustToolchain
             cargo-watch
             cargo-edit
@@ -35,6 +35,7 @@
             cargo-outdated
             cargo-about
             cargo-deny
+            cargo-geiger
             cargo-nextest
             cargo-tarpaulin
             cargo-bloat
@@ -76,6 +77,10 @@
             echo ""
             echo "Rust: $(rustc --version)"
             echo ""
+            if ! cargo kani --version >/dev/null 2>&1; then
+              echo "Installing cargo-kani (formal verification)..."
+              cargo install --locked kani-verifier
+            fi
           '';
         };
 

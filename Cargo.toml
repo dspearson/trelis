@@ -39,7 +39,7 @@ blake3 = { version = "1.5", default-features = false }
 sha2 = { version = "0.10", default-features = false }  # SHA-512 for sntrup761 compatibility
 ed448-goldilocks-plus = { version = "0.16", default-features = false, features = ["alloc", "signing", "zeroize", "pkcs8"] }
 fips204 = { version = "0.4", default-features = false, features = ["ml-dsa-65"] }
-pqcrypto-ntruprime = "0.1"  # C FFI bindings, requires std (native builds)
+pqcrypto-ntruprime = { version = "0.1", default-features = false, features = ["std"] }  # C FFI bindings — avx2 dropped (performance only); std required
 pqcrypto-traits = "0.3"    # Traits for pqcrypto crates
 ntrulp = { version = "0.2", default-features = false, features = ["ntrup761"] }  # Pure Rust (WASM builds)
 
@@ -47,7 +47,16 @@ ntrulp = { version = "0.2", default-features = false, features = ["ntrup761"] } 
 zeroize = { version = "1.8", default-features = false, features = ["derive", "alloc"] }
 subtle = { version = "2.5", default-features = false }
 rand_core = { version = "0.6", default-features = false }
+# `rand_core 0.10` for ntrulp 0.2.5 compatibility; renamed because `rand_core 0.6`
+# is also pulled in by `crypto-bigint v0.5` (transitively via ed448-goldilocks-plus).
+rand_core_v10 = { package = "rand_core", version = "0.10", default-features = false }
 getrandom = { version = "0.2", default-features = false }
+# `getrandom 0.4` enters the dep graph transitively via `ntrulp 0.2.5 → rand 0.10.1`.
+# On wasm32-unknown-unknown its `backends.rs` emits a `compile_error!` unless the
+# `wasm_js` feature is enabled. Declared as a separate workspace dep so primitives'
+# `wasm` feature can activate `wasm_js` via cargo's feature unification across the
+# multiple-major scenario. See FINDINGS-v1.1.md WASM-01-NEW1.
+getrandom_v04 = { package = "getrandom", version = "0.4", default-features = false }
 libc = { version = "0.2", default-features = false }  # Memory locking (Unix mlock)
 windows-sys = { version = "0.59", features = ["Win32_System_Memory", "Win32_Foundation", "Win32_System_SystemInformation"] }  # Memory locking (Windows VirtualLock)
 
@@ -70,6 +79,7 @@ serde_json = "1.0"
 # All other modules still forbid unsafe via #![forbid(unsafe_code)]
 unsafe_code = "deny"
 missing_docs = "warn"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
 
 [workspace.lints.clippy]
 unwrap_used = "warn"
@@ -83,3 +93,4 @@ debug = true
 [profile.release]
 opt-level = 3
 lto = "thin"
+overflow-checks = true

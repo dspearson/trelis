@@ -29,3 +29,6 @@ criterion.workspace = true
 [[bench]]
 name = "ratchet_benchmark"
 harness = false
+
+[lints]
+workspace = true

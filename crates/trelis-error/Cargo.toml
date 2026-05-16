@@ -16,3 +16,6 @@ alloc = []
 # No dependencies - pure error types
 
 [dev-dependencies]
+
+[lints]
+workspace = true

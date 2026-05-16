@@ -226,13 +226,37 @@ bloat-time:
 # Safety & Correctness
 # ============================================
 
+# Install the miri component for the nightly toolchain (run once)
+miri-setup:
+    rustup component add miri --toolchain nightly
+
 # Run Miri to detect undefined behaviour
 miri:
-    cargo +nightly miri test --workspace
+    cargo miri test --workspace
 
 # Run Miri on a specific crate
 miri-crate crate:
-    cargo +nightly miri test -p {{crate}}
+    cargo miri test -p {{crate}}
+
+# Install cargo-kani (not in nixpkgs; run once)
+kani-setup:
+    cargo install --locked kani-verifier
+
+# Run Kani formal verification on all harnesses
+kani: kani-ratchet kani-multidevice
+
+# Run Kani on the ratchet crate only
+kani-ratchet:
+    cargo kani -p trelis-ratchet -Z stubbing
+
+# Run Kani on the multidevice crate only
+kani-multidevice:
+    cargo kani -p trelis-multidevice
+
+# List all Kani proof harnesses
+kani-list:
+    cargo kani -p trelis-ratchet --list
+    cargo kani -p trelis-multidevice --list
 
 # Check minimum supported Rust version
 msrv:
@@ -375,6 +399,7 @@ tools:
     @which cargo-deny >/dev/null 2>&1 && echo "  cargo-deny" || echo "  cargo-deny (missing)"
     @which cargo-hack >/dev/null 2>&1 && echo "  cargo-hack" || echo "  cargo-hack (missing)"
     @which cargo-about >/dev/null 2>&1 && echo "  cargo-about" || echo "  cargo-about (missing)"
+    @which cargo-kani >/dev/null 2>&1 && echo "  cargo-kani" || echo "  cargo-kani (missing)"
 
 # ============================================
 # Licence Management

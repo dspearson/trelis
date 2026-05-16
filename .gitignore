@@ -32,3 +32,8 @@ criterion/
 
 # Direnv
 .direnv/
+
+# Fuzz build artefacts and generated corpora (harness sources are committed)
+fuzz/target/
+fuzz/artifacts/
+fuzz/corpus/
