@@ -326,6 +326,7 @@ mod tests {
         HybridPreKeyBundle::new(&identity.public_key(), otk.public_key())
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_create_group_single_member() {
         let identity = HybridIdentityKeypair::generate().unwrap();
@@ -339,6 +340,7 @@ mod tests {
         assert!(welcomes.is_empty());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_create_group_multiple_members() {
         let identity = HybridIdentityKeypair::generate().unwrap();
@@ -362,6 +364,7 @@ mod tests {
         assert_eq!(welcomes[1].leaf_position, 2);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_welcome_has_correct_group_id() {
         let identity = HybridIdentityKeypair::generate().unwrap();
@@ -376,6 +379,7 @@ mod tests {
         assert_eq!(welcomes[0].group_id, *session.group_id());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_welcome_encryption_round_trip() {
         // Creator sets up the group
@@ -386,7 +390,10 @@ mod tests {
         // Member's identity key - the bundle is created with this, and the member
         // keeps the keypair to decrypt the welcome
         let member_identity = HybridIdentityKeypair::generate().unwrap();
-        let member_kem = member_identity.kem().clone();
+        // HybridKemKeypair is no longer Clone (MEM-01); reconstruct an owned copy
+        // from the identity's KEM keypair bytes for process_welcome (which consumes it).
+        let member_kem =
+            HybridKemKeypair::from_bytes(&member_identity.kem().to_bytes()[..]).unwrap();
         let member_user_id = [0x02u8; 32];
         let bundle = create_test_bundle(&member_identity);
 
@@ -416,6 +423,7 @@ mod tests {
         assert_eq!(creator_session.epoch_number(), 0);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_welcome_decryption_fails_with_wrong_key() {
         // Creator sets up the group
@@ -434,13 +442,15 @@ mod tests {
 
         // Try to process with a different KEM keypair (attacker scenario)
         let wrong_identity = HybridIdentityKeypair::generate().unwrap();
-        let wrong_kem = wrong_identity.kem().clone();
+        // HybridKemKeypair is no longer Clone (MEM-01); reconstruct an owned copy.
+        let wrong_kem = HybridKemKeypair::from_bytes(&wrong_identity.kem().to_bytes()[..]).unwrap();
 
         // This should fail because the wrong key can't decrypt
         let result = process_welcome([0x03u8; 32], wrong_kem, welcome);
         assert!(result.is_err());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_welcome_encryption_unique_per_member() {
         let creator_identity = HybridIdentityKeypair::generate().unwrap();

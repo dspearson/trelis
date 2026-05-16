@@ -462,11 +462,20 @@ pub fn recip_ct(a: i16) -> i16 {
 /// polynomial coefficients when dropped, as they may contain secret key material.
 ///
 /// Cache-line aligned (64 bytes) for optimal memory access patterns.
-#[derive(Debug, Clone, Zeroize, ZeroizeOnDrop)]
+#[derive(Clone, Zeroize, ZeroizeOnDrop)]
 #[repr(align(64))]
 pub struct Rq {
     /// Polynomial coefficients in centred representation.
     pub coeffs: [i16; P],
+}
+
+// Manual Debug impl that redacts coefficient values. The derived impl
+// would leak secret-key polynomial state via any `{:?}` formatting (panic
+// messages, logging, tracing instrumentation).
+impl core::fmt::Debug for Rq {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Rq").field("coeffs", &"[REDACTED]").finish()
+    }
 }
 
 impl Default for Rq {
@@ -720,11 +729,18 @@ impl ConstantTimeEq for Rq {
 /// polynomial coefficients when dropped, as they may contain secret key material.
 ///
 /// Cache-line aligned (64 bytes) for optimal memory access patterns.
-#[derive(Debug, Clone, Zeroize, ZeroizeOnDrop)]
+#[derive(Clone, Zeroize, ZeroizeOnDrop)]
 #[repr(align(64))]
 pub struct R3 {
     /// Polynomial coefficients in {-1, 0, 1}.
     pub coeffs: [i8; P],
+}
+
+// Manual Debug impl — see Rq comment.
+impl core::fmt::Debug for R3 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("R3").field("coeffs", &"[REDACTED]").finish()
+    }
 }
 
 impl Default for R3 {

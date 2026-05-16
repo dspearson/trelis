@@ -24,7 +24,7 @@
 
 use subtle::ConstantTimeEq;
 use trelis_primitives::blake3_kdf;
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 /// Size of X448 shared secret in bytes.
 pub const X448_SS_SIZE: usize = 56;
@@ -86,9 +86,13 @@ impl HybridSharedSecret {
     }
 
     /// Returns the shared secret as a byte array, consuming self.
+    ///
+    /// The bytes are wrapped in `Zeroizing<...>` so the caller's storage is
+    /// automatically zeroised on drop. Returning a raw `[u8; N]` would defeat
+    /// the type's `ZeroizeOnDrop` guarantee for the consumed value.
     #[must_use]
-    pub fn into_bytes(self) -> [u8; SHARED_SECRET_SIZE] {
-        self.bytes
+    pub fn into_bytes(self) -> Zeroizing<[u8; SHARED_SECRET_SIZE]> {
+        Zeroizing::new(self.bytes)
     }
 
     /// Creates a shared secret from raw bytes.
@@ -123,9 +127,12 @@ impl core::fmt::Debug for HybridSharedSecret {
 }
 
 #[cfg(test)]
-#[allow(clippy::clone_on_copy)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
+    // DYN-01-MIRI-01: `format!` requires alloc; gated so the rest of the test
+    // module still compiles under `--no-default-features` for MIRI.
+    #[cfg(feature = "alloc")]
     use alloc::format;
 
     #[test]
@@ -185,7 +192,7 @@ mod tests {
         let sntrup_ss = [0x22u8; SNTRUP_SS_SIZE];
 
         let combined = HybridSharedSecret::combine(&x448_ss, &sntrup_ss);
-        let bytes = combined.as_bytes().clone();
+        let bytes = *combined.as_bytes();
 
         let recovered = HybridSharedSecret::from_bytes(bytes);
         assert_eq!(combined, recovered);
@@ -197,12 +204,13 @@ mod tests {
         let sntrup_ss = [0x22u8; SNTRUP_SS_SIZE];
 
         let combined = HybridSharedSecret::combine(&x448_ss, &sntrup_ss);
-        let expected = combined.as_bytes().clone();
+        let expected = *combined.as_bytes();
 
         let bytes = combined.into_bytes();
-        assert_eq!(bytes, expected);
+        assert_eq!(*bytes, expected);
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn test_debug_redacts_secret() {
         let x448_ss = [0x11u8; X448_SS_SIZE];
@@ -217,7 +225,10 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+// DYN-01-MIRI-01: proptest uses alloc internally, so gate the proptests module
+// behind `alloc` to allow `cargo {check,miri test} --no-default-features` to
+// reach the rest of the crate.
+#[cfg(all(test, feature = "alloc"))]
 mod proptests {
     use super::*;
     use proptest::prelude::*;
@@ -234,6 +245,7 @@ mod proptests {
     proptest! {
         /// Property: HybridSharedSecret::combine is deterministic.
         /// The same inputs always produce the same output.
+        #[cfg_attr(miri, ignore)]
         #[test]
         fn combine_is_deterministic(
             x448_ss in x448_strategy(),
@@ -245,6 +257,7 @@ mod proptests {
         }
 
         /// Property: Equality is reflexive (a == a).
+        #[cfg_attr(miri, ignore)]
         #[test]
         fn equality_reflexive(
             x448_ss in x448_strategy(),
@@ -255,6 +268,7 @@ mod proptests {
         }
 
         /// Property: Equality is symmetric (a == b implies b == a).
+        #[cfg_attr(miri, ignore)]
         #[test]
         fn equality_symmetric(
             x448_ss in x448_strategy(),
@@ -266,6 +280,7 @@ mod proptests {
         }
 
         /// Property: Equality is transitive (a == b && b == c implies a == c).
+        #[cfg_attr(miri, ignore)]
         #[test]
         fn equality_transitive(
             x448_ss in x448_strategy(),
@@ -279,6 +294,7 @@ mod proptests {
         }
 
         /// Property: Different X448 inputs produce different outputs (with high probability).
+        #[cfg_attr(miri, ignore)]
         #[test]
         fn different_x448_different_output(
             x448_ss1 in x448_strategy(),
@@ -292,6 +308,7 @@ mod proptests {
         }
 
         /// Property: Different sntrup inputs produce different outputs (with high probability).
+        #[cfg_attr(miri, ignore)]
         #[test]
         fn different_sntrup_different_output(
             x448_ss in x448_strategy(),
@@ -305,6 +322,7 @@ mod proptests {
         }
 
         /// Property: from_bytes roundtrip preserves the secret.
+        #[cfg_attr(miri, ignore)]
         #[test]
         fn from_bytes_roundtrip(bytes in proptest::array::uniform32(any::<u8>())) {
             let secret = HybridSharedSecret::from_bytes(bytes);
@@ -312,6 +330,7 @@ mod proptests {
         }
 
         /// Property: into_bytes preserves the secret.
+        #[cfg_attr(miri, ignore)]
         #[test]
         fn into_bytes_preserves(
             x448_ss in x448_strategy(),
@@ -320,10 +339,11 @@ mod proptests {
             let combined = HybridSharedSecret::combine(&x448_ss, &sntrup_ss);
             let expected = *combined.as_bytes();
             let actual = combined.into_bytes();
-            prop_assert_eq!(actual, expected);
+            prop_assert_eq!(*actual, expected);
         }
 
         /// Property: Output is always SHARED_SECRET_SIZE bytes.
+        #[cfg_attr(miri, ignore)]
         #[test]
         fn output_size_constant(
             x448_ss in x448_strategy(),

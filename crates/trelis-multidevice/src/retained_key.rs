@@ -4,7 +4,7 @@
 //! for potential sharing with new devices.
 
 use trelis_error::{CryptoError, Result};
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 /// Retained message key for history sharing.
 ///
@@ -57,8 +57,8 @@ impl RetainedKey {
     ///
     /// Format: message_id (32B) || message_key (32B) || sequence (8B) || timestamp (8B)
     #[must_use]
-    pub fn to_bytes(&self) -> [u8; Self::SERIALISED_SIZE] {
-        let mut bytes = [0u8; Self::SERIALISED_SIZE];
+    pub fn to_bytes(&self) -> Zeroizing<[u8; Self::SERIALISED_SIZE]> {
+        let mut bytes = Zeroizing::new([0u8; Self::SERIALISED_SIZE]);
 
         bytes[0..32].copy_from_slice(&self.message_id);
         bytes[32..64].copy_from_slice(&self.message_key);
@@ -138,7 +138,7 @@ mod tests {
         let bytes = key.to_bytes();
         assert_eq!(bytes.len(), RetainedKey::SERIALISED_SIZE);
 
-        let recovered = RetainedKey::from_bytes(&bytes).unwrap();
+        let recovered = RetainedKey::from_bytes(&bytes[..]).unwrap();
 
         assert_eq!(recovered.message_id, key.message_id);
         assert_eq!(recovered.message_key, key.message_key);
@@ -164,5 +164,32 @@ mod tests {
     #[test]
     fn test_serialised_size_constant() {
         assert_eq!(RetainedKey::SERIALISED_SIZE, 80);
+    }
+}
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+
+    // Prove: from_bytes on an exactly SERIALISED_SIZE-byte slice never panics.
+    // The two .expect() calls inside are guarded by the length check; this proves
+    // they are unreachable and the slice indexing is always in bounds.
+    #[kani::proof]
+    fn from_bytes_exact_size_no_panic() {
+        let bytes: [u8; RetainedKey::SERIALISED_SIZE] = kani::any();
+        let result = RetainedKey::from_bytes(&bytes);
+        assert!(result.is_ok());
+    }
+
+    // Prove: from_bytes rejects any input whose length differs from SERIALISED_SIZE.
+    // Bounded to 0..=255 to keep the model check tractable.
+    #[kani::proof]
+    fn from_bytes_wrong_size_returns_err() {
+        let len: usize = kani::any();
+        kani::assume(len <= 255);
+        kani::assume(len != RetainedKey::SERIALISED_SIZE);
+        let buf = [0u8; 255];
+        let result = RetainedKey::from_bytes(&buf[..len]);
+        assert!(result.is_err());
     }
 }

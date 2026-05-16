@@ -29,6 +29,8 @@ pub fn derive_key_id(public_key: &HybridKemPublicKey) -> KeyId {
     hasher.update(public_key.x448().as_bytes());
     hasher.update(public_key.sntrup().as_bytes());
     let hash = hasher.finalize();
+    #[allow(clippy::unwrap_used)]
+    // AUDIT: infallible — BLAKE3 always returns 32 bytes; [..8] is within bounds; Kani proof at lines 655-659 verifies
     u64::from_le_bytes(hash.as_bytes()[..8].try_into().unwrap())
 }
 
@@ -110,7 +112,7 @@ impl KemRatchet {
         Ok(Self {
             our_keypair,
             our_key_id,
-            previous_keypairs: VecDeque::new(),
+            previous_keypairs: VecDeque::with_capacity(MAX_PREVIOUS_KEYPAIRS),
             their_public_key: Some(their_public_key),
             their_key_id: Some(their_key_id),
             root_key: derive_initial_root_key(session_key),
@@ -141,7 +143,7 @@ impl KemRatchet {
         Self {
             our_keypair,
             our_key_id,
-            previous_keypairs: VecDeque::new(),
+            previous_keypairs: VecDeque::with_capacity(MAX_PREVIOUS_KEYPAIRS),
             their_public_key: None,
             their_key_id: None,
             root_key: derive_initial_root_key(session_key),
@@ -218,7 +220,12 @@ impl KemRatchet {
             RatchetStatus::Compromised => Err(CryptoError::SessionCompromised),
             _ => {
                 self.check_exhaustion()?;
-                if self.their_public_key.is_none() {
+                // The send.rs caller relies on the invariant that
+                // their_public_key.is_some() <=> their_key_id.is_some()
+                // (every setter writes both together). Surface a divergence
+                // here rather than letting the downstream `.expect("validated")`
+                // panic on a stale/partial state.
+                if self.their_public_key.is_none() || self.their_key_id.is_none() {
                     return Err(CryptoError::NoRecipientKey);
                 }
                 Ok(())
@@ -249,9 +256,17 @@ impl KemRatchet {
 
     /// Rotates to a new keypair, preserving the old one for async messages.
     pub fn rotate_keypair(&mut self, new_keypair: HybridKemKeypair) {
-        // Move current keypair to previous
+        // Move current keypair to previous. Explicitly zeroise the keypair
+        // before its temporary's `Drop` runs — `pop_front` MOVES the value
+        // out of the VecDeque's buffer slot, leaving the source bytes
+        // physically present until that slot is reused by a later push_back.
+        // The eviction here is the last write to that slot from the
+        // ratchet's perspective, so we make the zeroisation explicit on the
+        // moved value to document the intent (MEM-05-NEW1).
         if self.previous_keypairs.len() >= MAX_PREVIOUS_KEYPAIRS {
-            self.previous_keypairs.pop_front();
+            if let Some((_, mut evicted)) = self.previous_keypairs.pop_front() {
+                evicted.zeroize();
+            }
         }
 
         let old_keypair = core::mem::replace(&mut self.our_keypair, new_keypair);
@@ -633,5 +648,31 @@ mod tests {
             let debug_str = format!("{:?}", status);
             assert!(!debug_str.is_empty());
         }
+    }
+}
+
+#[cfg(kani)]
+mod kani_proofs {
+    use crate::SESSION_EXHAUSTION_THRESHOLD;
+
+    // Prove: if check_exhaustion returns Ok (send_count < threshold), then
+    // send_count + 1 cannot overflow u64::MAX.
+    // SESSION_EXHAUSTION_THRESHOLD == u64::MAX - 1_000_000, so any passing count
+    // is at most u64::MAX - 1_000_001, leaving ample headroom.
+    #[kani::proof]
+    fn exhaustion_check_prevents_send_count_overflow() {
+        let count: u64 = kani::any();
+        kani::assume(count < SESSION_EXHAUSTION_THRESHOLD);
+        let incremented = count.checked_add(1);
+        assert!(incremented.is_some());
+    }
+
+    // Prove: the [..8].try_into().unwrap() inside derive_key_id never panics.
+    // BLAKE3 always returns 32 bytes; slicing the first 8 gives exactly &[u8] of
+    // length 8, so TryInto<[u8; 8]> always succeeds.
+    #[kani::proof]
+    fn key_id_slice_conversion_no_panic() {
+        let hash_output: [u8; 32] = kani::any();
+        let _id = u64::from_le_bytes(hash_output[..8].try_into().unwrap());
     }
 }

@@ -38,7 +38,7 @@
 
 use ed448_goldilocks_plus::{MontgomeryPoint, Scalar};
 use subtle::ConstantTimeEq;
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::random::fill_bytes;
 use trelis_error::{CryptoError, Result};
@@ -51,6 +51,16 @@ pub const SECRET_KEY_SIZE: usize = 56;
 
 /// Size of X448 shared secret in bytes.
 pub const SHARED_SECRET_SIZE: usize = 56;
+
+/// BLAKE3 `derive_key` context for deterministic X448 keygen from a seed.
+///
+/// API-04-L2: promoted from an inline literal in `generate_from_seed`.
+pub const X448_KEYGEN_CONTEXT: &str = "trelis-x448-keygen";
+
+/// BLAKE3 XOF `new_derive_key` context for the 32→56-byte X448 seed expansion.
+///
+/// API-04-L2: promoted from an inline literal in `generate_from_seed`.
+pub const X448_EXPAND_CONTEXT: &str = "trelis-x448-expand";
 
 /// X448 secret key.
 ///
@@ -99,9 +109,9 @@ impl X448Secret {
     #[must_use]
     pub fn generate_from_seed(seed: &[u8; 32]) -> Self {
         let mut bytes = [0u8; SECRET_KEY_SIZE];
-        let derived = blake3::derive_key("trelis-x448-keygen", seed);
+        let derived = blake3::derive_key(X448_KEYGEN_CONTEXT, seed);
         // Use BLAKE3 XOF to get 56 bytes from 32-byte derived key
-        let mut hasher = blake3::Hasher::new_derive_key("trelis-x448-expand");
+        let mut hasher = blake3::Hasher::new_derive_key(X448_EXPAND_CONTEXT);
         hasher.update(&derived);
         let mut reader = hasher.finalize_xof();
         reader.fill(&mut bytes);
@@ -261,10 +271,12 @@ impl X448SharedSecret {
 
     /// Returns the shared secret as a byte array.
     ///
-    /// Note: This consumes the secret to transfer ownership.
+    /// The bytes are wrapped in `Zeroizing<...>` so the caller's storage is
+    /// automatically zeroised on drop. Returning a raw `[u8; N]` would defeat
+    /// the type's `ZeroizeOnDrop` guarantee for the consumed value.
     #[must_use]
-    pub fn into_bytes(self) -> [u8; SHARED_SECRET_SIZE] {
-        self.bytes
+    pub fn into_bytes(self) -> Zeroizing<[u8; SHARED_SECRET_SIZE]> {
+        Zeroizing::new(self.bytes)
     }
 }
 

@@ -33,6 +33,7 @@ use trelis_hybrid::HybridKemPublicKey;
 use trelis_hybrid::{HybridIdentityKeypair, HybridIdentityPublicKey, HybridSignature};
 
 use crate::GroupId;
+use crate::key_schedule::{CONFIRMATION_TAG_CONTEXT, ROOT_LABEL_CONTEXT, USER_ID_CONTEXT};
 use crate::key_schedule::{h3_round_hash, h3_transcript_hash};
 use crate::session::CocoaSession;
 #[cfg(feature = "alloc")]
@@ -300,7 +301,7 @@ fn compute_root_label(path_seeds: &[Seed]) -> [u8; 32] {
     use trelis_primitives::blake3_kdf::derive_key;
 
     if let Some(root_seed) = path_seeds.last() {
-        derive_key("cocoa-sa-v1-root-label", root_seed)
+        derive_key(ROOT_LABEL_CONTEXT, root_seed)
     } else {
         [0u8; 32]
     }
@@ -361,7 +362,7 @@ fn compute_confirmation_tag(delta_root: &Seed, transcript: &[u8; 32], epoch: u64
     input[32..64].copy_from_slice(transcript);
     input[64..72].copy_from_slice(&epoch.to_le_bytes());
 
-    derive_key("cocoa-sa-v1-confirmation-tag", &input)
+    derive_key(CONFIRMATION_TAG_CONTEXT, &input)
 }
 
 /// Processes an update commit from another member.
@@ -599,7 +600,7 @@ fn clear_unmerged_on_path(session: &mut CocoaSession, updater_leaf_position: u32
 #[must_use]
 fn derive_user_id_from_identity(identity: &HybridIdentityPublicKey) -> crate::UserId {
     use trelis_primitives::blake3_kdf::derive_key;
-    derive_key("cocoa-sa-v1-user-id", &identity.to_bytes())
+    derive_key(USER_ID_CONTEXT, &identity.to_bytes())
 }
 
 /// Constant-time comparison of two 32-byte arrays.
@@ -627,6 +628,7 @@ mod tests {
         HybridIdentityKeypair::generate().unwrap()
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_create_update() {
         let mut session = create_test_session();
@@ -639,6 +641,7 @@ mod tests {
         assert_eq!(session.epoch_number(), initial_epoch + 1);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     #[allow(clippy::panic)] // Test code: panic on unexpected errors is intentional
     fn test_process_update() {
@@ -660,7 +663,7 @@ mod tests {
         let mut session1 = CocoaSession::create_group(
             group_id,
             user1_id,
-            member1_keypair.clone(),
+            HybridKemKeypair::from_bytes(&member1_keypair.to_bytes()[..]).unwrap(),
             2, // Two members
             &epoch_secret,
         )
@@ -669,7 +672,7 @@ mod tests {
         let mut session2 = CocoaSession::join_group(
             group_id,
             user2_id,
-            member2_keypair.clone(),
+            HybridKemKeypair::from_bytes(&member2_keypair.to_bytes()[..]).unwrap(),
             1, // Position 1
             1, // Depth 1 for 2 members
             2, // 2 members
@@ -755,6 +758,7 @@ mod tests {
         }
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_process_update_wrong_signer() {
         let mut session = create_test_session();
@@ -785,6 +789,7 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_process_update_invalid_position() {
         let mut session = create_test_session();
@@ -815,6 +820,7 @@ mod tests {
         ));
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_update_advances_epoch() {
         let mut session = create_test_session();

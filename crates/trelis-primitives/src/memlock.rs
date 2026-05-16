@@ -25,6 +25,22 @@
 //! - **Core dumps**: Use `prctl(PR_SET_DUMPABLE, 0)` separately
 //! - **ptrace**: Disable with `prctl(PR_SET_DUMPABLE, 0)`
 //!
+//! # Status in the Trelis Workspace
+//!
+//! As of the v1.0 security audit, this infrastructure is **opt-in and not wired
+//! into any default code path** (finding MEM-04). Identity keypairs, session
+//! root keys, and KEM keypairs are stored in ordinary heap allocations. Every
+//! secret type still guarantees zeroize-on-drop, but **swap-file and core-dump
+//! exclusion are not provided by default** — they are a caller / platform
+//! responsibility.
+//!
+//! Consumers with a high-value-secret threat model should enable the `mlock`
+//! feature and call `into_guarded()` (available on `HybridSigningKeypair`,
+//! `HybridKemKeypair`, and the standalone signing-key types) for long-lived
+//! keypairs at session establishment. Forcing `mlock` on by default would
+//! impose `RLIMIT_MEMLOCK` / `CAP_IPC_LOCK` constraints on every consumer of
+//! what is a general-purpose library, so the wiring is deliberately deferred.
+//!
 //! # Usage
 //!
 //! ```ignore
@@ -1114,8 +1130,33 @@ impl<T: Zeroize> GuardedBox<T> {
     ///
     /// Returns `MemlockError::AllocationFailed` if allocation fails.
     /// Returns `MemlockError::ProtectFailed` if guard page protection fails.
-    /// Memory locking failures are non-fatal (the box is still usable).
+    /// Returns `MemlockError::LockFailed` if `mlock(2)` fails — symmetric with
+    /// [`LockedBox::new`] (finding MEM-05). The value is zeroised and the
+    /// allocation freed before the error is returned, so no partially-
+    /// initialised `GuardedBox` is ever returned. Callers who want guard
+    /// pages without mlock should use [`new_unlocked`](Self::new_unlocked).
     pub fn new(value: T) -> Result<Self> {
+        Self::new_with_lock(value, true)
+    }
+
+    /// Creates a `GuardedBox` without memory locking.
+    ///
+    /// Guard pages and zeroize-on-drop are still applied; only the
+    /// `mlock(2)` step is skipped. Useful when the caller has explicitly
+    /// decided not to rely on mlock (e.g., on a platform where it always
+    /// fails) but still wants the rest of the protection.
+    ///
+    /// # Security Note
+    ///
+    /// Without memory locking the data may be swapped to disc. Use this
+    /// only when `new()` is known to fail (e.g., a `RLIMIT_MEMLOCK`-
+    /// constrained host) or when locking is genuinely not desired.
+    pub fn new_unlocked(value: T) -> Result<Self> {
+        Self::new_with_lock(value, false)
+    }
+
+    /// Shared constructor for [`new`](Self::new) and [`new_unlocked`](Self::new_unlocked).
+    fn new_with_lock(value: T, lock: bool) -> Result<Self> {
         let ps = page_size();
         let data_size = page_round(core::mem::size_of::<T>(), ps);
 
@@ -1157,8 +1198,27 @@ impl<T: Zeroize> GuardedBox<T> {
             core::ptr::write(data_ptr as *mut T, value);
         }
 
-        // Try to lock the data region (non-fatal if fails)
-        let locked = lock_memory(data_ptr, data_size).is_ok();
+        // Lock the data region. Symmetric with `LockedBox::new`: failure is
+        // fatal (finding MEM-05). Callers who want guard pages without mlock
+        // must call `new_unlocked` explicitly.
+        let locked = if lock {
+            match lock_memory(data_ptr, data_size) {
+                Ok(()) => true,
+                Err(e) => {
+                    // SAFETY: data_ptr is valid and initialised; restore guard
+                    // pages to RW so deallocation succeeds.
+                    unsafe {
+                        (*(data_ptr as *mut T)).zeroize();
+                        let _ = protect_readwrite(fore_guard, ps);
+                        let _ = protect_readwrite(aft_guard, ps);
+                        page_aligned_free(alloc_ptr.as_ptr(), alloc_size);
+                    }
+                    return Err(e);
+                }
+            }
+        } else {
+            false
+        };
 
         // Advise kernel about secret data (non-fatal)
         let _ = advise_secret(data_ptr, data_size);
@@ -1390,6 +1450,7 @@ pub fn is_mlock_available() -> bool {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
     use std::format;
@@ -1775,6 +1836,11 @@ mod tests {
             }
             Err(MemlockError::ProtectFailed { os_error }) => {
                 println!("GuardedBox::new failed (mprotect): errno={}", os_error);
+            }
+            Err(MemlockError::LockFailed { os_error }) => {
+                // GuardedBox::new now fails on mlock failure (finding MEM-05);
+                // expected without CAP_IPC_LOCK or sufficient RLIMIT_MEMLOCK.
+                println!("GuardedBox::new failed (mlock): errno={}", os_error);
             }
             Err(e) => panic!("Unexpected error: {:?}", e),
         }

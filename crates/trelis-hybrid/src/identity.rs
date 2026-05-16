@@ -27,7 +27,7 @@
 //! ```
 
 use alloc::boxed::Box;
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::combiner::HybridSharedSecret;
 use crate::kem::{HybridEncapsulation, HybridKemKeypair, HybridKemPublicKey};
@@ -60,7 +60,11 @@ pub const SECRET_KEY_SIZE: usize = SIGNING_SK_SIZE + KEM_SK_SIZE;
 ///
 /// The keypairs are heap-allocated to avoid stack overflow on platforms
 /// with limited stack size (e.g., Windows default 1MB).
-#[derive(Clone, Zeroize, ZeroizeOnDrop)]
+// No `Clone`: cloning a keypair duplicates secret key material into a second
+// allocation whose lifetime the original's drop cannot protect (finding MEM-01,
+// FIPS 140-3 §4.7). Callers must use references; reconstruct via `from_bytes`
+// only when an owned copy is genuinely required.
+#[derive(Zeroize, ZeroizeOnDrop)]
 pub struct HybridIdentityKeypair {
     #[zeroize(skip)]
     public_key: HybridIdentityPublicKey,
@@ -143,10 +147,10 @@ impl HybridIdentityKeypair {
     /// The returned bytes contain secret key material and should be
     /// handled securely (encrypted storage, zeroisation after use).
     #[must_use]
-    pub fn to_bytes(&self) -> [u8; SECRET_KEY_SIZE] {
-        let mut bytes = [0u8; SECRET_KEY_SIZE];
-        bytes[..SIGNING_SK_SIZE].copy_from_slice(&self.signing.to_bytes());
-        bytes[SIGNING_SK_SIZE..].copy_from_slice(&self.kem.to_bytes());
+    pub fn to_bytes(&self) -> Zeroizing<[u8; SECRET_KEY_SIZE]> {
+        let mut bytes = Zeroizing::new([0u8; SECRET_KEY_SIZE]);
+        bytes[..SIGNING_SK_SIZE].copy_from_slice(&self.signing.to_bytes()[..]);
+        bytes[SIGNING_SK_SIZE..].copy_from_slice(&self.kem.to_bytes()[..]);
         bytes
     }
 
@@ -224,6 +228,7 @@ impl HybridIdentityKeypair {
     /// # Errors
     ///
     /// Returns `DecapsulationFailed` if decapsulation fails.
+    #[must_use = "the decapsulated shared secret must be checked"]
     pub fn decapsulate(&self, encapsulation: &HybridEncapsulation) -> Result<HybridSharedSecret> {
         self.kem.decapsulate(encapsulation)
     }
@@ -304,6 +309,7 @@ impl HybridIdentityPublicKey {
     /// # Errors
     ///
     /// Returns `SignatureVerificationFailed` if the signature is invalid.
+    #[must_use = "the verify outcome must be checked"]
     pub fn verify(&self, message: &[u8], signature: &HybridSignature) -> Result<()> {
         self.signing.verify(message, signature)
     }
@@ -343,6 +349,7 @@ impl core::fmt::Debug for HybridIdentityPublicKey {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
 
@@ -351,6 +358,7 @@ mod tests {
         assert_eq!(PUBLIC_KEY_SIZE, 3223);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_key_generation() {
         let identity = HybridIdentityKeypair::generate().unwrap();
@@ -358,6 +366,7 @@ mod tests {
         assert_eq!(pk_bytes.len(), PUBLIC_KEY_SIZE);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_sign_verify() {
         let identity = HybridIdentityKeypair::generate().unwrap();
@@ -367,6 +376,7 @@ mod tests {
         assert!(identity.public_key().verify(message, &signature).is_ok());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_encapsulate_decapsulate() {
         let identity = HybridIdentityKeypair::generate().unwrap();
@@ -381,6 +391,7 @@ mod tests {
         );
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_public_key_serialisation() {
         let identity = HybridIdentityKeypair::generate().unwrap();
@@ -392,6 +403,7 @@ mod tests {
         assert_eq!(pk, &recovered);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_wrong_identity_fails() {
         let identity1 = HybridIdentityKeypair::generate().unwrap();

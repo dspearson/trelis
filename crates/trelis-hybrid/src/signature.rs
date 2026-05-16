@@ -44,7 +44,7 @@ use subtle::ConstantTimeEq;
 use trelis_primitives::{
     DefaultMlDsaScheme, Ed448Signature, Ed448SigningKey, Ed448VerifyingKey, MlDsaScheme, blake3_kdf,
 };
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use trelis_error::{CryptoError, Result};
 
@@ -187,8 +187,8 @@ impl<S: MlDsaScheme> HybridSigningKeypair<S> {
     /// The returned bytes contain secret key material and should be
     /// handled securely (encrypted storage, zeroisation after use).
     #[must_use]
-    pub fn to_bytes(&self) -> [u8; SECRET_KEY_SIZE] {
-        let mut bytes = [0u8; SECRET_KEY_SIZE];
+    pub fn to_bytes(&self) -> Zeroizing<[u8; SECRET_KEY_SIZE]> {
+        let mut bytes = Zeroizing::new([0u8; SECRET_KEY_SIZE]);
         bytes[..ED448_SK_SIZE].copy_from_slice(self.ed448_secret.seed());
         bytes[ED448_SK_SIZE..].copy_from_slice(&S::signing_key_to_bytes(&self.mldsa_secret));
         bytes
@@ -402,6 +402,7 @@ impl<S: MlDsaScheme> HybridSigningPublicKey<S> {
     /// # Errors
     ///
     /// Returns `SignatureVerificationFailed` if either signature is invalid.
+    #[must_use = "the verify outcome must be checked"]
     pub fn verify(&self, message: &[u8], signature: &HybridSignature<S>) -> Result<()> {
         let ed448_valid = self.ed448.verify(message, &signature.ed448).is_ok();
         let mldsa_valid = S::verify(&self.mldsa, message, &signature.mldsa).is_ok();
@@ -569,6 +570,7 @@ impl<S: MlDsaScheme> core::fmt::Debug for HybridSignature<S> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
     use trelis_primitives::MlDsa65Fips204;
@@ -690,7 +692,7 @@ mod tests {
         let keypair = TestKeypair::generate().unwrap();
         let bytes = keypair.to_bytes();
 
-        let recovered = TestKeypair::from_bytes(&bytes).unwrap();
+        let recovered = TestKeypair::from_bytes(&bytes[..]).unwrap();
 
         // Verify the recovered keypair works
         let message = b"test roundtrip";
@@ -788,7 +790,7 @@ mod tests {
             let keypair = HybridSigningKeypair::<MlDsa65Blake3>::generate().unwrap();
             let bytes = keypair.to_bytes();
 
-            let recovered = HybridSigningKeypair::<MlDsa65Blake3>::from_bytes(&bytes).unwrap();
+            let recovered = HybridSigningKeypair::<MlDsa65Blake3>::from_bytes(&bytes[..]).unwrap();
             assert_eq!(
                 keypair.public_key().to_bytes(),
                 recovered.public_key().to_bytes()
