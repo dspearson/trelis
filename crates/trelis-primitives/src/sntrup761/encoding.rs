@@ -768,6 +768,7 @@ fn scale_up(v: u16) -> i16 {
 // ============================================================================
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
 
@@ -885,10 +886,11 @@ mod c_comparison_tests {
     use super::*;
     use crate::sntrup761::ffi::Sntrup761SecretKey;
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_rq_encode_matches_c() {
         // Generate a keypair using C FFI
-        let sk = Sntrup761SecretKey::generate();
+        let sk = Sntrup761SecretKey::generate().unwrap();
         let pk = sk.public_key();
         let pk_bytes = pk.as_bytes();
 
@@ -902,9 +904,10 @@ mod c_comparison_tests {
         assert_eq!(pk_bytes, &re_encoded);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_rq_decode_produces_valid_range() {
-        let sk = Sntrup761SecretKey::generate();
+        let sk = Sntrup761SecretKey::generate().unwrap();
         let pk = sk.public_key();
         let coeffs = rq_decode(pk.as_bytes());
 

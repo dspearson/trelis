@@ -1,3 +1,12 @@
+// Internalised ML-DSA arithmetic. The Barrett reduction constants, NTT
+// twiddle-factor arithmetic, and Z_q ring operations all use explicit
+// integer-division and as-conversion patterns that mirror FIPS 204
+// algorithm-by-algorithm. These clippy lints (`as_conversions`,
+// `integer_division_remainder_used`, `cast_possible_truncation`) are
+// suppressed on the affected items so the code remains a direct
+// transliteration of the spec; the suppressions are not blanket — each
+// is scoped to the item it annotates (API-03-NEW1).
+
 pub use super::module_lattice::algebra::Field;
 pub use super::module_lattice::util::Truncate;
 use hybrid_array::{
@@ -166,6 +175,7 @@ impl AlgebraExt for Polynomial {
         Self(self.0.iter().map(AlgebraExt::mod_plus_minus::<M>).collect())
     }
 
+    #[allow(clippy::unwrap_used)] // Polynomial is always non-empty (fixed N=256 coefficients)
     fn infinity_norm(&self) -> u32 {
         self.0.iter().map(AlgebraExt::infinity_norm).max().unwrap()
     }
@@ -205,6 +215,7 @@ impl<K: ArraySize> AlgebraExt for Vector<K> {
         Self(self.0.iter().map(AlgebraExt::mod_plus_minus::<M>).collect())
     }
 
+    #[allow(clippy::unwrap_used)] // Vector<K> is always non-empty (K >= 1 by trait bound)
     fn infinity_norm(&self) -> u32 {
         self.0.iter().map(AlgebraExt::infinity_norm).max().unwrap()
     }

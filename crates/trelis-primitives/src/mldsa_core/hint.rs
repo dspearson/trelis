@@ -124,6 +124,8 @@ where
         let cuts: Array<usize, P::K> = cuts.iter().map(|x| usize::from(*x)).collect();
 
         let indices: Array<usize, P::Omega> = indices.iter().map(|x| usize::from(*x)).collect();
+        // `cuts` is always non-empty (K >= 1 by trait bound on P), so max() returns Some.
+        #[allow(clippy::unwrap_used)]
         let max_cut: usize = cuts.iter().copied().max().unwrap();
         if !Self::monotonic(&cuts)
             || max_cut > indices.len()

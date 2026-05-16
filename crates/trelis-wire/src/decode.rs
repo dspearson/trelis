@@ -196,6 +196,7 @@ pub const fn decode_u64(bytes: [u8; 8]) -> u64 {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
 

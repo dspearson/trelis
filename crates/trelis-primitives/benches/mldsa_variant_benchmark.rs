@@ -3,6 +3,8 @@
 //! Run:
 //!   cargo bench -p trelis-primitives --bench mldsa_variant_benchmark
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
+
 use criterion::{Criterion, criterion_group, criterion_main};
 use hybrid_array::{Array, ArraySize};
 use rand::{CryptoRng, RngCore};

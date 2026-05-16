@@ -41,9 +41,11 @@
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
+#[cfg(feature = "alloc")]
+use chacha20poly1305::aead::{Aead, Payload};
 use chacha20poly1305::{
     XChaCha20Poly1305, XNonce,
-    aead::{Aead, AeadInPlace, KeyInit, Payload},
+    aead::{AeadInPlace, KeyInit},
 };
 use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -254,6 +256,7 @@ pub fn encrypt(key: &AeadKey, nonce: &Nonce, plaintext: &[u8], aad: &[u8]) -> Re
 /// This function provides constant-time tag verification to prevent timing attacks.
 /// The error returned does not distinguish between authentication failure modes.
 #[cfg(feature = "alloc")]
+#[must_use = "the decrypted plaintext must be checked or used"]
 pub fn decrypt(key: &AeadKey, nonce: &Nonce, ciphertext: &[u8], aad: &[u8]) -> Result<Vec<u8>> {
     if ciphertext.len() < TAG_SIZE {
         return Err(CryptoError::InvalidCiphertext);
@@ -345,7 +348,12 @@ pub fn decrypt_in_place(
         .map_err(|_| CryptoError::AeadAuthenticationFailed)
 }
 
-#[cfg(test)]
+// DYN-01-MIRI-01: gated on `alloc` because the tests below use the
+// allocating `encrypt`/`decrypt` helpers and `alloc::vec` macros.
+// Without this gate, `cargo {check,miri test} --no-default-features` fails
+// to compile the test module, preventing MIRI from reaching the rest of
+// this crate.
+#[cfg(all(test, feature = "alloc"))]
 mod tests {
     extern crate alloc;
     use alloc::vec;

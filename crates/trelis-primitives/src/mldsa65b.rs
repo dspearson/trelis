@@ -281,6 +281,7 @@ impl MlDsa65BVerifyingKey {
     /// # Errors
     ///
     /// Returns `SignatureVerificationFailed` if the signature is invalid.
+    #[must_use = "the verify outcome must be checked"]
     pub fn verify(&self, message: &[u8], signature: &MlDsa65BSignature) -> Result<()> {
         self.verify_with_context(message, &[], signature)
     }

@@ -4,6 +4,8 @@
 //!
 //! This benchmark requires both `mldsa-blake3` and `ed448-blake3` features.
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
+
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 
 // Ed448 standard implementation (SHAKE256)

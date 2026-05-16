@@ -31,7 +31,7 @@
 use trelis_primitives::{
     Sntrup761Ciphertext, Sntrup761PublicKey, Sntrup761SecretKey, X448Public, X448Secret,
 };
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::combiner::HybridSharedSecret;
 use trelis_error::{CryptoError, Result};
@@ -63,12 +63,26 @@ pub const SNTRUP_SK_SIZE: usize = 1763;
 /// Size of hybrid KEM secret key in bytes.
 pub const SECRET_KEY_SIZE: usize = X448_SK_SIZE + SNTRUP_SK_SIZE;
 
+/// BLAKE3 `derive_key` context for the X448 seed in deterministic hybrid keygen.
+///
+/// API-04-L3: promoted from an inline literal in `generate_from_seed`.
+pub const HYBRID_KEM_X448_SEED_CONTEXT: &str = "trelis-hybrid-x448";
+
+/// BLAKE3 `derive_key` context for the sntrup761 seed in deterministic hybrid keygen.
+///
+/// API-04-L3: promoted from an inline literal in `generate_from_seed`.
+pub const HYBRID_KEM_SNTRUP_SEED_CONTEXT: &str = "trelis-hybrid-sntrup761";
+
 /// Hybrid KEM keypair (X448 + sntrup761).
 ///
 /// This keypair contains both classical and post-quantum KEM keys.
 /// The combined shared secret provides security as long as either
 /// algorithm remains secure.
-#[derive(Clone, Zeroize, ZeroizeOnDrop)]
+// No `Clone`: cloning a keypair duplicates secret key material into a second
+// allocation whose lifetime the original's drop cannot protect (finding MEM-01,
+// FIPS 140-3 §4.7). Callers must use references; reconstruct via `from_bytes`
+// only when an owned copy is genuinely required.
+#[derive(Zeroize, ZeroizeOnDrop)]
 pub struct HybridKemKeypair {
     #[zeroize(skip)]
     public_key: HybridKemPublicKey,
@@ -111,7 +125,7 @@ impl HybridKemKeypair {
     /// Internal generation logic.
     fn generate_inner() -> Result<Self> {
         let x448_secret = X448Secret::generate()?;
-        let sntrup_secret = Sntrup761SecretKey::generate();
+        let sntrup_secret = Sntrup761SecretKey::generate()?;
 
         let public_key = HybridKemPublicKey {
             x448: x448_secret.public_key(),
@@ -141,31 +155,35 @@ impl HybridKemKeypair {
     /// use trelis_hybrid::kem::HybridKemKeypair;
     ///
     /// let seed = [0x42u8; 32];
-    /// let keypair1 = HybridKemKeypair::generate_from_seed(&seed);
-    /// let keypair2 = HybridKemKeypair::generate_from_seed(&seed);
+    /// let keypair1 = HybridKemKeypair::generate_from_seed(&seed).unwrap();
+    /// let keypair2 = HybridKemKeypair::generate_from_seed(&seed).unwrap();
     ///
     /// // Same seed produces same keypair
     /// assert_eq!(keypair1.to_bytes(), keypair2.to_bytes());
     /// ```
-    #[must_use]
-    pub fn generate_from_seed(seed: &[u8; 32]) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns `KeyGenerationFailed` if the underlying sntrup761 deterministic
+    /// keygen exhausts its retry budget (RNG-broken indicator).
+    pub fn generate_from_seed(seed: &[u8; 32]) -> Result<Self> {
         // Derive independent seeds for each component using BLAKE3
-        let x448_seed = blake3::derive_key("trelis-hybrid-x448", seed);
-        let sntrup_seed = blake3::derive_key("trelis-hybrid-sntrup761", seed);
+        let x448_seed = blake3::derive_key(HYBRID_KEM_X448_SEED_CONTEXT, seed);
+        let sntrup_seed = blake3::derive_key(HYBRID_KEM_SNTRUP_SEED_CONTEXT, seed);
 
         let x448_secret = X448Secret::generate_from_seed(&x448_seed);
-        let sntrup_secret = Sntrup761SecretKey::generate_from_seed(&sntrup_seed);
+        let sntrup_secret = Sntrup761SecretKey::generate_from_seed(&sntrup_seed)?;
 
         let public_key = HybridKemPublicKey {
             x448: x448_secret.public_key(),
             sntrup: sntrup_secret.public_key(),
         };
 
-        Self {
+        Ok(Self {
             public_key,
             x448_secret,
             sntrup_secret,
-        }
+        })
     }
 
     /// Returns the public key.
@@ -183,8 +201,8 @@ impl HybridKemKeypair {
     /// The returned bytes contain secret key material and should be
     /// handled securely (encrypted storage, zeroisation after use).
     #[must_use]
-    pub fn to_bytes(&self) -> [u8; SECRET_KEY_SIZE] {
-        let mut bytes = [0u8; SECRET_KEY_SIZE];
+    pub fn to_bytes(&self) -> Zeroizing<[u8; SECRET_KEY_SIZE]> {
+        let mut bytes = Zeroizing::new([0u8; SECRET_KEY_SIZE]);
         bytes[..X448_SK_SIZE].copy_from_slice(self.x448_secret.as_bytes());
         bytes[X448_SK_SIZE..].copy_from_slice(self.sntrup_secret.as_bytes());
         bytes
@@ -236,6 +254,7 @@ impl HybridKemKeypair {
     /// # Errors
     ///
     /// Returns `DecapsulationFailed` if decapsulation fails.
+    #[must_use = "the decapsulated shared secret must be checked"]
     pub fn decapsulate(&self, encapsulation: &HybridEncapsulation) -> Result<HybridSharedSecret> {
         // X448 DH with ephemeral public key
         let x448_ss = self
@@ -252,6 +271,35 @@ impl HybridKemKeypair {
             x448_ss.as_bytes(),
             sntrup_ss.as_bytes(),
         ))
+    }
+
+    /// Wraps this keypair in a `GuardedBox` for enhanced memory protection.
+    ///
+    /// The returned `GuardedBox` provides guard pages, memory locking (if
+    /// privileges allow), and zeroisation on drop.
+    ///
+    /// Memory locking is opt-in: it requires the `mlock` feature and is not
+    /// wired into any default code path (finding MEM-04). Callers with a
+    /// high-value-secret threat model should call this at session establishment
+    /// for long-lived KEM keypairs; otherwise the library still guarantees
+    /// zeroize-on-drop but not swap / core-dump exclusion.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let keypair = HybridKemKeypair::generate()?;
+    /// let guarded = keypair.into_guarded()?;
+    /// let shared = guarded.decapsulate(&encapsulation)?;
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `MemlockError` if memory allocation or protection fails.
+    #[cfg(feature = "mlock")]
+    pub fn into_guarded(
+        self,
+    ) -> trelis_primitives::memlock::Result<trelis_primitives::GuardedBox<Self>> {
+        trelis_primitives::GuardedBox::new(self)
     }
 
     /// Returns the X448 secret key reference (for internal use).
@@ -363,13 +411,18 @@ impl HybridKemPublicKey {
     /// Encapsulates to the sntrup761 public key only (for X3DH-PQ).
     ///
     /// Returns (shared_secret, ciphertext).
+    ///
+    /// # Errors
+    ///
+    /// Returns `KeyGenerationFailed` if the underlying sntrup761 encapsulation
+    /// exhausts its weight-W retry budget (RNG-broken indicator).
     #[cfg(feature = "expose-internals")]
     pub fn sntrup_encapsulate(
         &self,
-    ) -> (
+    ) -> Result<(
         trelis_primitives::Sntrup761SharedSecret,
         Sntrup761Ciphertext,
-    ) {
+    )> {
         self.sntrup.encapsulate()
     }
 
@@ -392,7 +445,7 @@ impl HybridKemPublicKey {
         let x448_ss = x448_ephemeral_secret.diffie_hellman(&self.x448)?;
 
         // sntrup761 encapsulation
-        let (sntrup_ss, sntrup_ciphertext) = self.sntrup.encapsulate();
+        let (sntrup_ss, sntrup_ciphertext) = self.sntrup.encapsulate()?;
 
         // Combine shared secrets
         let shared_secret = HybridSharedSecret::combine(x448_ss.as_bytes(), sntrup_ss.as_bytes());
@@ -477,6 +530,7 @@ impl core::fmt::Debug for HybridEncapsulation {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
 
@@ -490,6 +544,7 @@ mod tests {
         assert_eq!(ENCAPSULATION_SIZE, 1095);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_key_generation() {
         let keypair = HybridKemKeypair::generate().unwrap();
@@ -497,6 +552,7 @@ mod tests {
         assert_eq!(pk_bytes.len(), PUBLIC_KEY_SIZE);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_encapsulate_decapsulate_roundtrip() {
         let keypair = HybridKemKeypair::generate().unwrap();
@@ -514,6 +570,7 @@ mod tests {
         );
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_encapsulation_serialisation() {
         let keypair = HybridKemKeypair::generate().unwrap();
@@ -530,6 +587,7 @@ mod tests {
         assert_eq!(ss1, ss2);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_public_key_serialisation() {
         let keypair = HybridKemKeypair::generate().unwrap();
@@ -541,6 +599,7 @@ mod tests {
         assert_eq!(pk, &recovered);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_different_keys_different_secrets() {
         let keypair1 = HybridKemKeypair::generate().unwrap();
@@ -553,6 +612,7 @@ mod tests {
         assert_ne!(ss1, ss2);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_wrong_key_fails() {
         let keypair1 = HybridKemKeypair::generate().unwrap();
@@ -568,6 +628,7 @@ mod tests {
         );
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_multiple_encapsulations() {
         let keypair = HybridKemKeypair::generate().unwrap();
@@ -587,11 +648,12 @@ mod tests {
         assert_eq!(ss2, ss2_dec);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_generate_from_seed_deterministic() {
         let seed = [0x42u8; 32];
-        let keypair1 = HybridKemKeypair::generate_from_seed(&seed);
-        let keypair2 = HybridKemKeypair::generate_from_seed(&seed);
+        let keypair1 = HybridKemKeypair::generate_from_seed(&seed).unwrap();
+        let keypair2 = HybridKemKeypair::generate_from_seed(&seed).unwrap();
 
         // Same seed should produce same keypair
         assert_eq!(keypair1.to_bytes(), keypair2.to_bytes());
@@ -601,21 +663,23 @@ mod tests {
         );
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_generate_from_seed_different_seeds() {
         let seed1 = [0x42u8; 32];
         let seed2 = [0x43u8; 32];
-        let keypair1 = HybridKemKeypair::generate_from_seed(&seed1);
-        let keypair2 = HybridKemKeypair::generate_from_seed(&seed2);
+        let keypair1 = HybridKemKeypair::generate_from_seed(&seed1).unwrap();
+        let keypair2 = HybridKemKeypair::generate_from_seed(&seed2).unwrap();
 
         // Different seeds should produce different keypairs
         assert_ne!(keypair1.to_bytes(), keypair2.to_bytes());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_generate_from_seed_kem_works() {
         let seed = [0x42u8; 32];
-        let keypair = HybridKemKeypair::generate_from_seed(&seed);
+        let keypair = HybridKemKeypair::generate_from_seed(&seed).unwrap();
 
         // KEM should work with seeded keys
         let (ss_enc, encapsulation) = keypair.public_key().encapsulate().unwrap();

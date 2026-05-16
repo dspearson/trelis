@@ -348,16 +348,19 @@ macro_rules! define_mldsa_variant {
 
             impl<P: MlDsaParams> VerifyingKey<P> {
                 /// Verify a signature using the internal algorithm.
+                #[must_use]
                 pub fn verify_internal(&self, Mp: &[&[u8]], sig: &Signature<P>) -> bool {
                     internal::verify_internal::<P, H>(&self.0, &[Mp], sig)
                 }
 
                 /// Verify a signature with a context string.
+                #[must_use]
                 pub fn verify_with_context(&self, M: &[u8], ctx: &[u8], sig: &Signature<P>) -> bool {
                     self.raw_verify_with_context(&[M], ctx, sig)
                 }
 
                 /// Verify a signature with a pre-computed μ.
+                #[must_use]
                 pub fn verify_mu(&self, mu: &B64, sig: &Signature<P>) -> bool {
                     internal::verify_mu::<P, H>(&self.0, mu, sig)
                 }

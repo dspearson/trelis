@@ -214,7 +214,7 @@ fn test_rounded_encode_decode_multiples_of_three() {
 #[test]
 fn test_c_generated_public_key_rust_decode_reencode() {
     // Generate key with C implementation
-    let c_sk = c_impl::Sntrup761SecretKey::generate();
+    let c_sk = c_impl::Sntrup761SecretKey::generate().unwrap();
     let c_pk = c_sk.public_key();
     let c_pk_bytes = c_pk.as_bytes();
 
@@ -246,7 +246,7 @@ fn test_c_generated_public_key_rust_decode_reencode() {
 #[test]
 fn test_c_generated_secret_key_components() {
     // Generate key with C implementation
-    let c_sk = c_impl::Sntrup761SecretKey::generate();
+    let c_sk = c_impl::Sntrup761SecretKey::generate().unwrap();
     let sk_bytes = c_sk.as_bytes();
 
     // Parse secret key structure: f(191) || ginv(191) || pk(1158) || rho(191) || hash(32)
@@ -291,9 +291,9 @@ fn test_c_generated_secret_key_components() {
 #[test]
 fn test_c_ciphertext_rust_decode_reencode() {
     // Generate key and encapsulate with C implementation
-    let c_sk = c_impl::Sntrup761SecretKey::generate();
+    let c_sk = c_impl::Sntrup761SecretKey::generate().unwrap();
     let c_pk = c_sk.public_key();
-    let (_ss, ct) = c_pk.encapsulate();
+    let (_ss, ct) = c_pk.encapsulate().unwrap();
     let ct_bytes = ct.as_bytes();
 
     // Parse ciphertext: rounded_body(1007) || confirm(32)
@@ -326,7 +326,7 @@ fn test_c_ciphertext_rust_decode_reencode() {
 #[test]
 fn test_rust_key_used_with_c_encapsulation() {
     // Generate keypair with Rust implementation
-    let rust_sk = rust_impl::Sntrup761SecretKey::generate();
+    let rust_sk = rust_impl::Sntrup761SecretKey::generate().unwrap();
     let rust_pk = rust_sk.public_key();
 
     // Create C public key from Rust bytes
@@ -334,7 +334,7 @@ fn test_rust_key_used_with_c_encapsulation() {
         .expect("Failed to create C public key from Rust bytes");
 
     // Encapsulate with C implementation
-    let (c_ss, c_ct) = c_pk.encapsulate();
+    let (c_ss, c_ct) = c_pk.encapsulate().unwrap();
 
     // Create Rust ciphertext from C bytes
     let rust_ct = rust_impl::Sntrup761Ciphertext::from_bytes(c_ct.as_bytes())
@@ -356,7 +356,7 @@ fn test_rust_key_used_with_c_encapsulation() {
 #[test]
 fn test_c_key_used_with_rust_encapsulation() {
     // Generate keypair with C implementation
-    let c_sk = c_impl::Sntrup761SecretKey::generate();
+    let c_sk = c_impl::Sntrup761SecretKey::generate().unwrap();
     let c_pk = c_sk.public_key();
 
     // Create Rust public key from C bytes
@@ -364,7 +364,7 @@ fn test_c_key_used_with_rust_encapsulation() {
         .expect("Failed to create Rust public key from C bytes");
 
     // Encapsulate with Rust implementation
-    let (rust_ss, rust_ct) = rust_pk.encapsulate();
+    let (rust_ss, rust_ct) = rust_pk.encapsulate().unwrap();
 
     // Create C ciphertext from Rust bytes
     let c_ct = c_impl::Sntrup761Ciphertext::from_bytes(rust_ct.as_bytes())
@@ -388,11 +388,11 @@ fn test_cross_implementation_multiple_sessions() {
         // Alternate between implementations for key generation
         if i % 2 == 0 {
             // Rust key, C encapsulation
-            let rust_sk = rust_impl::Sntrup761SecretKey::generate();
+            let rust_sk = rust_impl::Sntrup761SecretKey::generate().unwrap();
             let rust_pk = rust_sk.public_key();
 
             let c_pk = c_impl::Sntrup761PublicKey::from_bytes(rust_pk.as_bytes()).unwrap();
-            let (c_ss, c_ct) = c_pk.encapsulate();
+            let (c_ss, c_ct) = c_pk.encapsulate().unwrap();
 
             let rust_ct = rust_impl::Sntrup761Ciphertext::from_bytes(c_ct.as_bytes()).unwrap();
             let rust_ss = rust_sk.decapsulate(&rust_ct).unwrap();
@@ -405,11 +405,11 @@ fn test_cross_implementation_multiple_sessions() {
             );
         } else {
             // C key, Rust encapsulation
-            let c_sk = c_impl::Sntrup761SecretKey::generate();
+            let c_sk = c_impl::Sntrup761SecretKey::generate().unwrap();
             let c_pk = c_sk.public_key();
 
             let rust_pk = rust_impl::Sntrup761PublicKey::from_bytes(c_pk.as_bytes()).unwrap();
-            let (rust_ss, rust_ct) = rust_pk.encapsulate();
+            let (rust_ss, rust_ct) = rust_pk.encapsulate().unwrap();
 
             let c_ct = c_impl::Sntrup761Ciphertext::from_bytes(rust_ct.as_bytes()).unwrap();
             let c_ss = c_sk.decapsulate(&c_ct).unwrap();
@@ -431,7 +431,7 @@ fn test_cross_implementation_multiple_sessions() {
 #[test]
 fn test_secret_key_serialisation_cross_compatible() {
     // Generate with C
-    let c_sk = c_impl::Sntrup761SecretKey::generate();
+    let c_sk = c_impl::Sntrup761SecretKey::generate().unwrap();
 
     // Serialise from C, deserialise to Rust
     let rust_sk = rust_impl::Sntrup761SecretKey::from_bytes(c_sk.as_bytes())
@@ -543,7 +543,7 @@ fn test_small_single_nonzero() {
 #[test]
 fn test_many_c_keys_rust_roundtrip() {
     for _ in 0..50 {
-        let c_sk = c_impl::Sntrup761SecretKey::generate();
+        let c_sk = c_impl::Sntrup761SecretKey::generate().unwrap();
         let c_pk = c_sk.public_key();
 
         // Decode and re-encode public key
@@ -557,7 +557,7 @@ fn test_many_c_keys_rust_roundtrip() {
 #[test]
 fn test_many_rust_keys_c_roundtrip() {
     for _ in 0..50 {
-        let rust_sk = rust_impl::Sntrup761SecretKey::generate();
+        let rust_sk = rust_impl::Sntrup761SecretKey::generate().unwrap();
         let rust_pk = rust_sk.public_key();
 
         // Verify C can parse the Rust-generated key
@@ -572,11 +572,11 @@ fn test_many_rust_keys_c_roundtrip() {
 fn test_many_cross_encapsulations() {
     for _ in 0..20 {
         // C key, Rust encap, C decap
-        let c_sk = c_impl::Sntrup761SecretKey::generate();
+        let c_sk = c_impl::Sntrup761SecretKey::generate().unwrap();
         let c_pk = c_sk.public_key();
 
         let rust_pk = rust_impl::Sntrup761PublicKey::from_bytes(c_pk.as_bytes()).unwrap();
-        let (rust_ss, rust_ct) = rust_pk.encapsulate();
+        let (rust_ss, rust_ct) = rust_pk.encapsulate().unwrap();
 
         let c_ct = c_impl::Sntrup761Ciphertext::from_bytes(rust_ct.as_bytes()).unwrap();
         let c_ss = c_sk.decapsulate(&c_ct).unwrap();
@@ -591,7 +591,7 @@ fn test_many_cross_encapsulations() {
 
 #[test]
 fn test_c_public_key_coefficient_distribution() {
-    let c_sk = c_impl::Sntrup761SecretKey::generate();
+    let c_sk = c_impl::Sntrup761SecretKey::generate().unwrap();
     let c_pk = c_sk.public_key();
     let coeffs = rq_decode(c_pk.as_bytes());
 
@@ -621,7 +621,7 @@ fn test_c_public_key_coefficient_distribution() {
 
 #[test]
 fn test_rust_public_key_coefficient_distribution() {
-    let rust_sk = rust_impl::Sntrup761SecretKey::generate();
+    let rust_sk = rust_impl::Sntrup761SecretKey::generate().unwrap();
     let rust_pk = rust_sk.public_key();
     let coeffs = rq_decode(rust_pk.as_bytes());
 
@@ -649,16 +649,16 @@ fn test_rust_public_key_coefficient_distribution() {
 #[test]
 fn test_confirmation_hash_format() {
     // Generate ciphertext with both implementations
-    let c_sk = c_impl::Sntrup761SecretKey::generate();
+    let c_sk = c_impl::Sntrup761SecretKey::generate().unwrap();
     let c_pk = c_sk.public_key();
-    let (_, c_ct) = c_pk.encapsulate();
+    let (_, c_ct) = c_pk.encapsulate().unwrap();
 
     // Confirmation is last 32 bytes
     let c_confirm = &c_ct.as_bytes()[ROUNDED_BYTES..];
     assert_eq!(c_confirm.len(), 32, "C confirmation hash wrong size");
 
     let rust_pk = rust_impl::Sntrup761PublicKey::from_bytes(c_pk.as_bytes()).unwrap();
-    let (_, rust_ct) = rust_pk.encapsulate();
+    let (_, rust_ct) = rust_pk.encapsulate().unwrap();
 
     let rust_confirm = &rust_ct.as_bytes()[ROUNDED_BYTES..];
     assert_eq!(rust_confirm.len(), 32, "Rust confirmation hash wrong size");
@@ -776,7 +776,7 @@ mod proptest_tests {
         /// Property: C-generated keys can always be parsed by Rust encoder
         #[test]
         fn prop_c_key_rust_compatible(_seed in any::<u64>()) {
-            let c_sk = c_impl::Sntrup761SecretKey::generate();
+            let c_sk = c_impl::Sntrup761SecretKey::generate().unwrap();
             let c_pk = c_sk.public_key();
 
             // Rust should be able to parse the key
@@ -791,7 +791,7 @@ mod proptest_tests {
         /// Property: Rust-generated keys can always be parsed by C encoder
         #[test]
         fn prop_rust_key_c_compatible(_seed in any::<u64>()) {
-            let rust_sk = rust_impl::Sntrup761SecretKey::generate();
+            let rust_sk = rust_impl::Sntrup761SecretKey::generate().unwrap();
             let rust_pk = rust_sk.public_key();
 
             // C should be able to parse the key
@@ -806,11 +806,11 @@ mod proptest_tests {
         /// Property: Cross-implementation KEM always produces matching secrets (C key, Rust encap)
         #[test]
         fn prop_cross_kem_c_key_rust_encap(_seed in any::<u64>()) {
-            let c_sk = c_impl::Sntrup761SecretKey::generate();
+            let c_sk = c_impl::Sntrup761SecretKey::generate().unwrap();
             let c_pk = c_sk.public_key();
 
             let rust_pk = rust_impl::Sntrup761PublicKey::from_bytes(c_pk.as_bytes()).unwrap();
-            let (rust_ss, rust_ct) = rust_pk.encapsulate();
+            let (rust_ss, rust_ct) = rust_pk.encapsulate().unwrap();
 
             let c_ct = c_impl::Sntrup761Ciphertext::from_bytes(rust_ct.as_bytes()).unwrap();
             let c_ss = c_sk.decapsulate(&c_ct).unwrap();
@@ -821,11 +821,11 @@ mod proptest_tests {
         /// Property: Cross-implementation KEM always produces matching secrets (Rust key, C encap)
         #[test]
         fn prop_cross_kem_rust_key_c_encap(_seed in any::<u64>()) {
-            let rust_sk = rust_impl::Sntrup761SecretKey::generate();
+            let rust_sk = rust_impl::Sntrup761SecretKey::generate().unwrap();
             let rust_pk = rust_sk.public_key();
 
             let c_pk = c_impl::Sntrup761PublicKey::from_bytes(rust_pk.as_bytes()).unwrap();
-            let (c_ss, c_ct) = c_pk.encapsulate();
+            let (c_ss, c_ct) = c_pk.encapsulate().unwrap();
 
             let rust_ct = rust_impl::Sntrup761Ciphertext::from_bytes(c_ct.as_bytes()).unwrap();
             let rust_ss = rust_sk.decapsulate(&rust_ct).unwrap();
@@ -843,7 +843,7 @@ mod proptest_tests {
 #[ignore] // Long-running: run with `cargo test -- --ignored`
 fn stress_test_1000_c_rust_roundtrips() {
     (0..1000).into_par_iter().for_each(|i| {
-        let c_sk = c_impl::Sntrup761SecretKey::generate();
+        let c_sk = c_impl::Sntrup761SecretKey::generate().unwrap();
         let c_pk = c_sk.public_key();
 
         // Decode and re-encode should be identity
@@ -858,12 +858,12 @@ fn stress_test_1000_c_rust_roundtrips() {
 #[ignore] // Long-running: run with `cargo test -- --ignored`
 fn stress_test_500_cross_kem_c_key_rust_encap() {
     (0..500).into_par_iter().for_each(|i| {
-        let c_sk = c_impl::Sntrup761SecretKey::generate();
+        let c_sk = c_impl::Sntrup761SecretKey::generate().unwrap();
         let c_pk = c_sk.public_key();
 
         let rust_pk = rust_impl::Sntrup761PublicKey::from_bytes(c_pk.as_bytes())
             .expect("Failed to parse C public key");
-        let (rust_ss, rust_ct) = rust_pk.encapsulate();
+        let (rust_ss, rust_ct) = rust_pk.encapsulate().unwrap();
 
         let c_ct = c_impl::Sntrup761Ciphertext::from_bytes(rust_ct.as_bytes())
             .expect("Failed to parse Rust ciphertext");
@@ -882,12 +882,12 @@ fn stress_test_500_cross_kem_c_key_rust_encap() {
 #[ignore] // Long-running: run with `cargo test -- --ignored`
 fn stress_test_500_cross_kem_rust_key_c_encap() {
     (0..500).into_par_iter().for_each(|i| {
-        let rust_sk = rust_impl::Sntrup761SecretKey::generate();
+        let rust_sk = rust_impl::Sntrup761SecretKey::generate().unwrap();
         let rust_pk = rust_sk.public_key();
 
         let c_pk = c_impl::Sntrup761PublicKey::from_bytes(rust_pk.as_bytes())
             .expect("Failed to parse Rust public key");
-        let (c_ss, c_ct) = c_pk.encapsulate();
+        let (c_ss, c_ct) = c_pk.encapsulate().unwrap();
 
         let rust_ct = rust_impl::Sntrup761Ciphertext::from_bytes(c_ct.as_bytes())
             .expect("Failed to parse C ciphertext");
@@ -908,10 +908,10 @@ fn stress_test_500_cross_kem_rust_key_c_encap() {
 #[ignore] // Long-running: run with `cargo test -- --ignored`
 fn stress_test_1000_rust_only_kem() {
     (0..1000).into_par_iter().for_each(|i| {
-        let sk = rust_impl::Sntrup761SecretKey::generate();
+        let sk = rust_impl::Sntrup761SecretKey::generate().unwrap();
         let pk = sk.public_key();
 
-        let (ss_encap, ct) = pk.encapsulate();
+        let (ss_encap, ct) = pk.encapsulate().unwrap();
         let ss_decap = sk.decapsulate(&ct).expect("Rust decapsulation failed");
 
         assert_eq!(
@@ -927,10 +927,10 @@ fn stress_test_1000_rust_only_kem() {
 #[ignore] // Long-running: run with `cargo test -- --ignored`
 fn stress_test_1000_c_only_kem() {
     (0..1000).into_par_iter().for_each(|i| {
-        let sk = c_impl::Sntrup761SecretKey::generate();
+        let sk = c_impl::Sntrup761SecretKey::generate().unwrap();
         let pk = sk.public_key();
 
-        let (ss_encap, ct) = pk.encapsulate();
+        let (ss_encap, ct) = pk.encapsulate().unwrap();
         let ss_decap = sk.decapsulate(&ct).expect("C decapsulation failed");
 
         assert_eq!(
@@ -947,7 +947,7 @@ fn stress_test_1000_c_only_kem() {
 fn stress_test_secret_key_serialisation() {
     (0..200).into_par_iter().for_each(|i| {
         // Generate with C, use with Rust
-        let c_sk = c_impl::Sntrup761SecretKey::generate();
+        let c_sk = c_impl::Sntrup761SecretKey::generate().unwrap();
         let rust_sk = rust_impl::Sntrup761SecretKey::from_bytes(c_sk.as_bytes())
             .expect("Failed to deserialise C secret key");
 
@@ -962,7 +962,7 @@ fn stress_test_secret_key_serialisation() {
         );
 
         // KEM must work with the deserialised key
-        let (c_ss, c_ct) = c_pk.encapsulate();
+        let (c_ss, c_ct) = c_pk.encapsulate().unwrap();
         let rust_ct = rust_impl::Sntrup761Ciphertext::from_bytes(c_ct.as_bytes()).unwrap();
         let rust_ss = rust_sk.decapsulate(&rust_ct).unwrap();
         assert_eq!(

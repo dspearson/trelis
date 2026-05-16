@@ -3,6 +3,8 @@
 //! These tests use BLAKE3 variant test vectors from:
 //! tests/vectors/blake3_sig-ver.json
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use serde::Deserialize;
 use std::fs;
 use trelis_primitives::mldsa65b::{

@@ -17,7 +17,10 @@ alloc = ["trelis-error/alloc", "chacha20poly1305/alloc"]
 # WASM target support (browser environment)
 # Uses ntrulp (pure Rust) with custom encoding to match standard wire format
 # Enables BLAKE3 WASM SIMD for faster hashing in browsers with SIMD support
-wasm = ["alloc", "getrandom/js", "blake3/wasm32_simd"]
+# `getrandom_v04/wasm_js` activates the wasm_js backend on the transitive
+# getrandom 0.4.x pulled in via ntrulp 0.2.5 -> rand 0.10.1. Without this,
+# wasm32-unknown-unknown trips a `compile_error!` in getrandom 0.4.2/backends.rs.
+wasm = ["alloc", "getrandom/js", "getrandom_v04/wasm_js", "dep:getrandom_v04", "blake3/wasm32_simd"]
 # Expose internal functions for testing
 expose-internals = []
 # Memory locking to prevent secrets from being swapped to disk
@@ -48,10 +51,13 @@ fips204.workspace = true
 zeroize.workspace = true
 subtle.workspace = true
 rand_core.workspace = true
+rand_core_v10.workspace = true
 getrandom.workspace = true
+# Optional — activated only by the `wasm` feature; see [features].wasm above.
+getrandom_v04 = { workspace = true, optional = true }
 hybrid-array = { version = "0.4", features = ["extra-sizes", "zeroize"] }
 num-traits = { version = "0.2.19", default-features = false }
-signature = { version = "3.0.0-rc.2", default-features = false, features = ["rand_core"] }
+signature = { version = "3.0.0", default-features = false, features = ["rand_core"] }
 
 # Post-quantum KEM - Pure Rust (always included for deterministic keygen)
 ntrulp = { workspace = true }
@@ -95,3 +101,9 @@ harness = false
 [[bench]]
 name = "ed448_variant_benchmark"
 harness = false
+
+# Inherit the workspace lint policy (unsafe_code = "deny", clippy unwrap/expect/panic
+# at warn level). The two unsafe blocks in `mldsa_core/module_lattice/util.rs` and
+# memlock FFI carry file-level `#![allow(unsafe_code)]` with justification.
+[lints]
+workspace = true

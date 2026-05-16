@@ -3,6 +3,8 @@
 //! Run:
 //!   cargo bench -p trelis-primitives --bench ed448_variant_benchmark
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
+
 use criterion::{Criterion, criterion_group, criterion_main};
 
 use trelis_primitives::ed448::{Ed448Signature, Ed448SigningKey, Ed448VerifyingKey};

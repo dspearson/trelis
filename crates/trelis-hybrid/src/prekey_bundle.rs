@@ -153,6 +153,7 @@ impl core::fmt::Debug for HybridPreKeyBundle {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
     use crate::identity::HybridIdentityKeypair;
@@ -165,6 +166,7 @@ mod tests {
         assert_eq!(BUNDLE_SIZE, 4445);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_bundle_creation() {
         let identity = HybridIdentityKeypair::generate().unwrap();
@@ -177,6 +179,7 @@ mod tests {
         assert_eq!(bundle.one_time_key(), &otk.public_key());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_bundle_serialisation() {
         let identity = HybridIdentityKeypair::generate().unwrap();
@@ -191,6 +194,7 @@ mod tests {
         assert_eq!(bundle, recovered);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_bundle_encapsulation() {
         let identity = HybridIdentityKeypair::generate().unwrap();

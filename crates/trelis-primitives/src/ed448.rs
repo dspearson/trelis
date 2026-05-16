@@ -223,6 +223,7 @@ impl Ed448VerifyingKey {
     /// # Errors
     ///
     /// Returns `SignatureVerificationFailed` if the signature is invalid.
+    #[must_use = "the verify outcome must be checked"]
     pub fn verify(&self, message: &[u8], signature: &Ed448Signature) -> Result<()> {
         self.inner
             .verify_raw(&signature.inner, message)

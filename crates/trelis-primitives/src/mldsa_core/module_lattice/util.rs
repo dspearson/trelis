@@ -1,3 +1,14 @@
+// Internalised ML-DSA helpers from the `module_lattice` reference. Two contained
+// patterns are unsafe by necessity:
+//   * `unwrap_unchecked` after explicit bit-masking that makes the `Err` arm
+//     unreachable (avoids a panic path on a hot loop).
+//   * `ptr::read` after `ManuallyDrop` for the array-flatten / unflatten
+//     transmute, sound by Rust's repr-of-arrays guarantee.
+// Each block carries an in-source justification at the call site. The workspace
+// `unsafe_code = "deny"` lint is overridden here so the file can opt into the
+// rest of the workspace's lint set via `[lints] workspace = true`.
+#![allow(unsafe_code)]
+
 use core::mem::ManuallyDrop;
 use core::ops::{Div, Mul, Rem};
 use core::ptr;

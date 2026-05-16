@@ -27,7 +27,9 @@ use trelis_error::Result;
 /// This is a complete keypair (public + secret) held by the device that
 /// generated it. The public portion is uploaded to the server; the secret
 /// portion is kept locally until the OTK is used or expires.
-#[derive(Clone, Zeroize, ZeroizeOnDrop)]
+// No `Clone`: this wraps a `HybridKemKeypair` containing secret key material;
+// cloning would duplicate that secret into a second allocation (finding MEM-01).
+#[derive(Zeroize, ZeroizeOnDrop)]
 pub struct HybridOneTimeKeyPair {
     /// The underlying hybrid KEM keypair
     kem: HybridKemKeypair,
@@ -105,6 +107,7 @@ impl HybridOneTimeKeyPair {
     /// # Errors
     ///
     /// Returns `DecapsulationFailed` if decapsulation fails.
+    #[must_use = "the decapsulated shared secret must be checked"]
     pub fn decapsulate(&self, encapsulation: &HybridEncapsulation) -> Result<HybridSharedSecret> {
         self.kem.decapsulate(encapsulation)
     }
@@ -244,15 +247,18 @@ impl core::fmt::Debug for SignedOneTimeKey {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_otk_generation() {
         let otk = HybridOneTimeKeyPair::generate().unwrap();
         assert_eq!(otk.key_id().len(), 8);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_otk_public_key() {
         let otk = HybridOneTimeKeyPair::generate().unwrap();
@@ -261,6 +267,7 @@ mod tests {
         assert_eq!(public.key_id(), otk.key_id());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_otk_encapsulate_decapsulate() {
         let otk = HybridOneTimeKeyPair::generate().unwrap();
@@ -272,6 +279,7 @@ mod tests {
         assert_eq!(ss_sender.as_bytes(), ss_recipient.as_bytes());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_otk_serialisation() {
         let otk = HybridOneTimeKeyPair::generate().unwrap();
@@ -283,6 +291,7 @@ mod tests {
         assert_eq!(public, recovered);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_signed_otk() {
         let signing_key = HybridSigningKeypair::generate().unwrap();
@@ -292,6 +301,7 @@ mod tests {
         assert!(signed.verify(signing_key.public_key()).is_ok());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_signed_otk_wrong_key_fails() {
         let signing_key1 = HybridSigningKeypair::generate().unwrap();
@@ -302,6 +312,7 @@ mod tests {
         assert!(signed.verify(signing_key2.public_key()).is_err());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_unique_key_ids() {
         let otk1 = HybridOneTimeKeyPair::generate().unwrap();

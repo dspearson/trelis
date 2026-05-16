@@ -17,6 +17,11 @@ const PAR_RAYON_BYTES: usize = 128 * 1024;
 /// 1. Does NOT buffer input - updates the hasher directly
 /// 2. Only allocates for squeeze caching after seeing multiple tiny squeezes
 /// 3. Uses rayon parallel hashing for large inputs (>= 128KB)
+// The Absorbing variant carries only a Hasher; Squeezing carries the OutputReader
+// plus optional cache state. The size disparity is intentional — the state
+// machine spends most of its life in the smaller variant and only transitions to
+// the larger Squeezing once when first output is read. Boxing the larger variant
+// would add an indirection on every squeeze for no benefit (API-03-NEW1).
 #[allow(clippy::large_enum_variant)]
 pub enum Blake3State {
     /// Absorbing state - hasher only, no buffer

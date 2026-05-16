@@ -129,6 +129,8 @@ impl MlDsa65SigningKey {
     #[must_use]
     pub fn verifying_key(&self) -> MlDsa65VerifyingKey {
         // Expand the private key and extract the public key
+        // self.bytes was validated in the constructor; re-parsing is infallible.
+        #[allow(clippy::expect_used)]
         let sk = ml_dsa_65::PrivateKey::try_from_bytes(self.bytes)
             .expect("key bytes validated in constructor");
         let pk = sk.get_public_key();
@@ -151,6 +153,8 @@ impl MlDsa65SigningKey {
     ///
     /// Returns `InvalidSignature` if signing fails (e.g., RNG failure).
     pub fn sign(&self, message: &[u8]) -> Result<MlDsa65Signature> {
+        // self.bytes was validated in the constructor; re-parsing is infallible.
+        #[allow(clippy::expect_used)]
         let sk = ml_dsa_65::PrivateKey::try_from_bytes(self.bytes)
             .expect("key bytes validated in constructor");
         let mut rng = CsprngAdapter::new()?;
@@ -182,6 +186,8 @@ impl MlDsa65SigningKey {
                 max: 255,
             });
         }
+        // self.bytes was validated in the constructor; re-parsing is infallible.
+        #[allow(clippy::expect_used)]
         let sk = ml_dsa_65::PrivateKey::try_from_bytes(self.bytes)
             .expect("key bytes validated in constructor");
         let mut rng = CsprngAdapter::new()?;
@@ -283,6 +289,7 @@ impl MlDsa65VerifyingKey {
     /// # Errors
     ///
     /// Returns `SignatureVerificationFailed` if the signature is invalid.
+    #[must_use = "the verify outcome must be checked"]
     pub fn verify(&self, message: &[u8], signature: &MlDsa65Signature) -> Result<()> {
         let pk = ml_dsa_65::PublicKey::try_from_bytes(self.bytes)
             .map_err(|_| CryptoError::SignatureVerificationFailed)?;
@@ -449,6 +456,7 @@ impl fips204::RngCore for CsprngAdapter {
         u64::from_le_bytes(buf)
     }
 
+    #[allow(clippy::expect_used)] // RngCore::fill_bytes is infallible by trait contract
     fn fill_bytes(&mut self, dest: &mut [u8]) {
         // Delegate to try_fill_bytes for consistent error handling.
         // The RNG was validated during construction, so failure here indicates
@@ -459,7 +467,9 @@ impl fips204::RngCore for CsprngAdapter {
 
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> core::result::Result<(), fips204::RngError> {
         fill_bytes(dest).map_err(|_| {
-            // Use a custom error code for CSPRNG failure
+            // Use a custom error code for CSPRNG failure.
+            // CUSTOM_START is a compile-time constant > 0, so NonZeroU32::new returns Some.
+            #[allow(clippy::expect_used)]
             core::num::NonZeroU32::new(fips204::RngError::CUSTOM_START)
                 .map(fips204::RngError::from)
                 .expect("CUSTOM_START is non-zero")

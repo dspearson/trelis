@@ -131,24 +131,63 @@ pub fn generate_u32() -> Result<u32> {
 pub struct OsRng;
 
 impl rand_core::RngCore for OsRng {
+    // The RngCore v0.6 trait's next_u32/next_u64/fill_bytes are infallible by
+    // contract; on the rare CSPRNG failure we have no choice but to panic.
+    // The fallible variant is exposed via `try_fill_bytes`.
+    #[allow(clippy::expect_used)]
     fn next_u32(&mut self) -> u32 {
         generate_u32().expect("RNG failure")
     }
 
+    #[allow(clippy::expect_used)]
     fn next_u64(&mut self) -> u64 {
         generate_u64().expect("RNG failure")
     }
 
+    #[allow(clippy::expect_used)]
     fn fill_bytes(&mut self, dest: &mut [u8]) {
         fill_bytes(dest).expect("RNG failure");
     }
 
+    #[allow(clippy::unwrap_used)] // NonZeroU32::new(1) is provably Some
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> core::result::Result<(), rand_core::Error> {
         fill_bytes(dest).map_err(|_| rand_core::Error::from(core::num::NonZeroU32::new(1).unwrap()))
     }
 }
 
 impl rand_core::CryptoRng for OsRng {}
+
+// Additionally implement `rand_core 0.10`'s `TryRng` (which auto-implements `Rng`
+// via the blanket `R: TryRng<Error = Infallible>` impl) so this type works
+// with crates that have migrated past the v0.6 traits — notably `ntrulp 0.2.5`,
+// whose `short_random<R: Rng>` requires `rand::Rng` from `rand 0.10`, which is
+// itself blanket-implemented for any `rand_core::Rng` 0.10. `OsRng` is
+// infallible (it expects the system CSPRNG to succeed), so `Error = Infallible`
+// is correct.
+impl rand_core_v10::TryRng for OsRng {
+    type Error = rand_core_v10::Infallible;
+
+    // Infallible error type by design — we wrap the v0.6 RngCore semantics
+    // and panic on the rare CSPRNG failure since `Error = Infallible` permits
+    // no failure reporting.
+    #[allow(clippy::expect_used)]
+    fn try_next_u32(&mut self) -> core::result::Result<u32, Self::Error> {
+        Ok(generate_u32().expect("RNG failure"))
+    }
+
+    #[allow(clippy::expect_used)]
+    fn try_next_u64(&mut self) -> core::result::Result<u64, Self::Error> {
+        Ok(generate_u64().expect("RNG failure"))
+    }
+
+    #[allow(clippy::expect_used)]
+    fn try_fill_bytes(&mut self, dst: &mut [u8]) -> core::result::Result<(), Self::Error> {
+        fill_bytes(dst).expect("RNG failure");
+        Ok(())
+    }
+}
+
+impl rand_core_v10::TryCryptoRng for OsRng {}
 
 /// A deterministic RNG seeded with BLAKE3.
 ///
@@ -160,6 +199,12 @@ impl rand_core::CryptoRng for OsRng {}
 ///
 /// This is intended for deterministic key derivation, NOT for general-purpose
 /// random number generation. For cryptographic randomness, use [`OsRng`].
+///
+/// `SeededRng` deliberately does **not** implement `rand_core::CryptoRng`: it is
+/// a deterministic PRNG, not a DRBG drawing from an approved entropy source
+/// (NIST SP 800-133). Implementing `CryptoRng` would let callers pass it to any
+/// API expecting cryptographic randomness and silently receive deterministic
+/// output (finding API-01). Internal deterministic use only requires `RngCore`.
 ///
 /// # Example
 ///
@@ -226,14 +271,40 @@ impl rand_core::RngCore for SeededRng {
     }
 }
 
-// SeededRng is deterministic, not cryptographically random, but it's suitable
-// for deterministic key derivation where the seed has sufficient entropy.
-impl rand_core::CryptoRng for SeededRng {}
+// Mirror the `rand_core 0.6` impl on `rand_core 0.10`'s `TryRng` (which auto-
+// implements `Rng` for callers needing the new-style trait, e.g. ntrulp 0.2.5).
+// `SeededRng` deliberately does NOT implement `TryCryptoRng` / `CryptoRng`,
+// for the same reason it does not implement v0.6 `CryptoRng` (finding API-01).
+impl rand_core_v10::TryRng for SeededRng {
+    type Error = rand_core_v10::Infallible;
+
+    fn try_next_u32(&mut self) -> core::result::Result<u32, Self::Error> {
+        let mut bytes = [0u8; 4];
+        self.reader.fill(&mut bytes);
+        Ok(u32::from_le_bytes(bytes))
+    }
+
+    fn try_next_u64(&mut self) -> core::result::Result<u64, Self::Error> {
+        let mut bytes = [0u8; 8];
+        self.reader.fill(&mut bytes);
+        Ok(u64::from_le_bytes(bytes))
+    }
+
+    fn try_fill_bytes(&mut self, dst: &mut [u8]) -> core::result::Result<(), Self::Error> {
+        self.reader.fill(dst);
+        Ok(())
+    }
+}
+
+// NOTE: `SeededRng` intentionally does NOT implement `rand_core::CryptoRng`.
+// It is a deterministic PRNG; advertising it as a CSPRNG is a misuse hazard
+// (finding API-01). Internal deterministic key derivation only needs `RngCore`.
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_fill_bytes() {
         let mut buffer = [0u8; 32];
@@ -243,6 +314,7 @@ mod tests {
         assert_ne!(buffer, [0u8; 32]);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_generate_bytes() {
         let bytes: [u8; 32] = generate_bytes().unwrap();
@@ -251,6 +323,7 @@ mod tests {
         assert_ne!(bytes, [0u8; 32]);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_generate_bytes_different_each_time() {
         let bytes1: [u8; 32] = generate_bytes().unwrap();
@@ -260,6 +333,7 @@ mod tests {
         assert_ne!(bytes1, bytes2);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     #[cfg(feature = "alloc")]
     fn test_generate_vec() {
@@ -270,6 +344,7 @@ mod tests {
         assert!(vec.iter().any(|&b| b != 0));
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     #[cfg(feature = "alloc")]
     fn test_generate_vec_empty() {
@@ -277,6 +352,7 @@ mod tests {
         assert!(vec.is_empty());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_generate_u64() {
         let val1 = generate_u64().unwrap();
@@ -286,6 +362,7 @@ mod tests {
         assert_ne!(val1, val2);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_generate_u32() {
         let val1 = generate_u32().unwrap();
@@ -295,6 +372,7 @@ mod tests {
         assert_ne!(val1, val2);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_os_rng_trait() {
         use rand_core::RngCore;
@@ -310,6 +388,7 @@ mod tests {
         assert_ne!(buffer, [0u8; 16]);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_os_rng_try_fill() {
         use rand_core::RngCore;
@@ -321,6 +400,7 @@ mod tests {
         assert_ne!(buffer, [0u8; 32]);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_various_sizes() {
         // Test generation of various sizes
@@ -332,6 +412,7 @@ mod tests {
         let _: [u8; 128] = generate_bytes().unwrap();
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_empty_fill() {
         // Should succeed with empty buffer

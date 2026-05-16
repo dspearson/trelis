@@ -14,6 +14,16 @@ use super::algebra::{BaseField, Elem, NttPolynomial, NttVector, Polynomial, Vect
 // are forbidden in `const` functions, we do them manually with `while` loops.
 //
 // The values computed here match those provided in Appendix B of FIPS 204.
+//
+// API-03: the three allow-attributes below are scoped to this single const initialiser
+// (`ZETA_POW_BITREV`), not file-level. Justification:
+// - `cast_possible_truncation` / `as_conversions`: the `(curr as u32)` cast on line 31 and
+//   the `(x as u8).reverse_bits() as usize` chain inside `bitrev8` are mandated by the
+//   FIPS 204 reference algorithm — `curr` is constrained to `< BaseField::QL` (the modulus,
+//   a u32), so truncation cannot occur in practice, and the bitrev computation is defined
+//   over `u8`.
+// - `integer_division_remainder_used`: the `% BaseField::QL` reduction is the modular
+//   arithmetic specified by FIPS 204 §B; flagging it would just produce noise.
 #[allow(clippy::cast_possible_truncation)]
 #[allow(clippy::as_conversions)]
 #[allow(clippy::integer_division_remainder_used)]

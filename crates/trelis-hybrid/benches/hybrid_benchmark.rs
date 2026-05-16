@@ -2,6 +2,8 @@
 //!
 //! Run with: `cargo bench -p trelis-hybrid`
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
+
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
 use trelis_hybrid::{HybridIdentityKeypair, HybridKemKeypair, SafetyNumber};

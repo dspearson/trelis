@@ -110,11 +110,19 @@ impl ExpandedSecretKey {
     }
 
     fn sign_inner(&self, phflag: u8, ctx: &[u8], message: &[u8]) -> Ed448BSignature {
+        // The single-octet length prefix is canonical: callers MUST validate
+        // ctx.len() <= 255 at the API boundary. Use try_from instead of `as u8`
+        // to surface an internal refactor that breaks this invariant rather
+        // than silently corrupting the hash domain.
+        #[allow(clippy::expect_used)]
+        let ctx_len_byte: u8 = u8::try_from(ctx.len())
+            .expect("ed448b: context length must be validated <= 255 at the API boundary");
+
         // Compute r = BLAKE3(phflag || ctx_len || ctx || prefix || message) mod order
         // Using derive_key mode for domain separation
         let mut hasher = blake3::Hasher::new_derive_key(CONTEXT_NONCE);
         hasher.update(&[phflag]);
-        hasher.update(&[ctx.len() as u8]);
+        hasher.update(&[ctx_len_byte]);
         hasher.update(ctx);
         hasher.update(&self.hash_prefix);
         hasher.update(message);
@@ -132,7 +140,7 @@ impl ExpandedSecretKey {
         // Using derive_key mode for domain separation
         let mut hasher = blake3::Hasher::new_derive_key(CONTEXT_CHALLENGE);
         hasher.update(&[phflag]);
-        hasher.update(&[ctx.len() as u8]);
+        hasher.update(&[ctx_len_byte]);
         hasher.update(ctx);
         hasher.update(compressed_r.as_bytes());
         hasher.update(self.public_key.compressed.as_bytes());
@@ -307,6 +315,7 @@ impl Ed448BVerifyingKey {
     /// # Errors
     ///
     /// Returns `SignatureVerificationFailed` if the signature is invalid.
+    #[must_use = "the verify outcome must be checked"]
     pub fn verify(&self, message: &[u8], signature: &Ed448BSignature) -> Result<()> {
         self.verify_inner(0, &[], message, signature)
     }
@@ -349,11 +358,17 @@ impl Ed448BVerifyingKey {
         let r_point = Option::<EdwardsPoint>::from(signature.r.decompress())
             .ok_or(CryptoError::SignatureVerificationFailed)?;
 
+        // See sign_inner: ctx length must be validated at the API boundary.
+        // try_from surfaces internal refactor bugs rather than truncating silently.
+        #[allow(clippy::expect_used)]
+        let ctx_len_byte: u8 = u8::try_from(ctx.len())
+            .expect("ed448b: context length must be validated <= 255 at the API boundary");
+
         // Compute k = BLAKE3(phflag || ctx_len || ctx || R || A || message) mod order
         // Using derive_key mode for domain separation (must match signing)
         let mut hasher = blake3::Hasher::new_derive_key(CONTEXT_CHALLENGE);
         hasher.update(&[phflag]);
-        hasher.update(&[ctx.len() as u8]);
+        hasher.update(&[ctx_len_byte]);
         hasher.update(ctx);
         hasher.update(signature.r.as_bytes());
         hasher.update(self.compressed.as_bytes());

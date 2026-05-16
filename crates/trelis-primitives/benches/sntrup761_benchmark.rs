@@ -5,6 +5,8 @@
 //! This benchmark requires both `std` and `wasm` features enabled to compare
 //! the C FFI (pqcrypto-ntruprime) and pure Rust (ntrulp) implementations.
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
+
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 
 // C FFI implementation (std feature)
@@ -24,14 +26,14 @@ fn bench_keygen(c: &mut Criterion) {
 
     group.bench_function("c_ffi", |b| {
         b.iter(|| {
-            let sk = CFfiSecretKey::generate();
+            let sk = CFfiSecretKey::generate().unwrap();
             black_box(sk)
         })
     });
 
     group.bench_function("pure_rust", |b| {
         b.iter(|| {
-            let sk = PureRustSntrup761SecretKey::generate();
+            let sk = PureRustSntrup761SecretKey::generate().unwrap();
             black_box(sk)
         })
     });
@@ -44,22 +46,22 @@ fn bench_encapsulate(c: &mut Criterion) {
     let mut group = c.benchmark_group("sntrup761_encapsulate");
 
     // Generate keys outside benchmark
-    let c_sk = CFfiSecretKey::generate();
+    let c_sk = CFfiSecretKey::generate().unwrap();
     let c_pk = c_sk.public_key();
 
-    let rust_sk = PureRustSntrup761SecretKey::generate();
+    let rust_sk = PureRustSntrup761SecretKey::generate().unwrap();
     let rust_pk = rust_sk.public_key();
 
     group.bench_function("c_ffi", |b| {
         b.iter(|| {
-            let (ss, ct) = c_pk.encapsulate();
+            let (ss, ct) = c_pk.encapsulate().unwrap();
             black_box((ss, ct))
         })
     });
 
     group.bench_function("pure_rust", |b| {
         b.iter(|| {
-            let (ss, ct) = rust_pk.encapsulate();
+            let (ss, ct) = rust_pk.encapsulate().unwrap();
             black_box((ss, ct))
         })
     });
@@ -72,13 +74,13 @@ fn bench_decapsulate(c: &mut Criterion) {
     let mut group = c.benchmark_group("sntrup761_decapsulate");
 
     // Generate keys and ciphertexts outside benchmark
-    let c_sk = CFfiSecretKey::generate();
+    let c_sk = CFfiSecretKey::generate().unwrap();
     let c_pk = c_sk.public_key();
-    let (_, c_ct) = c_pk.encapsulate();
+    let (_, c_ct) = c_pk.encapsulate().unwrap();
 
-    let rust_sk = PureRustSntrup761SecretKey::generate();
+    let rust_sk = PureRustSntrup761SecretKey::generate().unwrap();
     let rust_pk = rust_sk.public_key();
-    let (_, rust_ct) = rust_pk.encapsulate();
+    let (_, rust_ct) = rust_pk.encapsulate().unwrap();
 
     group.bench_function("c_ffi", |b| {
         b.iter(|| {
@@ -103,15 +105,15 @@ fn bench_full_kem(c: &mut Criterion) {
     group.throughput(Throughput::Elements(1));
 
     // Pre-generate secret keys outside benchmark
-    let c_sk = CFfiSecretKey::generate();
+    let c_sk = CFfiSecretKey::generate().unwrap();
     let c_pk = c_sk.public_key();
 
-    let rust_sk = PureRustSntrup761SecretKey::generate();
+    let rust_sk = PureRustSntrup761SecretKey::generate().unwrap();
     let rust_pk = rust_sk.public_key();
 
     group.bench_function("c_ffi", |b| {
         b.iter(|| {
-            let (_, ct) = c_pk.encapsulate();
+            let (_, ct) = c_pk.encapsulate().unwrap();
             let ss = c_sk.decapsulate(&ct).unwrap();
             black_box(ss)
         })
@@ -119,7 +121,7 @@ fn bench_full_kem(c: &mut Criterion) {
 
     group.bench_function("pure_rust", |b| {
         b.iter(|| {
-            let (_, ct) = rust_pk.encapsulate();
+            let (_, ct) = rust_pk.encapsulate().unwrap();
             let ss = rust_sk.decapsulate(&ct).unwrap();
             black_box(ss)
         })
@@ -133,10 +135,10 @@ fn bench_encoding(c: &mut Criterion) {
     let mut group = c.benchmark_group("sntrup761_encoding");
 
     // Generate test data
-    let c_sk = CFfiSecretKey::generate();
+    let c_sk = CFfiSecretKey::generate().unwrap();
     let c_pk = c_sk.public_key();
     let pk_bytes = c_pk.as_bytes();
-    let (_, c_ct) = c_pk.encapsulate();
+    let (_, c_ct) = c_pk.encapsulate().unwrap();
     let ct_bytes = c_ct.as_bytes();
 
     group.bench_function("public_key_decode", |b| {
@@ -154,10 +156,10 @@ fn bench_encoding(c: &mut Criterion) {
     });
 
     // Pure Rust encoding/decoding
-    let rust_sk = PureRustSntrup761SecretKey::generate();
+    let rust_sk = PureRustSntrup761SecretKey::generate().unwrap();
     let rust_pk = rust_sk.public_key();
     let rust_pk_bytes = rust_pk.as_bytes();
-    let (_, rust_ct) = rust_pk.encapsulate();
+    let (_, rust_ct) = rust_pk.encapsulate().unwrap();
     let rust_ct_bytes = rust_ct.as_bytes();
 
     group.bench_function("pure_rust_pk_decode", |b| {
@@ -185,7 +187,7 @@ fn bench_batch_kem(c: &mut Criterion) {
         // Pre-generate keys
         let c_keys: Vec<_> = (0..batch_size)
             .map(|_| {
-                let sk = CFfiSecretKey::generate();
+                let sk = CFfiSecretKey::generate().unwrap();
                 let pk = sk.public_key();
                 (sk, pk)
             })
@@ -193,7 +195,7 @@ fn bench_batch_kem(c: &mut Criterion) {
 
         let rust_keys: Vec<_> = (0..batch_size)
             .map(|_| {
-                let sk = PureRustSntrup761SecretKey::generate();
+                let sk = PureRustSntrup761SecretKey::generate().unwrap();
                 let pk = sk.public_key();
                 (sk, pk)
             })
@@ -204,7 +206,7 @@ fn bench_batch_kem(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("c_ffi", batch_size), &c_keys, |b, keys| {
             b.iter(|| {
                 for (sk, pk) in keys {
-                    let (_, ct) = pk.encapsulate();
+                    let (_, ct) = pk.encapsulate().unwrap();
                     let ss = sk.decapsulate(&ct).unwrap();
                     black_box(ss);
                 }
@@ -217,7 +219,7 @@ fn bench_batch_kem(c: &mut Criterion) {
             |b, keys| {
                 b.iter(|| {
                     for (sk, pk) in keys {
-                        let (_, ct) = pk.encapsulate();
+                        let (_, ct) = pk.encapsulate().unwrap();
                         let ss = sk.decapsulate(&ct).unwrap();
                         black_box(ss);
                     }
@@ -234,18 +236,18 @@ fn bench_interop(c: &mut Criterion) {
     let mut group = c.benchmark_group("sntrup761_interop");
 
     // C generates key, encode to wire format, Rust decodes and encapsulates
-    let c_sk = CFfiSecretKey::generate();
+    let c_sk = CFfiSecretKey::generate().unwrap();
     let c_pk_bytes = c_sk.public_key().as_bytes().to_vec();
 
     // Rust generates key, encode to wire format, C decodes and encapsulates
-    let rust_sk = PureRustSntrup761SecretKey::generate();
+    let rust_sk = PureRustSntrup761SecretKey::generate().unwrap();
     let rust_pk_bytes = rust_sk.public_key().as_bytes().to_vec();
 
     group.bench_function("c_keygen_rust_encap", |b| {
         b.iter(|| {
             // Rust decodes C's public key and encapsulates
             let pk = PureRustSntrup761PublicKey::from_bytes(&c_pk_bytes).unwrap();
-            let (ss, ct) = pk.encapsulate();
+            let (ss, ct) = pk.encapsulate().unwrap();
             black_box((ss, ct))
         })
     });
@@ -254,20 +256,20 @@ fn bench_interop(c: &mut Criterion) {
         b.iter(|| {
             // C decodes Rust's public key and encapsulates
             let pk = CFfiPublicKey::from_bytes(&rust_pk_bytes).unwrap();
-            let (ss, ct) = pk.encapsulate();
+            let (ss, ct) = pk.encapsulate().unwrap();
             black_box((ss, ct))
         })
     });
 
     // Full interop round-trip: one side generates, other encapsulates, first decapsulates
     group.bench_function("full_interop_c_to_rust", |b| {
-        let sk = CFfiSecretKey::generate();
+        let sk = CFfiSecretKey::generate().unwrap();
         let pk_bytes = sk.public_key().as_bytes().to_vec();
 
         b.iter(|| {
             // Rust encapsulates to C's key
             let pk = PureRustSntrup761PublicKey::from_bytes(&pk_bytes).unwrap();
-            let (_, ct) = pk.encapsulate();
+            let (_, ct) = pk.encapsulate().unwrap();
 
             // C decapsulates
             let ct_bytes = ct.as_bytes();
@@ -278,13 +280,13 @@ fn bench_interop(c: &mut Criterion) {
     });
 
     group.bench_function("full_interop_rust_to_c", |b| {
-        let sk = PureRustSntrup761SecretKey::generate();
+        let sk = PureRustSntrup761SecretKey::generate().unwrap();
         let pk_bytes = sk.public_key().as_bytes().to_vec();
 
         b.iter(|| {
             // C encapsulates to Rust's key
             let pk = CFfiPublicKey::from_bytes(&pk_bytes).unwrap();
-            let (_, ct) = pk.encapsulate();
+            let (_, ct) = pk.encapsulate().unwrap();
 
             // Rust decapsulates
             let ct_bytes = ct.as_bytes();
@@ -635,13 +637,20 @@ fn bench_r3_recip(c: &mut Criterion) {
         })
     });
 
-    group.bench_function("ntrulp", |bench| {
-        let g = NtrulpR3::from(coeffs_i8);
-        bench.iter(|| {
-            let result = g.recip();
-            black_box(result)
-        })
-    });
+    // `ntrulp::poly::r3::R3::recip` increments a u8/i8 `delta` past 127 without
+    // `wrapping_add`, so the algorithm relies on undefined-by-default wrapping
+    // and panics under `overflow-checks` (i.e. under `cargo test --benches`
+    // and any dev-profile bench smoke-test). Only invoke the ntrulp comparison
+    // when overflow checks are off — i.e. real `cargo bench` release builds.
+    if !cfg!(debug_assertions) {
+        group.bench_function("ntrulp", |bench| {
+            let g = NtrulpR3::from(coeffs_i8);
+            bench.iter(|| {
+                let result = g.recip();
+                black_box(result)
+            })
+        });
+    }
 
     group.finish();
 }

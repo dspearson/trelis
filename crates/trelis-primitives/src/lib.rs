@@ -10,8 +10,66 @@
 //!
 //! # Security
 //!
-//! All secret material is zeroized on drop. Operations are designed to be
-//! constant-time where security requires it.
+//! All secret material is zeroized on drop.
+//!
+//! ## Constant-Time Guarantees
+//!
+//! The library targets a **co-located-process timing adversary**: an attacker
+//! who runs on the same machine as the secret-holding process (different uid,
+//! different sandbox), observes wall-clock or CPU-counter timing of individual
+//! calls, and tries to derive any secret bit from those timings. Network-level
+//! and remote-cache adversaries are weaker and also defended; physical side
+//! channels (power, EM, fault injection) are out of scope.
+//!
+//! Operations that are CT-guaranteed against the threat model above (in source,
+//! verified by `subtle::ConstantTimeEq` / `ConditionallySelectable` and the
+//! statistical harnesses in `ct-tests/`):
+//!
+//! | Operation | Primitive |
+//! |---|---|
+//! | AEAD tag comparison | `aead::Tag::ct_eq` |
+//! | AEAD key comparison | `aead::AeadKey::ct_eq` |
+//! | Ed448 scalar multiplication | `ed448-goldilocks-plus` upstream |
+//! | ML-DSA-65 verify | `fips204` upstream |
+//! | SNTRUP761 decapsulation (incl. implicit rejection) | `sntrup761::pure_rust::decapsulate` |
+//! | X448 Diffie-Hellman + all-zeros check | `x448::diffie_hellman` |
+//! | Hybrid signature verify (bitwise AND of components) | `trelis_hybrid::signature::verify` |
+//! | Shared-secret comparison | `*::SharedSecret::ct_eq` |
+//!
+//! Operations that are NOT CT-guaranteed (inputs are attacker-controlled but
+//! not secret, or operate exclusively on public data):
+//!
+//! - Wire-format parsing (`trelis-wire`, every `from_bytes` and
+//!   `deserialize_*`): the BYTES are attacker-controlled, but no SECRET is in
+//!   scope at the parse point.
+//! - SNTRUP761 KEY GENERATION (`Sntrup761SecretKey::generate*`): variable-time
+//!   by design — multiple polynomial trials until one is invertible. Caller
+//!   should generate keys ahead of time, not on a hot timing-observable path.
+//! - Cocoa group-tree path computation: operates on group membership which is
+//!   public.
+//!
+//! ## WASM Target Caveats
+//!
+//! WASM in a browser inherits the source-level CT discipline of the underlying
+//! Rust primitives BUT:
+//!
+//! - WASM execution is typically JIT-compiled by the host JS engine (V8,
+//!   SpiderMonkey). The JIT may introduce data-dependent optimisations that
+//!   defeat CT (e.g. inlining a `secret == constant` check and folding it).
+//!   `subtle::ConstantTimeEq` is robust against optimisers for native targets;
+//!   in browsers, the additional JIT layer is **out of `subtle`'s reach**.
+//! - Browser timing measurement granularity defaults to ~100 µs since Spectre,
+//!   but `SharedArrayBuffer`-backed clocks can be much finer if the page has
+//!   COOP/COEP headers.
+//! - Recommended posture for WASM: treat the browser tab as semi-trusted,
+//!   prefer the native build for high-value secrets, and audit the rendered
+//!   wasm binary if precise CT is critical.
+//!
+//! ## Verification
+//!
+//! Source-level CT is reviewed in `FINDINGS-v1.1.md` Phase 7. Empirical CT is
+//! measured by the dudect harnesses in `ct-tests/`; results are captured in
+//! `audit-artifacts-v1.1/phase-7/`.
 //!
 //! # no_std Support
 //!
@@ -132,7 +190,9 @@ pub mod memlock;
 pub mod sntrup761;
 
 // Re-export key types for convenience
-pub use aead::{AeadKey, Nonce, Tag, decrypt, encrypt};
+pub use aead::{AeadKey, Nonce, Tag};
+#[cfg(feature = "alloc")]
+pub use aead::{decrypt, encrypt};
 pub use blake3_kdf::{
     // Domain separation contexts
     BUNDLE_WRAP_CONTEXT,
@@ -147,6 +207,7 @@ pub use blake3_kdf::{
     RECOVERY_ED448_CONTEXT,
     RECOVERY_MLDSA_CONTEXT,
     SAFETY_NUMBER_CONTEXT,
+    SAFETY_NUMBER_SYNC_CONTEXT,
     SESSION_CONTEXT,
     derive_key,
     hash,

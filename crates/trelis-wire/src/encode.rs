@@ -144,6 +144,7 @@ pub const fn encode_u64(value: u64) -> [u8; 8] {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
 
@@ -339,6 +340,7 @@ mod tests {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod proptests {
     use super::*;
     use crate::decode::{Decoder, decode_u16, decode_u32, decode_u64};
