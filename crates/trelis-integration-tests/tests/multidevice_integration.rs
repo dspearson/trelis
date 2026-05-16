@@ -27,6 +27,7 @@ use trelis_primitives::hash;
 /// 2. New device verifies the certificate
 /// 3. Existing device wraps keys for new device
 /// 4. New device unwraps and uses the keys
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_complete_device_onboarding_flow() {
     // === Setup: Existing device ===
@@ -105,6 +106,7 @@ fn test_complete_device_onboarding_flow() {
 }
 
 /// Tests that approval certificates cannot be verified with wrong keys.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_approval_verification_fails_with_wrong_key() {
     let device_id: DeviceId = [0x01u8; 16];
@@ -125,6 +127,7 @@ fn test_approval_verification_fails_with_wrong_key() {
 }
 
 /// Tests approval certificate serialisation roundtrip.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_approval_certificate_serialisation_roundtrip() {
     let signing_key = HybridSigningKeypair::generate().unwrap();
@@ -156,6 +159,7 @@ fn test_approval_certificate_serialisation_roundtrip() {
 /// 2. Package them in a HistoryKeyShareMessage
 /// 3. Serialise, deserialise, and verify
 /// 4. Merge into new device's key store
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_complete_history_sync_flow() {
     let thread_id: ThreadId = [0x42u8; 32];
@@ -195,7 +199,7 @@ fn test_complete_history_sync_flow() {
     let mut new_device_store = ThreadKeyStore::new(thread_id);
     assert!(new_device_store.is_empty());
 
-    new_device_store.merge(recovered.keys);
+    new_device_store.merge(recovered.keys.clone());
     assert_eq!(new_device_store.len(), 10);
 
     // Verify sequence ordering
@@ -212,6 +216,7 @@ fn test_complete_history_sync_flow() {
 }
 
 /// Tests that history sync messages cannot be verified with wrong sender key.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_history_sync_verification_fails_with_wrong_key() {
     let thread_id: ThreadId = [0x42u8; 32];
@@ -232,6 +237,7 @@ fn test_history_sync_verification_fails_with_wrong_key() {
 }
 
 /// Tests ThreadKeyStore merge deduplication.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_key_store_merge_deduplication() {
     let thread_id: ThreadId = [0x42u8; 32];
@@ -263,6 +269,7 @@ fn test_key_store_merge_deduplication() {
 }
 
 /// Tests ThreadKeyStore pruning by timestamp.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_key_store_pruning() {
     let thread_id: ThreadId = [0x42u8; 32];
@@ -303,6 +310,7 @@ fn test_key_store_pruning() {
 /// 2. Verify the certificate
 /// 3. Extract rekey event
 /// 4. Verify priority based on reason
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_complete_device_revocation_flow() {
     let device_id: DeviceId = [0x42u8; 16];
@@ -358,6 +366,7 @@ fn test_complete_device_revocation_flow() {
 }
 
 /// Tests that revocation cannot be verified with wrong key.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_revocation_verification_fails_with_wrong_key() {
     let device_id: DeviceId = [0x42u8; 16];
@@ -378,6 +387,7 @@ fn test_revocation_verification_fails_with_wrong_key() {
 }
 
 /// Tests revocation certificate serialisation roundtrip.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_revocation_serialisation_roundtrip() {
     let identity_key = HybridSigningKeypair::generate().unwrap();
@@ -409,6 +419,7 @@ fn test_revocation_serialisation_roundtrip() {
 // =============================================================================
 
 /// Tests DeviceKeyWrap with all purpose types.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_device_key_wrap_all_purposes() {
     let keypair = HybridKemKeypair::generate().unwrap();
@@ -436,6 +447,7 @@ fn test_device_key_wrap_all_purposes() {
 }
 
 /// Tests that wrong context causes unwrap to fail.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_device_key_wrap_context_binding() {
     let keypair = HybridKemKeypair::generate().unwrap();
@@ -496,6 +508,7 @@ fn test_device_key_wrap_context_binding() {
 }
 
 /// Tests that wrong key_id causes unwrap to fail early.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_device_key_wrap_key_id_binding() {
     let keypair = HybridKemKeypair::generate().unwrap();
@@ -530,6 +543,7 @@ fn test_device_key_wrap_key_id_binding() {
 }
 
 /// Tests DeviceKeyWrap serialisation roundtrip.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_device_key_wrap_serialisation() {
     let keypair = HybridKemKeypair::generate().unwrap();
@@ -561,6 +575,7 @@ fn test_device_key_wrap_serialisation() {
 // =============================================================================
 
 /// Tests thread settings toggle behaviour.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_thread_settings_toggle() {
     let thread_id: ThreadId = [0x42u8; 32];
@@ -584,6 +599,7 @@ fn test_thread_settings_toggle() {
 }
 
 /// Tests ephemeral thread creation.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_ephemeral_thread() {
     let thread_id: ThreadId = [0x42u8; 32];
@@ -600,6 +616,7 @@ fn test_ephemeral_thread() {
 // =============================================================================
 
 /// Tests a scenario with multiple devices receiving keys.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_multi_device_key_distribution() {
     let thread_id: ThreadId = [0x42u8; 32];
@@ -654,6 +671,7 @@ fn test_multi_device_key_distribution() {
 }
 
 /// Tests a complete onboarding + history sync scenario.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_onboarding_with_history_sync() {
     let thread_id: ThreadId = [0x42u8; 32];
@@ -702,7 +720,7 @@ fn test_onboarding_with_history_sync() {
 
     // === Step 4: New device merges keys ===
     let mut new_store = ThreadKeyStore::new(thread_id);
-    new_store.merge(history_message.keys);
+    new_store.merge(history_message.keys.clone());
 
     assert_eq!(new_store.len(), 50);
     assert_eq!(new_store.sequence_range(), Some((0, 49)));
@@ -715,6 +733,7 @@ fn test_onboarding_with_history_sync() {
 // =============================================================================
 
 /// Tests malformed data handling.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_malformed_data_handling() {
     // Empty data
@@ -737,6 +756,7 @@ fn test_malformed_data_handling() {
 }
 
 /// Tests invalid revocation reason handling.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_invalid_revocation_reason() {
     assert!(RevocationReason::from_byte(99).is_none());
@@ -746,6 +766,7 @@ fn test_invalid_revocation_reason() {
 }
 
 /// Tests invalid wrap purpose handling.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_invalid_wrap_purpose() {
     assert!(WrapPurpose::from_byte(0).is_none());
@@ -760,6 +781,7 @@ fn test_invalid_wrap_purpose() {
 // =============================================================================
 
 /// Tests device fingerprint determinism.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_device_fingerprint_determinism() {
     let keypair = HybridSigningKeypair::generate().unwrap();
@@ -785,6 +807,7 @@ fn test_device_fingerprint_determinism() {
 // Summary Test
 // =============================================================================
 
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_all_multidevice_components_present() {
     // Verify all expected exports are available

@@ -105,6 +105,7 @@ impl DeviceRevocation {
     /// # Errors
     ///
     /// Returns `SignatureError` if signing fails.
+    #[cfg(feature = "alloc")]
     pub fn new(
         device_id: DeviceId,
         reason: RevocationReason,
@@ -131,6 +132,8 @@ impl DeviceRevocation {
     /// # Errors
     ///
     /// Returns `SignatureError` if verification fails.
+    #[cfg(feature = "alloc")]
+    #[must_use = "the verify outcome must be checked"]
     pub fn verify(&self, user_key: &HybridSigningPublicKey) -> Result<()> {
         let sig_data = Self::signing_data(&self.device_id, self.revoked_at, self.reason);
         user_key.verify(&sig_data, &self.signature)

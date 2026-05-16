@@ -45,23 +45,45 @@
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+// DYN-01-MIRI-01: header/state/receive/send/(parts of kdf,nonce) use
+// `HybridKemKeypair` and related types from `trelis-hybrid`, which are gated
+// behind `std`/`wasm` because they wrap SNTRUP761 (whose generation requires
+// the system CSPRNG). Mirror that gate here so `cargo check
+// --no-default-features` succeeds on this crate (compiling to a near-empty
+// library) instead of failing with cascading import errors. With this gate
+// in place MIRI can complete a `--no-default-features` workspace run; full
+// MIRI coverage of this crate must be invoked with `--features std` (the
+// default).
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub mod header;
 pub mod kdf;
 pub mod nonce;
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub mod receive;
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub mod send;
 pub mod serialise;
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub mod state;
 
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub use header::{AAD_SIZE, HEADER_SIZE, MessageHeader, RatchetMessage};
-pub use kdf::{KDF_MESSAGE, KDF_ROOT, kdf_rk};
-pub use nonce::{NONCE_CONTEXT, NONCE_SIZE, derive_hedged_nonce};
+#[cfg(feature = "alloc")]
+pub use kdf::kdf_rk;
+pub use kdf::{KDF_MESSAGE, KDF_ROOT};
+#[cfg(any(feature = "std", feature = "wasm"))]
+pub use nonce::derive_hedged_nonce;
+pub use nonce::{NONCE_CONTEXT, NONCE_SIZE};
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub use receive::receive_message;
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub use send::{SendResult, send_message};
 pub use serialise::{MAGIC, STATE_VERSION};
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub use state::{KemRatchet, RatchetStatus};
 
 /// Type alias for backwards compatibility.
+#[cfg(any(feature = "std", feature = "wasm"))]
 #[deprecated(
     since = "1.1.0",
     note = "Use KemRatchet instead - this is a KEM ratchet, not a double ratchet"

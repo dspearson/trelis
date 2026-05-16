@@ -67,19 +67,35 @@
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+// DYN-01-MIRI-01 follow-on: every module in this crate ultimately imports
+// `HybridKemKeypair`, `HybridIdentityKeypair`, or `HybridKemPublicKey` from
+// `trelis-hybrid`, which are gated behind `std`/`wasm` because they wrap
+// CSPRNG-dependent constructors. Mirror that gate here so `cargo check
+// --no-default-features` succeeds (compiling to a near-empty library re-
+// exporting only `MAX_GROUP_SIZE` and similar constants) instead of failing
+// with cascading import errors.
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub mod epoch;
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub mod key_schedule;
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub mod operations;
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub mod session;
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub mod tree;
 
 // Re-exports
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub use epoch::{EpochSecrets, MessageKey};
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub use key_schedule::{
     H1_CONTEXT, H2_CONTEXT_PREFIX, H2_CONTEXT_SNTRUP, H2_CONTEXT_X448, H3_CONTEXT, H4_CONTEXT,
     H5_CONTEXT,
 };
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub use session::CocoaSession;
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub use tree::{NodeIndex, NodeState, PartialTreeView};
 
 /// Maximum group size (2^20 = ~1 million members).

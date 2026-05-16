@@ -32,16 +32,34 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
+// DYN-01-MIRI-01: the X3DH-PQ session protocol uses `HybridKemKeypair`,
+// `HybridIdentityKeypair`, and `HybridKemPublicKey` from `trelis-hybrid`,
+// which are gated behind `std`/`wasm` because they need the system CSPRNG.
+// Mirror that gate so `cargo check --no-default-features` succeeds on this
+// crate (compiling to a near-empty library that only re-exports
+// `CryptoError`/`Result`) instead of failing with cascading import errors.
+// Full MIRI coverage of this crate must be invoked with `--features std`
+// (the default).
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub mod bundle;
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub mod initiator;
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub mod responder;
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub mod session_keys;
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub mod transcript;
 
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub use bundle::{PreKeyBundle, SignedPreKeyBundle};
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub use initiator::{InitialMessage, Initiator};
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub use responder::Responder;
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub use session_keys::SessionKeys;
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub use transcript::Transcript;
 
 pub use trelis_error::{CryptoError, Result};

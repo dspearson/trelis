@@ -41,20 +41,36 @@
 extern crate alloc;
 
 mod approval;
+// DYN-01-MIRI-01 follow-on: `device_key_wrap` uses `HybridKemKeypair`,
+// `HybridEncapsulation`, `HybridKemPublicKey` from `trelis-hybrid`, which
+// are gated behind `std`/`wasm`. Mirror that gate; without it the crate
+// fails to compile under `--no-default-features`.
+#[cfg(any(feature = "std", feature = "wasm"))]
 mod device_key_wrap;
 mod history;
 mod retained_key;
 mod revocation;
 mod settings;
 
-pub use approval::{DeviceApprovalCertificate, FINGERPRINT_SIZE, device_fingerprint};
+pub use approval::{DeviceApprovalCertificate, FINGERPRINT_SIZE};
+// `device_fingerprint`, `HistoryKeyShareMessage`, `ThreadKeyStore`, and
+// `RetainedKey` are themselves `#[cfg(feature = "alloc")]`-gated in their
+// modules (they own `Vec`-based fields). Match the gate on the re-exports.
+#[cfg(feature = "alloc")]
+pub use approval::device_fingerprint;
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub use device_key_wrap::{
     DEVICE_KEY_WRAP_SIZE, DeviceKeyWrap, KEY_ID_SIZE, WRAP_CONTEXT, WrapContext, WrapPurpose,
 };
-pub use history::{HistoryKeyShare, HistoryKeyShareMessage};
+pub use history::HistoryKeyShare;
+#[cfg(feature = "alloc")]
+pub use history::HistoryKeyShareMessage;
+#[cfg(feature = "alloc")]
 pub use retained_key::RetainedKey;
 pub use revocation::{DeviceRevocation, RevocationReason, RevocationRekeyEvent};
-pub use settings::{ThreadKeyStore, ThreadSettings};
+#[cfg(feature = "alloc")]
+pub use settings::ThreadKeyStore;
+pub use settings::ThreadSettings;
 
 /// Thread identifier type.
 pub type ThreadId = [u8; 32];

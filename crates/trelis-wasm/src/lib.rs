@@ -30,6 +30,18 @@ type HybridSigningKeypair =
     trelis_hybrid::HybridSigningKeypair<trelis_primitives::mldsa::DefaultMlDsaScheme>;
 type HybridSignature = trelis_hybrid::HybridSignature<trelis_primitives::mldsa::DefaultMlDsaScheme>;
 
+/// BLAKE3 `derive_key` context for reconstructing a CoCoA group session's
+/// `init_secret` when deserialising a legacy (pre-`init_secret`-field) session
+/// blob in `deserialize_cocoa_session`.
+///
+/// Deliberately distinct from `trelis_primitives::SESSION_CONTEXT`
+/// (`"trelis-session-v1"`): that context derives an X3DH-PQ *pairwise* session
+/// secret from a 296-byte transcript, whereas this reconstructs a CoCoA *group*
+/// `init_secret` from a 32-byte transcript hash. Different protocols, different
+/// operations — sharing a context string would be a domain-separation
+/// violation, not an interoperability fix. See FINDINGS.md API-04-H1.
+const COCOA_WASM_LEGACY_SESSION_CONTEXT: &str = "trelis-cocoa-wasm-session-v1";
+
 /// Initialise the WASM module with better panic handling (optional).
 #[wasm_bindgen(start)]
 pub fn init() {
@@ -1374,7 +1386,7 @@ fn serialize_ratchet_state(state: &trelis_ratchet::KemRatchet) -> Vec<u8> {
     let size = 1819 + 32 + if has_their_pk { 1214 } else { 0 } + 16 + 1 + 8 + 1;
     let mut buf = Vec::with_capacity(size);
 
-    buf.extend_from_slice(&state.our_keypair().to_bytes());
+    buf.extend_from_slice(&state.our_keypair().to_bytes()[..]);
     buf.extend_from_slice(state.root_key());
     buf.push(if has_their_pk { 1 } else { 0 });
     if let Some(pk) = their_pk {
@@ -1406,6 +1418,19 @@ fn deserialize_ratchet_state(bytes: &[u8]) -> trelis_error::Result<trelis_ratche
 
     let has_their_pk = bytes[1851] == 1;
     let mut offset = 1852;
+
+    // The entry guard above only covers the minimum (no their_public_key) layout.
+    // Now that has_their_pk is known, validate the full required length before any
+    // further offset-based indexing (WASM-03b: prevents a trap on crafted short input).
+    let required = offset
+        + if has_their_pk { 1214 } else { 0 }
+        + 8  // send_count
+        + 8  // recv_count
+        + 1  // status
+        + 8; // last_activity
+    if bytes.len() < required {
+        return Err(trelis_error::CryptoError::MalformedMessage);
+    }
 
     let their_pk = if has_their_pk {
         let pk = trelis_hybrid::HybridKemPublicKey::from_bytes(&bytes[offset..offset + 1214])?;
@@ -1802,27 +1827,38 @@ fn deserialize_welcome(bytes: &[u8]) -> Result<trelis_cocoa::operations::Welcome
     let member_count = u32::from_le_bytes(bytes[48..52].try_into().unwrap());
 
     let encrypted_info_len = u32::from_le_bytes(bytes[52..56].try_into().unwrap()) as usize;
-    let encrypted_info_end = 56 + encrypted_info_len;
 
-    if bytes.len() < encrypted_info_end + 4 {
+    // Use checked arithmetic throughout — wasm32 has 32-bit usize, so a
+    // maximal length field plus a small offset wraps and causes a slice
+    // panic on malformed input.
+    let encrypted_info_end = 56usize
+        .checked_add(encrypted_info_len)
+        .ok_or_else(|| JsValue::from_str("Welcome message length overflow"))?;
+    let after_encrypted_info = encrypted_info_end
+        .checked_add(4)
+        .ok_or_else(|| JsValue::from_str("Welcome message length overflow"))?;
+
+    if bytes.len() < after_encrypted_info {
         return Err(JsValue::from_str("Welcome message truncated"));
     }
 
     let encrypted_info = bytes[56..encrypted_info_end].to_vec();
 
     let encapsulation_len = u32::from_le_bytes(
-        bytes[encrypted_info_end..encrypted_info_end + 4]
+        bytes[encrypted_info_end..after_encrypted_info]
             .try_into()
             .unwrap(),
     ) as usize;
 
-    let encapsulation_start = encrypted_info_end + 4;
-    if bytes.len() < encapsulation_start + encapsulation_len {
+    let encapsulation_start = after_encrypted_info;
+    let encapsulation_end = encapsulation_start
+        .checked_add(encapsulation_len)
+        .ok_or_else(|| JsValue::from_str("Welcome message length overflow"))?;
+    if bytes.len() < encapsulation_end {
         return Err(JsValue::from_str("Welcome message truncated"));
     }
 
-    let encapsulation =
-        bytes[encapsulation_start..encapsulation_start + encapsulation_len].to_vec();
+    let encapsulation = bytes[encapsulation_start..encapsulation_end].to_vec();
 
     Ok(trelis_cocoa::operations::Welcome {
         group_id,
@@ -1852,7 +1888,7 @@ fn serialize_cocoa_session(session: &trelis_cocoa::CocoaSession) -> Vec<u8> {
     buf.extend_from_slice(session.transcript_hash());
     buf.extend_from_slice(session.init_secret());
     buf.extend_from_slice(&session.message_counter().to_le_bytes());
-    buf.extend_from_slice(&session.our_keypair().to_bytes());
+    buf.extend_from_slice(&session.our_keypair().to_bytes()[..]);
 
     buf
 }
@@ -1891,7 +1927,7 @@ fn deserialize_cocoa_session(bytes: &[u8]) -> trelis_error::Result<trelis_cocoa:
     } else {
         // Old format: derive from transcript_hash (backwards compatible but less accurate)
         let init_secret =
-            trelis_primitives::derive_key("trelis-cocoa-wasm-session-v1", &transcript_hash);
+            trelis_primitives::derive_key(COCOA_WASM_LEGACY_SESSION_CONTEXT, &transcript_hash);
         (init_secret, 0u64, 116)
     };
 
@@ -2917,7 +2953,7 @@ pub fn history_key_share_extract_keys(message_bytes: &[u8]) -> Result<Vec<u8>, J
 
     let mut result = Vec::with_capacity(msg.keys.len() * 80);
     for key in &msg.keys {
-        result.extend_from_slice(&key.to_bytes());
+        result.extend_from_slice(&key.to_bytes()[..]);
     }
 
     Ok(result)
@@ -2983,7 +3019,7 @@ pub fn thread_key_store_get_all_keys(store_bytes: &[u8]) -> Result<Vec<u8>, JsVa
 
     let mut result = Vec::with_capacity(store.len() * 80);
     for key in store.get_all_keys() {
-        result.extend_from_slice(&key.to_bytes());
+        result.extend_from_slice(&key.to_bytes()[..]);
     }
 
     Ok(result)
@@ -3076,7 +3112,7 @@ fn serialize_thread_key_store(store: &trelis_multidevice::ThreadKeyStore) -> Vec
     buf.extend_from_slice(&(key_count as u64).to_le_bytes());
 
     for key in store.get_all_keys() {
-        buf.extend_from_slice(&key.to_bytes());
+        buf.extend_from_slice(&key.to_bytes()[..]);
     }
 
     buf
@@ -3092,15 +3128,28 @@ fn deserialize_thread_key_store(
     let mut thread_id = [0u8; 32];
     thread_id.copy_from_slice(&bytes[0..32]);
 
-    let key_count = u64::from_le_bytes(bytes[32..40].try_into().unwrap()) as usize;
+    // The on-wire count is a u64; on 32-bit wasm `as usize` silently
+    // truncates. Use try_from so a u64 that doesn't fit a usize is rejected
+    // rather than producing a phantom small count.
+    let key_count: usize =
+        usize::try_from(u64::from_le_bytes(bytes[32..40].try_into().unwrap()))
+            .map_err(|_| JsValue::from_str("ThreadKeyStore key_count exceeds platform usize"))?;
 
-    if bytes.len() < 40 + key_count * 80 {
+    // Use checked arithmetic — wasm32 has 32-bit usize, so a maximal
+    // key_count multiplies / adds past usize::MAX without the guard.
+    let required = key_count
+        .checked_mul(80)
+        .and_then(|x| x.checked_add(40))
+        .ok_or_else(|| JsValue::from_str("ThreadKeyStore length overflow"))?;
+
+    if bytes.len() < required {
         return Err(JsValue::from_str("ThreadKeyStore truncated"));
     }
 
     let mut store = trelis_multidevice::ThreadKeyStore::with_capacity(thread_id, key_count);
 
     for i in 0..key_count {
+        // Safe: bytes.len() >= 40 + key_count*80 implies offset+80 <= bytes.len().
         let offset = 40 + i * 80;
         let key = trelis_multidevice::RetainedKey::from_bytes(&bytes[offset..offset + 80])
             .map_err(|_| JsValue::from_str("Invalid retained key in store"))?;
@@ -3269,7 +3318,7 @@ mod native_tests {
     fn test_hybrid_kem_serialization_roundtrip() {
         let keypair = trelis_hybrid::HybridKemKeypair::generate().unwrap();
         let bytes = keypair.to_bytes();
-        let restored = trelis_hybrid::HybridKemKeypair::from_bytes(&bytes).unwrap();
+        let restored = trelis_hybrid::HybridKemKeypair::from_bytes(&bytes[..]).unwrap();
 
         assert_eq!(
             keypair.public_key().to_bytes(),
@@ -3315,7 +3364,7 @@ mod native_tests {
     fn test_hybrid_identity_serialization_roundtrip() {
         let keypair = trelis_hybrid::HybridIdentityKeypair::generate().unwrap();
         let bytes = keypair.to_bytes();
-        let restored = trelis_hybrid::HybridIdentityKeypair::from_bytes(&bytes).unwrap();
+        let restored = trelis_hybrid::HybridIdentityKeypair::from_bytes(&bytes[..]).unwrap();
 
         assert_eq!(
             keypair.public_key().to_bytes(),
@@ -3475,6 +3524,31 @@ mod native_tests {
         assert_eq!(state.status(), restored.status());
     }
 
+    // Regression test for WASM-03b: deserialize_ratchet_state must reject a buffer that satisfies
+    // the minimum-length entry guard but is too short for the has_their_pk=true layout it claims,
+    // returning an error rather than trapping on out-of-bounds indexing.
+    #[test]
+    fn ratchet_state_truncated_with_their_pk_flag_is_rejected() {
+        use super::*;
+
+        let session_key: [u8; 32] = trelis_primitives::generate_bytes().unwrap();
+        let their_keypair = trelis_hybrid::HybridKemKeypair::generate().unwrap();
+        let state = trelis_ratchet::KemRatchet::init_initiator(
+            &session_key,
+            their_keypair.public_key().clone(),
+            1000,
+        )
+        .unwrap();
+
+        // The full form includes a 1214-byte their_public_key; the has_their_pk byte is at
+        // index 1851. Truncate to 1877 bytes — past the no-their_pk minimum guard, but far
+        // short of the 3091 bytes the has_their_pk=1 flag claims.
+        let full = serialize_ratchet_state(&state);
+        assert!(full.len() > 1877);
+        assert_eq!(full[1851], 1, "fixture should have their_public_key set");
+        assert!(deserialize_ratchet_state(&full[..1877]).is_err());
+    }
+
     #[test]
     fn test_cocoa_session_serialization() {
         use super::*;
@@ -3497,6 +3571,20 @@ mod native_tests {
         assert_eq!(session.our_user_id(), restored.our_user_id());
         assert_eq!(session.our_leaf_position(), restored.our_leaf_position());
         assert_eq!(session.member_count(), restored.member_count());
+    }
+
+    // Regression test for API-04-H1 (reclassified Informational): the CoCoA WASM legacy-session
+    // context string is intentionally DISTINCT from the X3DH-PQ SESSION_CONTEXT. They derive
+    // different values (CoCoA group init_secret vs X3DH pairwise session secret) from different
+    // inputs; sharing a context would be a domain-separation violation, not an interop fix. This
+    // guards against a well-meaning future change that makes them equal. See FINDINGS.md API-04-H1.
+    #[test]
+    fn wasm_cocoa_session_context_is_domain_separated_from_x3dh() {
+        assert_ne!(
+            super::COCOA_WASM_LEGACY_SESSION_CONTEXT,
+            trelis_primitives::SESSION_CONTEXT,
+            "CoCoA WASM legacy-session context must stay domain-separated from the X3DH-PQ session context (API-04-H1)"
+        );
     }
 }
 

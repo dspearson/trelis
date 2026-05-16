@@ -84,6 +84,7 @@ impl DeviceApprovalCertificate {
     /// # Errors
     ///
     /// Returns `CryptoError` if signing fails.
+    #[cfg(feature = "alloc")]
     pub fn new(
         approving_device_id: DeviceId,
         new_device_fingerprint: [u8; FINGERPRINT_SIZE],
@@ -112,6 +113,8 @@ impl DeviceApprovalCertificate {
     /// # Errors
     ///
     /// Returns `SignatureVerificationFailed` if the signature is invalid.
+    #[cfg(feature = "alloc")]
+    #[must_use = "the verify outcome must be checked"]
     pub fn verify(&self, approving_device_key: &HybridSigningPublicKey) -> Result<()> {
         let sig_data = Self::signing_data(
             &self.approving_device_id,
