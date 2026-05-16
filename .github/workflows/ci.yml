@@ -104,3 +104,92 @@ jobs:
 
       - name: Check documentation
         run: cargo doc --workspace --no-deps --all-features
+
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.92"
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Run cargo audit
+        run: cargo audit --deny warnings
+
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+
+      - name: Run cargo deny
+        run: cargo deny check
+
+  feature-powerset:
+    name: Feature Powerset (cargo hack)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.92"
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-hack
+        run: cargo install cargo-hack --locked
+
+      - name: cargo hack check --feature-powerset
+        run: cargo hack check --workspace --feature-powerset
+
+  auxiliary-crates:
+    name: Auxiliary Crates Build Smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      # DYN-03-NEW1: ensure the fuzz harnesses still compile against the
+      # workspace's current ntrulp / rand_core.
+      - name: cargo check (fuzz crate)
+        run: cargo check --manifest-path fuzz/Cargo.toml
+
+      # CT-01-NEW1: ensure the dudect harnesses still compile.
+      - name: cargo build (ct-tests --release)
+        run: cargo build --manifest-path ct-tests/Cargo.toml --release
+
+  miri:
+    name: MIRI (Undefined Behaviour)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly with miri
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      # MIRI is slow; run library tests on the small, foundational crates
+      # where UB is most likely. Larger crates' MIRI is gated on a label
+      # to keep PR signal fast.
+      - name: cargo miri test (trelis-wire)
+        run: cargo miri test -p trelis-wire --no-default-features --lib
+        env:
+          MIRIFLAGS: -Zmiri-disable-isolation

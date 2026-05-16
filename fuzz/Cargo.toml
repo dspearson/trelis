@@ -1,0 +1,66 @@
+[package]
+name = "trelis-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+trelis-wire = { path = "../crates/trelis-wire", default-features = false }
+trelis-ratchet = { path = "../crates/trelis-ratchet" }
+trelis-hybrid = { path = "../crates/trelis-hybrid" }
+trelis-cocoa = { path = "../crates/trelis-cocoa" }
+trelis-primitives = { path = "../crates/trelis-primitives" }
+# ntrulp must match the workspace's primitives crate (currently 0.2.x).
+# Pinning `=0.2.3` here would force two ntrulp majors into the dep graph and
+# fail rand_core trait resolution against primitives' generate_from_rng.
+ntrulp = { version = "0.2", default-features = false, features = ["ntrup761"] }
+
+[[bin]]
+name = "wire_decoder"
+path = "fuzz_targets/wire_decoder.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "ratchet_decrypt"
+path = "fuzz_targets/ratchet_decrypt.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "x3dh_bundle_parser"
+path = "fuzz_targets/x3dh_bundle_parser.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "cocoa_welcome_parser"
+path = "fuzz_targets/cocoa_welcome_parser.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "mldsa_verify"
+path = "fuzz_targets/mldsa_verify.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "sntrup761_decap"
+path = "fuzz_targets/sntrup761_decap.rs"
+test = false
+doc = false
+
+# Seed-corpus generator — run once to populate fuzz/corpus/<harness>/ with a
+# small set of valid + edge-case inputs. DYN-03-NEW2 follow-up.
+[[bin]]
+name = "seed_corpus"
+path = "src/bin/seed_corpus.rs"
+test = false
+doc = false
