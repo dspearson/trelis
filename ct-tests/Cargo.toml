@@ -1,0 +1,49 @@
+[workspace]
+
+[package]
+name = "ct-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Not a workspace member; referenced by absolute path in dependencies.
+# Build always with: cargo build --release (opt-level 3 via profile below).
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+
+[dependencies]
+# Statistical timing harness
+dudect-bencher = "0.6"
+
+# Trelis primitives (path dep; features must match native-Linux build)
+trelis-primitives = { path = "../crates/trelis-primitives", default-features = false, features = ["std"] }
+trelis-error = { path = "../crates/trelis-error", default-features = false, features = ["std"] }
+
+# ntrulp must match the workspace's primitives crate (currently 0.2.x = 0.2.5).
+# Pinning `=0.2.3` here forces two ntrulp majors into the dep graph and breaks
+# rand_core trait resolution against primitives' generate_from_rng.
+ntrulp = { version = "0.2", default-features = false, features = ["ntrup761"] }
+
+# Needed to drive the operations under test
+rand = "0.8"
+
+# Required for explicit ConstantTimeEq trait usage in ct_aead_tag.rs
+subtle = "2"
+
+[[bin]]
+name = "ct_aead_tag"
+path = "src/bin/ct_aead_tag.rs"
+
+[[bin]]
+name = "ct_sntrup761_decap"
+path = "src/bin/ct_sntrup761_decap.rs"
+
+[[bin]]
+name = "ct_ed448_scalarmult"
+path = "src/bin/ct_ed448_scalarmult.rs"
+
+[[bin]]
+name = "ct_mldsa_verify"
+path = "src/bin/ct_mldsa_verify.rs"
