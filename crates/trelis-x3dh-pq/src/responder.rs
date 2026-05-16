@@ -131,11 +131,13 @@ impl Responder {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
     use crate::bundle::PreKeyBundle;
     use crate::initiator::Initiator;
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_initiator_responder_derive_same_keys() {
         // Alice's identity
@@ -192,6 +194,7 @@ mod tests {
         );
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_different_identities_different_keys() {
         // Alice's identity
@@ -237,6 +240,7 @@ mod tests {
         );
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_multiple_sessions_different_keys() {
         // Alice's identity

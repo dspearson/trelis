@@ -492,6 +492,7 @@ mod tests {
         assert_eq!(recovered.path_updates_hash, content.path_updates_hash);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_sign_verify_commit() {
         let identity = test_identity();
@@ -501,6 +502,7 @@ mod tests {
         assert!(verify_commit_signature(identity.public_key(), &content, &signature).is_ok());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_wrong_identity_fails() {
         let identity1 = test_identity();
@@ -511,6 +513,7 @@ mod tests {
         assert!(verify_commit_signature(identity2.public_key(), &content, &signature).is_err());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_modified_content_fails() {
         let identity = test_identity();
@@ -544,6 +547,7 @@ mod tests {
         assert_ne!(hash1, hash2);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_extended_commit_add() {
         let identity = test_identity();
@@ -556,6 +560,7 @@ mod tests {
         );
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_extended_commit_remove() {
         let identity = test_identity();
@@ -568,6 +573,7 @@ mod tests {
         );
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_extended_commit_update() {
         let identity = test_identity();

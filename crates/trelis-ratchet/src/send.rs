@@ -104,6 +104,8 @@ pub fn send_message(
     let new_keypair = HybridKemKeypair::generate()?;
 
     // Step 3: Encapsulate to recipient's public key
+    #[allow(clippy::expect_used)]
+    // AUDIT: infallible — validate_can_send() at line 101 returns Err(NoRecipientKey) if their_public_key is absent
     let their_pk = state
         .their_public_key()
         .expect("validated in validate_can_send");
@@ -113,6 +115,8 @@ pub fn send_message(
     let mut kdf_output = kdf_rk(state.root_key(), shared_secret.as_bytes());
 
     // Step 5: Build header
+    #[allow(clippy::expect_used)]
+    // AUDIT: infallible — validate_can_send() guarantees their_key_id is Some
     let header = MessageHeader::new(
         state.their_key_id().expect("validated"),
         new_keypair.public_key().clone(),
@@ -155,6 +159,7 @@ pub fn send_message(
 mod tests {
     use super::*;
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_send_message() {
         let session_key = [0x42u8; 32];
@@ -176,6 +181,7 @@ mod tests {
         assert_eq!(state.status(), RatchetStatus::AwaitingReply);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_send_multiple_messages() {
         let session_key = [0x42u8; 32];
@@ -195,6 +201,7 @@ mod tests {
         assert_eq!(state.send_count(), 5);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_send_rotates_keypair() {
         let session_key = [0x42u8; 32];
@@ -214,6 +221,7 @@ mod tests {
         assert!(state.find_keypair(original_key_id).is_some());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_send_without_recipient_fails() {
         let session_key = [0x42u8; 32];
@@ -225,6 +233,7 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_send_different_sender_key_each_message() {
         let session_key = [0x42u8; 32];

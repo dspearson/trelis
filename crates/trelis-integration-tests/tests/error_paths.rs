@@ -197,6 +197,7 @@ mod aead_errors {
 mod ed448_errors {
     use super::*;
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_ed448_verify_wrong_key() {
         let keypair1 = Ed448SigningKey::generate().unwrap();
@@ -210,6 +211,7 @@ mod ed448_errors {
         assert!(result.is_err());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_ed448_verify_wrong_message() {
         let keypair = Ed448SigningKey::generate().unwrap();
@@ -223,6 +225,7 @@ mod ed448_errors {
         assert!(result.is_err());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_ed448_verify_modified_signature() {
         let keypair = Ed448SigningKey::generate().unwrap();
@@ -250,6 +253,7 @@ mod ed448_errors {
         }
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_ed448_verify_empty_message() {
         let keypair = Ed448SigningKey::generate().unwrap();
@@ -279,6 +283,7 @@ mod ed448_errors {
 mod mldsa65_errors {
     use super::*;
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_mldsa65_verify_wrong_key() {
         let keypair1 = MlDsa65SigningKey::generate().unwrap();
@@ -292,6 +297,7 @@ mod mldsa65_errors {
         assert!(result.is_err());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_mldsa65_verify_wrong_message() {
         let keypair = MlDsa65SigningKey::generate().unwrap();
@@ -305,6 +311,7 @@ mod mldsa65_errors {
         assert!(result.is_err());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_mldsa65_verify_modified_signature() {
         let keypair = MlDsa65SigningKey::generate().unwrap();
@@ -322,6 +329,7 @@ mod mldsa65_errors {
         assert!(result.is_err());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_mldsa65_verify_empty_message() {
         let keypair = MlDsa65SigningKey::generate().unwrap();
@@ -341,6 +349,7 @@ mod mldsa65_errors {
 mod hybrid_signature_errors {
     use super::*;
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_hybrid_verify_wrong_key() {
         let keypair1 = HybridSigningKeypair::generate().unwrap();
@@ -354,6 +363,7 @@ mod hybrid_signature_errors {
         assert!(result.is_err());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_hybrid_verify_wrong_message() {
         let keypair = HybridSigningKeypair::generate().unwrap();
@@ -367,6 +377,7 @@ mod hybrid_signature_errors {
         assert!(result.is_err());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_hybrid_verify_with_empty_message() {
         let keypair = HybridSigningKeypair::generate().unwrap();
@@ -378,6 +389,7 @@ mod hybrid_signature_errors {
         assert!(result.is_ok());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_hybrid_verify_large_message() {
         let keypair = HybridSigningKeypair::generate().unwrap();
@@ -388,6 +400,7 @@ mod hybrid_signature_errors {
         assert!(result.is_ok());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_hybrid_signature_serialization_roundtrip() {
         let keypair = HybridSigningKeypair::generate().unwrap();
@@ -409,6 +422,7 @@ mod hybrid_signature_errors {
 mod x448_errors {
     use super::*;
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_x448_dh_produces_different_secrets() {
         let alice = X448Secret::generate().unwrap();
@@ -425,6 +439,7 @@ mod x448_errors {
         assert_ne!(ab_secret.as_bytes(), ac_secret.as_bytes());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_x448_dh_symmetric() {
         let alice = X448Secret::generate().unwrap();
@@ -437,6 +452,7 @@ mod x448_errors {
         assert_eq!(ab_secret.as_bytes(), ba_secret.as_bytes());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_x448_public_key_serialization() {
         let secret = X448Secret::generate().unwrap();
@@ -457,13 +473,14 @@ mod x448_errors {
 mod sntrup761_errors {
     use super::*;
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_sntrup761_decapsulate_wrong_key() {
-        let keypair1 = Sntrup761SecretKey::generate();
-        let keypair2 = Sntrup761SecretKey::generate();
+        let keypair1 = Sntrup761SecretKey::generate().unwrap();
+        let keypair2 = Sntrup761SecretKey::generate().unwrap();
 
         // Encapsulate to keypair1's public key
-        let (shared_secret1, ciphertext) = keypair1.public_key().encapsulate();
+        let (shared_secret1, ciphertext) = keypair1.public_key().encapsulate().unwrap();
 
         // Try to decapsulate with keypair2's secret key (should produce different secret)
         let shared_secret2 = keypair2.decapsulate(&ciphertext).unwrap();
@@ -472,11 +489,12 @@ mod sntrup761_errors {
         assert_ne!(shared_secret1.as_bytes(), shared_secret2.as_bytes());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_sntrup761_decapsulate_modified_ciphertext() {
-        let keypair = Sntrup761SecretKey::generate();
+        let keypair = Sntrup761SecretKey::generate().unwrap();
 
-        let (shared_secret1, ciphertext) = keypair.public_key().encapsulate();
+        let (shared_secret1, ciphertext) = keypair.public_key().encapsulate().unwrap();
 
         // Modify the ciphertext
         let mut ct_bytes = ciphertext.to_bytes().to_vec();
@@ -489,22 +507,24 @@ mod sntrup761_errors {
         assert_ne!(shared_secret1.as_bytes(), shared_secret2.as_bytes());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_sntrup761_encapsulation_produces_unique_secrets() {
-        let keypair = Sntrup761SecretKey::generate();
+        let keypair = Sntrup761SecretKey::generate().unwrap();
 
-        let (secret1, _ct1) = keypair.public_key().encapsulate();
-        let (secret2, _ct2) = keypair.public_key().encapsulate();
+        let (secret1, _ct1) = keypair.public_key().encapsulate().unwrap();
+        let (secret2, _ct2) = keypair.public_key().encapsulate().unwrap();
 
         // Each encapsulation should produce a unique secret
         assert_ne!(secret1.as_bytes(), secret2.as_bytes());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_sntrup761_roundtrip() {
-        let keypair = Sntrup761SecretKey::generate();
+        let keypair = Sntrup761SecretKey::generate().unwrap();
 
-        let (encap_secret, ciphertext) = keypair.public_key().encapsulate();
+        let (encap_secret, ciphertext) = keypair.public_key().encapsulate().unwrap();
         let decap_secret = keypair.decapsulate(&ciphertext).unwrap();
 
         assert_eq!(encap_secret.as_bytes(), decap_secret.as_bytes());
@@ -518,6 +538,7 @@ mod sntrup761_errors {
 mod hybrid_kem_errors {
     use super::*;
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_hybrid_kem_decapsulate_wrong_key() {
         let keypair1 = HybridKemKeypair::generate().unwrap();
@@ -538,6 +559,7 @@ mod hybrid_kem_errors {
         }
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_hybrid_kem_encapsulation_unique() {
         let keypair = HybridKemKeypair::generate().unwrap();
@@ -550,6 +572,7 @@ mod hybrid_kem_errors {
         assert_ne!(enc1.to_bytes(), enc2.to_bytes());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_hybrid_kem_roundtrip() {
         let keypair = HybridKemKeypair::generate().unwrap();
@@ -562,13 +585,14 @@ mod hybrid_kem_errors {
         assert_eq!(encap_secret.as_bytes(), decap_secret.as_bytes());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_hybrid_kem_serialization_roundtrip() {
         let keypair = HybridKemKeypair::generate().unwrap();
 
         // Serialize and deserialize keypair
         let bytes = keypair.to_bytes();
-        let restored = HybridKemKeypair::from_bytes(&bytes).unwrap();
+        let restored = HybridKemKeypair::from_bytes(&bytes[..]).unwrap();
 
         // Encapsulate with original, decapsulate with restored
         let (secret1, enc) = keypair.public_key().encapsulate().unwrap();
@@ -967,6 +991,7 @@ mod cocoa_edge_cases {
         make_group_id(name)
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_cocoa_single_member_group() {
         let my_kem = HybridKemKeypair::generate().unwrap();
@@ -986,6 +1011,7 @@ mod cocoa_edge_cases {
         assert_eq!(session.epoch_number(), 0);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_cocoa_zero_members_rejected() {
         let my_kem = HybridKemKeypair::generate().unwrap();
@@ -1004,6 +1030,7 @@ mod cocoa_edge_cases {
         assert!(matches!(result, Err(CryptoError::InvalidGroupSize)));
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_cocoa_group_id_preserved() {
         let my_kem = HybridKemKeypair::generate().unwrap();
@@ -1017,6 +1044,7 @@ mod cocoa_edge_cases {
         assert_eq!(session.group_id(), &group_id);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_cocoa_user_id_preserved() {
         let my_kem = HybridKemKeypair::generate().unwrap();
@@ -1038,6 +1066,7 @@ mod cocoa_edge_cases {
 mod edge_cases {
     use super::*;
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_large_message_signature() {
         let keypair = HybridSigningKeypair::generate().unwrap();
@@ -1050,6 +1079,7 @@ mod edge_cases {
         assert!(result.is_ok());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_all_zeros_message() {
         let keypair = HybridSigningKeypair::generate().unwrap();
@@ -1060,6 +1090,7 @@ mod edge_cases {
         assert!(result.is_ok());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_all_ones_message() {
         let keypair = HybridSigningKeypair::generate().unwrap();
@@ -1070,6 +1101,7 @@ mod edge_cases {
         assert!(result.is_ok());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_repeated_operations() {
         let keypair = HybridSigningKeypair::generate().unwrap();
@@ -1082,6 +1114,7 @@ mod edge_cases {
         }
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_multiple_keypairs() {
         let keypairs: Vec<_> = (0..10)
@@ -1107,6 +1140,7 @@ mod edge_cases {
         }
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_binary_patterns() {
         let keypair = HybridSigningKeypair::generate().unwrap();
@@ -1147,6 +1181,7 @@ mod edge_cases {
         assert_eq!(nonces.len(), 1000);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_keypair_generation_produces_unique_keys() {
         let mut public_keys = std::collections::HashSet::new();
@@ -1169,11 +1204,12 @@ mod edge_cases {
 mod key_serialization {
     use super::*;
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_hybrid_signing_keypair_roundtrip() {
         let original = HybridSigningKeypair::generate().unwrap();
         let bytes = original.to_bytes();
-        let restored = HybridSigningKeypair::from_bytes(&bytes).unwrap();
+        let restored = HybridSigningKeypair::from_bytes(&bytes[..]).unwrap();
 
         let message = b"test";
         let sig = original.sign(message).unwrap();
@@ -1183,11 +1219,12 @@ mod key_serialization {
         assert!(restored.public_key().verify(message, &sig).is_ok());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_hybrid_kem_keypair_roundtrip() {
         let original = HybridKemKeypair::generate().unwrap();
         let bytes = original.to_bytes();
-        let restored = HybridKemKeypair::from_bytes(&bytes).unwrap();
+        let restored = HybridKemKeypair::from_bytes(&bytes[..]).unwrap();
 
         // Encapsulate with original, decapsulate with restored
         let (secret1, enc) = original.public_key().encapsulate().unwrap();
@@ -1196,6 +1233,7 @@ mod key_serialization {
         assert_eq!(secret1.as_bytes(), secret2.as_bytes());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_hybrid_signature_roundtrip() {
         let keypair = HybridSigningKeypair::generate().unwrap();
@@ -1264,6 +1302,7 @@ mod boundary_tests {
         assert!(enc.write_u32(0x12345678).is_none());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_signature_different_for_different_messages() {
         let keypair = HybridSigningKeypair::generate().unwrap();

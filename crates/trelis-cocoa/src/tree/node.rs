@@ -280,6 +280,7 @@ mod tests {
         )
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_populated_node_basic() {
         let node = create_populated_node(NodeIndex::new(1, 2));
@@ -289,6 +290,7 @@ mod tests {
         assert!(node.state.public_key().is_some());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_populated_node_accessors() {
         let node = create_populated_node(NodeIndex::new(1, 2));
@@ -301,6 +303,7 @@ mod tests {
         assert!(node.state.unmerged_leaves().is_none()); // Only for blank nodes
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_populated_node_parent_hash() {
         let node = create_populated_node(NodeIndex::new(1, 2));
@@ -310,6 +313,7 @@ mod tests {
         assert_eq!(parent_hash.1, [0x22u8; 32]);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_populated_node_last_updater_id() {
         let node = create_populated_node(NodeIndex::new(1, 2));
@@ -318,6 +322,7 @@ mod tests {
         assert_eq!(*updater_id, [0x42u8; 32]);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_populated_node_with_predecessor() {
         let keypair = trelis_hybrid::HybridKemKeypair::generate().unwrap();
@@ -374,6 +379,7 @@ mod tests {
         assert!(!root_node.is_leaf(3));
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_add_unmerged_leaf_to_populated_node() {
         let mut node = create_populated_node(NodeIndex::new(1, 2));

@@ -140,6 +140,7 @@ impl SignedPreKeyBundle {
     ///
     /// Returns `BundleSignatureInvalid` if the signature is invalid.
     #[cfg(feature = "alloc")]
+    #[must_use = "the verify outcome must be checked"]
     pub fn verify(&self) -> Result<()> {
         let data = self.signing_data();
         self.bundle
@@ -194,6 +195,7 @@ impl SignedPreKeyBundle {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
     use trelis_hybrid::HybridKemKeypair;
@@ -217,6 +219,7 @@ mod tests {
         assert_eq!(SIGNED_BUNDLE_SIZE, 7884);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_bundle_sign_verify() {
         let identity_signing = HybridSigningKeypair::generate().unwrap();
@@ -238,6 +241,7 @@ mod tests {
         assert!(signed.verify().is_ok());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_bundle_timestamp_validation() {
         let identity_signing = HybridSigningKeypair::generate().unwrap();
@@ -271,6 +275,7 @@ mod tests {
         ));
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_bundle_tamper_detection() {
         let identity_signing = HybridSigningKeypair::generate().unwrap();

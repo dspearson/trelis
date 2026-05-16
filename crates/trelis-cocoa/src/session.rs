@@ -268,6 +268,7 @@ impl CocoaSession {
     ///
     /// - `EpochMismatch` if message epoch doesn't match session epoch
     /// - `DecryptionFailed` if AEAD verification fails (tampered or wrong key)
+    #[must_use = "the decrypted plaintext must be checked or used"]
     pub fn decrypt(&self, message: &EncryptedMessage) -> Result<Vec<u8>> {
         // Verify epoch matches
         if message.epoch != self.epoch.number() {
@@ -389,6 +390,13 @@ impl EncryptedMessage {
     /// Serialises the encrypted message.
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
+        // The wire format encodes ciphertext length as a u32. A ciphertext
+        // larger than u32::MAX would silently truncate. Surface the bug
+        // explicitly rather than producing an unparseable encoding.
+        debug_assert!(
+            self.ciphertext.len() <= u32::MAX as usize,
+            "EncryptedMessage::to_bytes: ciphertext length exceeds u32 wire-format limit"
+        );
         let mut bytes = Vec::with_capacity(16 + 4 + self.ciphertext.len());
         bytes.extend_from_slice(&self.epoch.to_le_bytes());
         bytes.extend_from_slice(&self.counter.to_le_bytes());
@@ -419,11 +427,19 @@ impl EncryptedMessage {
                 .map_err(|_| CryptoError::MalformedMessage)?,
         ) as usize;
 
-        if bytes.len() < 20 + ct_len {
+        // Guard against usize overflow on 32-bit targets (e.g. wasm32): on
+        // those targets `usize::MAX == u32::MAX`, so a maximal ct_len plus
+        // the 20-byte header wraps around and the subsequent length check
+        // would pass spuriously, leading to a slice-bounds panic on a
+        // malformed input. checked_add returns None on overflow.
+        let end = 20usize
+            .checked_add(ct_len)
+            .ok_or(CryptoError::MalformedMessage)?;
+        if bytes.len() < end {
             return Err(CryptoError::MalformedMessage);
         }
 
-        let ciphertext = bytes[20..20 + ct_len].to_vec();
+        let ciphertext = bytes[20..end].to_vec();
 
         Ok(Self {
             epoch,
@@ -446,6 +462,7 @@ mod tests {
         CocoaSession::create_group(group_id, user_id, keypair, 1, &epoch_secret).unwrap()
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_create_group() {
         let session = create_test_session();
@@ -455,6 +472,7 @@ mod tests {
         assert_eq!(session.member_count(), 1);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_create_group_empty_fails() {
         let group_id = [0x42u8; 32];
@@ -466,6 +484,7 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_encrypt_decrypt_roundtrip() {
         let mut session = create_test_session();
@@ -479,6 +498,7 @@ mod tests {
         assert_eq!(&decrypted, plaintext);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_multiple_messages() {
         let mut session = create_test_session();
@@ -493,6 +513,7 @@ mod tests {
         }
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_epoch_advance() {
         let mut session = create_test_session();
@@ -523,6 +544,24 @@ mod tests {
         assert_eq!(recovered.ciphertext, b"encrypted data");
     }
 
+    /// Regression: a malformed message whose declared ciphertext length is
+    /// u32::MAX would, with naive `bytes.len() < 20 + ct_len`, overflow usize
+    /// on 32-bit targets (notably wasm32) and either pass the bounds check
+    /// spuriously or trigger a slice-bounds panic. The deserialiser must
+    /// reject this with MalformedMessage, not panic.
+    #[test]
+    fn test_encrypted_message_overflow_rejected() {
+        let mut bytes = Vec::with_capacity(20);
+        bytes.extend_from_slice(&0u64.to_le_bytes()); // epoch
+        bytes.extend_from_slice(&0u64.to_le_bytes()); // counter
+        bytes.extend_from_slice(&u32::MAX.to_le_bytes()); // ct_len = 4 GiB
+        // No body — length should be flagged before any indexing.
+
+        let result = EncryptedMessage::from_bytes(&bytes);
+        assert!(matches!(result, Err(CryptoError::MalformedMessage)));
+    }
+
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_wrong_epoch_decryption_fails() {
         let mut session = create_test_session();
@@ -538,6 +577,7 @@ mod tests {
         assert!(matches!(result, Err(CryptoError::EpochMismatch { .. })));
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_join_group() {
         let group_id = [0x42u8; 32];
@@ -562,6 +602,7 @@ mod tests {
         assert_eq!(session.epoch_number(), 0);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_two_members_same_epoch_secret() {
         let group_id = [0x42u8; 32];
@@ -598,6 +639,7 @@ mod tests {
         assert_eq!(&decrypted, plaintext);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_epoch_synchronisation() {
         let group_id = [0x42u8; 32];
@@ -640,6 +682,7 @@ mod tests {
         assert_eq!(member2.epoch_number(), 1);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_tree_depth_for_different_sizes() {
         // 1 member: depth 0

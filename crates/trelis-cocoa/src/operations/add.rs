@@ -34,6 +34,7 @@ use trelis_hybrid::{
 
 #[cfg(feature = "alloc")]
 use crate::key_schedule::h3_tree_label;
+use crate::key_schedule::{CONFIRMATION_TAG_CONTEXT, ROOT_LABEL_CONTEXT};
 use crate::key_schedule::{h3_round_hash, h3_transcript_hash};
 use crate::session::CocoaSession;
 use crate::tree::NodeIndex;
@@ -508,7 +509,7 @@ fn compute_root_label(path_seeds: &[Seed]) -> [u8; 32] {
     use trelis_primitives::blake3_kdf::derive_key;
 
     if let Some(root_seed) = path_seeds.last() {
-        derive_key("cocoa-sa-v1-root-label", root_seed)
+        derive_key(ROOT_LABEL_CONTEXT, root_seed)
     } else {
         [0u8; 32]
     }
@@ -771,7 +772,7 @@ fn compute_confirmation_tag(delta_root: &Seed, transcript: &[u8; 32], epoch: u64
     input[32..64].copy_from_slice(transcript);
     input[64..72].copy_from_slice(&epoch.to_le_bytes());
 
-    derive_key("cocoa-sa-v1-confirmation-tag", &input)
+    derive_key(CONFIRMATION_TAG_CONTEXT, &input)
 }
 
 /// Constant-time comparison for confirmation tags.
@@ -835,6 +836,7 @@ mod tests {
         HybridPreKeyBundle::new(&identity.public_key(), otk.public_key())
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_add_member() {
         let mut session = create_test_session();
@@ -853,6 +855,7 @@ mod tests {
         assert_eq!(welcome.leaf_position, 1);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     #[allow(clippy::panic)] // Test code: panic on unexpected errors is intentional
     fn test_process_add() {
@@ -879,7 +882,7 @@ mod tests {
         let mut session1 = CocoaSession::create_group(
             group_id,
             user1_id,
-            member1_keypair.clone(),
+            HybridKemKeypair::from_bytes(&member1_keypair.to_bytes()[..]).unwrap(),
             2, // Two existing members
             &epoch_secret,
         )
@@ -889,7 +892,7 @@ mod tests {
         let mut session2 = CocoaSession::join_group(
             group_id,
             user2_id,
-            member2_keypair.clone(),
+            HybridKemKeypair::from_bytes(&member2_keypair.to_bytes()[..]).unwrap(),
             1, // Position 1
             1, // Depth 1 for 2 members
             2, // 2 members
@@ -973,6 +976,7 @@ mod tests {
         }
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_process_add_wrong_signer() {
         let mut session = create_test_session();
@@ -1002,6 +1006,7 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_process_add_wrong_group() {
         let mut session = create_test_session();
@@ -1031,6 +1036,7 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_add_member_tree_growth() {
         // Start with a single member (depth 0, capacity 1)
@@ -1060,6 +1066,7 @@ mod tests {
         assert_eq!(commit.new_leaf_position, 1);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_add_multiple_members_with_growth() {
         // Create a session with 2 initial members (depth 1)
@@ -1112,6 +1119,7 @@ mod tests {
         assert_eq!(commit3.new_leaf_position, 4);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_process_add_tree_growth() {
         // Start with depth 0 (single member)
@@ -1156,6 +1164,7 @@ mod tests {
         assert_eq!(session.tree().tree_depth(), 1);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_unmerged_tracking_on_add() {
         // Verify that when a member is added, they're marked as unmerged

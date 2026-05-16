@@ -10,6 +10,7 @@ use trelis_ratchet::{KemRatchet, receive_message, send_message};
 use trelis_x3dh_pq::{Initiator, PreKeyBundle, Responder};
 
 /// Complete session establishment and message exchange between Alice and Bob.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_full_session_establishment() -> Result<()> {
     // =========================================================================
@@ -83,6 +84,7 @@ fn test_full_session_establishment() -> Result<()> {
 }
 
 /// Test that invalid bundle signatures are rejected.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_invalid_bundle_signature() -> Result<()> {
     let alice_identity = HybridIdentityKeypair::generate()?;
@@ -117,6 +119,7 @@ fn test_invalid_bundle_signature() -> Result<()> {
 }
 
 /// Test expired bundle is rejected.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_expired_bundle_rejection() -> Result<()> {
     let alice_identity = HybridIdentityKeypair::generate()?;
@@ -144,6 +147,7 @@ fn test_expired_bundle_rejection() -> Result<()> {
 }
 
 /// Test KEM Ratchet initialisation from session keys.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_ratchet_from_session_keys() -> Result<()> {
     // Establish session first
@@ -202,6 +206,7 @@ fn test_ratchet_from_session_keys() -> Result<()> {
 }
 
 /// Test multiple message exchange with ratcheting.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_multi_message_exchange() -> Result<()> {
     // Quick session setup
@@ -259,6 +264,7 @@ fn test_multi_message_exchange() -> Result<()> {
 }
 
 /// Test that tampered messages are rejected.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_tampered_message_rejection() -> Result<()> {
     let alice_identity = HybridIdentityKeypair::generate()?;
@@ -316,6 +322,7 @@ fn test_tampered_message_rejection() -> Result<()> {
 }
 
 /// Test that different identities produce different session keys.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_identity_binding() -> Result<()> {
     let alice_identity = HybridIdentityKeypair::generate()?;
@@ -358,6 +365,7 @@ fn test_identity_binding() -> Result<()> {
 }
 
 /// Test multiple sessions with different OTKs produce different keys.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_otk_uniqueness() -> Result<()> {
     let alice_identity = HybridIdentityKeypair::generate()?;

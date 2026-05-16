@@ -122,8 +122,11 @@ pub fn get_seed_at_level(leaf_seed: &Seed, levels_up: u32) -> Seed {
 ///
 /// A hybrid KEM keypair deterministically derived from the seed.
 ///
-#[must_use]
-pub fn derive_node_keypair(seed: &Seed) -> HybridKemKeypair {
+/// # Errors
+///
+/// Returns `KeyGenerationFailed` if the underlying sntrup761 deterministic
+/// keygen exhausts its retry budget (RNG-broken indicator).
+pub fn derive_node_keypair(seed: &Seed) -> Result<HybridKemKeypair> {
     HybridKemKeypair::generate_from_seed(seed)
 }
 
@@ -146,6 +149,7 @@ pub fn derive_delta_root(root_seed: &Seed) -> Seed {
 mod tests {
     use super::*;
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_generate_leaf_seed() {
         let seed1 = generate_leaf_seed().unwrap();
@@ -217,12 +221,13 @@ mod tests {
         }
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_derive_node_keypair_deterministic() {
         let seed = [0x42u8; 32];
 
-        let keypair1 = derive_node_keypair(&seed);
-        let keypair2 = derive_node_keypair(&seed);
+        let keypair1 = derive_node_keypair(&seed).unwrap();
+        let keypair2 = derive_node_keypair(&seed).unwrap();
 
         // Same seed should produce same keypair
         assert_eq!(
@@ -231,13 +236,14 @@ mod tests {
         );
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_derive_node_keypair_different_seeds() {
         let seed1 = [0x42u8; 32];
         let seed2 = [0x43u8; 32];
 
-        let keypair1 = derive_node_keypair(&seed1);
-        let keypair2 = derive_node_keypair(&seed2);
+        let keypair1 = derive_node_keypair(&seed1).unwrap();
+        let keypair2 = derive_node_keypair(&seed2).unwrap();
 
         // Different seeds should produce different keypairs
         assert_ne!(

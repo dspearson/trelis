@@ -597,6 +597,7 @@ mod tests {
         (session, our_identity)
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_remove_member() {
         let (mut session, our_identity) = create_test_session_with_members(3);
@@ -610,6 +611,7 @@ mod tests {
         assert_eq!(session.member_count(), 3);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_cannot_remove_self() {
         let (mut session, our_identity) = create_test_session_with_members(2);
@@ -621,6 +623,7 @@ mod tests {
         ));
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_cannot_remove_invalid_position() {
         let (mut session, our_identity) = create_test_session_with_members(2);
@@ -632,6 +635,7 @@ mod tests {
         ));
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_process_remove() {
         let (mut session, _) = create_test_session_with_members(3);
@@ -671,6 +675,7 @@ mod tests {
         assert_eq!(session.epoch_number(), initial_epoch + 1);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_process_remove_self_fails() {
         let (mut session, _) = create_test_session_with_members(2);
@@ -702,6 +707,7 @@ mod tests {
         ));
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_process_remove_wrong_signer() {
         let (mut session, _) = create_test_session_with_members(3);

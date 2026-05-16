@@ -201,6 +201,12 @@ impl RatchetMessage {
     /// Serialises the complete message to wire format.
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
+        // The wire format encodes ciphertext length as u32. A ciphertext
+        // larger than u32::MAX would silently truncate the length prefix.
+        debug_assert!(
+            self.ciphertext.len() <= u32::MAX as usize,
+            "RatchetMessage::to_bytes: ciphertext length exceeds u32 wire-format limit"
+        );
         let header_bytes = self.header.to_bytes();
         let total_size = header_bytes.len() + NONCE_SIZE + 4 + self.ciphertext.len();
         let mut buf = Vec::with_capacity(total_size);
@@ -242,11 +248,17 @@ impl RatchetMessage {
         ) as usize;
         offset += 4;
 
-        // Parse ciphertext
-        if bytes.len() < offset + ct_len {
+        // Guard against usize overflow on 32-bit targets (e.g. wasm32). A
+        // maximal ct_len plus the prior offset can wrap to a small value,
+        // causing the subsequent length check to pass spuriously and the
+        // slice index to panic on malformed input.
+        let end = offset
+            .checked_add(ct_len)
+            .ok_or(CryptoError::MalformedMessage)?;
+        if bytes.len() < end {
             return Err(CryptoError::MalformedMessage);
         }
-        let ciphertext = bytes[offset..offset + ct_len].to_vec();
+        let ciphertext = bytes[offset..end].to_vec();
 
         Ok(Self {
             header,
@@ -268,6 +280,7 @@ mod tests {
         assert_eq!(AAD_SIZE, HEADER_SIZE);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_header_round_trip() {
         let keypair = HybridKemKeypair::generate().unwrap();
@@ -311,6 +324,7 @@ mod tests {
         ));
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_message_round_trip() {
         let keypair = HybridKemKeypair::generate().unwrap();
@@ -330,5 +344,27 @@ mod tests {
         assert_eq!(parsed.nonce, message.nonce);
         assert_eq!(parsed.ciphertext, message.ciphertext);
         assert_eq!(parsed.header.message_number, 0);
+    }
+
+    /// Regression: a malformed message whose declared ciphertext length is
+    /// u32::MAX would, with naive `bytes.len() < offset + ct_len`, overflow
+    /// usize on 32-bit targets (notably wasm32) and either pass the bounds
+    /// check spuriously or trigger a slice-bounds panic. The deserialiser
+    /// must reject this with MalformedMessage, not panic.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_message_overflow_rejected() {
+        let keypair = HybridKemKeypair::generate().unwrap();
+        let (_, encap) = keypair.public_key().encapsulate().unwrap();
+        let header = MessageHeader::new(1, keypair.public_key().clone(), encap, 0);
+
+        // Construct a "valid" header + nonce + bogus ciphertext length.
+        let mut bytes = header.to_bytes();
+        bytes.extend_from_slice(&[0u8; NONCE_SIZE]);
+        bytes.extend_from_slice(&u32::MAX.to_le_bytes()); // ct_len = 4 GiB
+        // No body — length must be flagged before indexing.
+
+        let result = RatchetMessage::from_bytes(&bytes);
+        assert!(matches!(result, Err(CryptoError::MalformedMessage)));
     }
 }

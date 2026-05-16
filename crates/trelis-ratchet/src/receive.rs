@@ -91,6 +91,8 @@ pub fn receive_message(
     }
 
     // Step 5: Decapsulate to get shared secret
+    #[allow(clippy::expect_used)]
+    // AUDIT: infallible — keypair presence validated by find_keypair contract above
     let keypair = state
         .find_keypair(recipient_key_id)
         .expect("keypair validated above");
@@ -123,6 +125,7 @@ mod tests {
     use crate::send::send_message;
     use trelis_hybrid::HybridKemKeypair;
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_send_produces_valid_message() {
         // This test validates that send_message produces a well-formed message.
@@ -145,6 +148,7 @@ mod tests {
         assert_ne!(result.message.nonce, [0u8; 24]);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_sender_key_id_mismatch_rejected() {
         let session_key = [0x42u8; 32];
@@ -175,6 +179,7 @@ mod tests {
         assert!(matches!(result, Err(CryptoError::UnknownRecipientKeyId)));
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_receive_validates_session_state() {
         let session_key = [0x42u8; 32];

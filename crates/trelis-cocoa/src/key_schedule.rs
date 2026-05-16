@@ -54,6 +54,15 @@ pub const MESSAGE_KEY_CONTEXT: &str = "cocoa-sa-v1-message-key";
 /// Context for message nonce derivation.
 pub const MESSAGE_NONCE_CONTEXT: &str = "cocoa-sa-v1-message-nonce";
 
+/// Context for root tree label derivation (used in ratchet tree path operations).
+pub const ROOT_LABEL_CONTEXT: &str = "cocoa-sa-v1-root-label";
+
+/// Context for confirmation tag derivation (used in commit validation).
+pub const CONFIRMATION_TAG_CONTEXT: &str = "cocoa-sa-v1-confirmation-tag";
+
+/// Context for user ID derivation (used in update operations).
+pub const USER_ID_CONTEXT: &str = "cocoa-sa-v1-user-id";
+
 /// H1: Seed chain advancement (leaf → root).
 ///
 /// Each call advances the seed one level up the tree.
@@ -64,16 +73,20 @@ pub fn h1_seed_derive(delta: &[u8; 32]) -> [u8; 32] {
 
 /// H2: Deterministic keypair seed generation.
 ///
-/// Generates seed material for keypair creation.
-/// The context string is `cocoa-sa-v1-keygen-{key_type}` per the spec.
+/// Generates seed material for keypair creation using the spec-defined
+/// `cocoa-sa-v1-keygen-{key_type}` context-string template.
 ///
-/// # Arguments
-///
-/// * `seed` - The 32-byte seed to derive from
-/// * `key_type` - Either "x448" or "sntrup" per the spec
-#[cfg(feature = "alloc")]
+/// Restricted to `#[cfg(test)]`: production code calls one of the two safe
+/// wrappers `h2_keygen_x448` / `h2_keygen_sntrup` (which use the named
+/// registry constants `H2_CONTEXT_X448` / `H2_CONTEXT_SNTRUP`). The dynamic
+/// `key_type` parameter is retained as a test-only helper that the
+/// equivalence checks in `mod tests` use to cross-validate the wrappers
+/// against the spec template. Exposing it publicly would allow callers to
+/// construct context strings that collide with other registry entries
+/// (API-04-NEW1).
+#[cfg(all(test, feature = "alloc"))]
 #[must_use]
-pub fn h2_keygen_seed(seed: &[u8; 32], key_type: &str) -> [u8; 32] {
+fn h2_keygen_seed(seed: &[u8; 32], key_type: &str) -> [u8; 32] {
     use alloc::format;
     let context = format!("cocoa-sa-v1-keygen-{}", key_type);
     blake3::derive_key(&context, seed)
@@ -477,6 +490,7 @@ mod tests {
         assert_ne!(hash1, hash2);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_h4_parent_hash_h1_basic() {
         let keypair = trelis_hybrid::HybridKemKeypair::generate().unwrap();
@@ -486,6 +500,7 @@ mod tests {
         assert_eq!(hash.len(), 32);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_h4_parent_hash_h1_deterministic() {
         let keypair = trelis_hybrid::HybridKemKeypair::generate().unwrap();
@@ -496,6 +511,7 @@ mod tests {
         assert_eq!(hash1, hash2);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_h4_parent_hash_h1_different_inputs() {
         let keypair1 = trelis_hybrid::HybridKemKeypair::generate().unwrap();
@@ -514,6 +530,7 @@ mod tests {
         assert_ne!(hash3, hash4);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_h4_parent_hash_h2_basic() {
         let keypair = trelis_hybrid::HybridKemKeypair::generate().unwrap();
@@ -523,6 +540,7 @@ mod tests {
         assert_eq!(hash.len(), 32);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_h4_parent_hash_h2_with_predecessors() {
         let child = trelis_hybrid::HybridKemKeypair::generate().unwrap();
@@ -535,6 +553,7 @@ mod tests {
         assert_eq!(hash.len(), 32);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_h4_parent_hash_h2_with_resolution_keys() {
         let child = trelis_hybrid::HybridKemKeypair::generate().unwrap();
@@ -547,6 +566,7 @@ mod tests {
         assert_eq!(hash.len(), 32);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_h4_parent_hash_h2_full() {
         let child = trelis_hybrid::HybridKemKeypair::generate().unwrap();
@@ -560,6 +580,7 @@ mod tests {
         assert_eq!(hash.len(), 32);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_h4_parent_hash_h2_different_inputs() {
         let child = trelis_hybrid::HybridKemKeypair::generate().unwrap();

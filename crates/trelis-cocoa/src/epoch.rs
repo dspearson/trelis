@@ -251,6 +251,55 @@ impl Epoch {
     }
 }
 
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+
+    // Prove: Epoch::advance always produces an epoch number exactly one greater
+    // than prev_epoch_number, for any valid (non-overflowing) input.
+    // This is the epoch counter monotonicity invariant: epoch numbers must strictly
+    // increase by exactly 1 on each group state advance.
+    // The checked_add(1).expect(...) in Epoch::advance will panic on u64::MAX — Kani
+    // will detect this and the assume() prevents that case from being considered.
+    #[kani::proof]
+    #[kani::unwind(1)]
+    fn epoch_advance_increments_counter() {
+        let prev_epoch_number: u64 = kani::any();
+        // Exclude u64::MAX to prevent overflow — the code uses checked_add().expect() which
+        // would panic; this is intentional overflow protection, not a bug.
+        kani::assume(prev_epoch_number < u64::MAX);
+        let prev_init_secret: [u8; 32] = kani::any();
+        let delta_root: [u8; 32] = kani::any();
+        let transcript_hash: [u8; 32] = kani::any();
+        let new_epoch = Epoch::advance(
+            &prev_init_secret,
+            &delta_root,
+            transcript_hash,
+            prev_epoch_number,
+        );
+        assert_eq!(new_epoch.number(), prev_epoch_number + 1);
+    }
+
+    // Prove: epoch number after advance is strictly greater than the previous number.
+    // This is a weaker corollary of the above but makes the monotonicity property explicit.
+    #[kani::proof]
+    #[kani::unwind(1)]
+    fn epoch_number_is_strictly_monotonic() {
+        let prev_epoch_number: u64 = kani::any();
+        kani::assume(prev_epoch_number < u64::MAX);
+        let prev_init_secret: [u8; 32] = kani::any();
+        let delta_root: [u8; 32] = kani::any();
+        let transcript_hash: [u8; 32] = kani::any();
+        let new_epoch = Epoch::advance(
+            &prev_init_secret,
+            &delta_root,
+            transcript_hash,
+            prev_epoch_number,
+        );
+        assert!(new_epoch.number() > prev_epoch_number);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

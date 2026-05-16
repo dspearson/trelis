@@ -26,16 +26,18 @@
 use alloc::vec::Vec;
 
 use trelis_error::{CryptoError, Result};
+use trelis_hybrid::kem::ENCAPSULATION_SIZE as HYBRID_ENCAPSULATION_SIZE;
 use trelis_hybrid::{HybridEncapsulation, HybridKemKeypair, HybridKemPublicKey};
-use trelis_primitives::aead::{self, AeadKey, Nonce};
+use trelis_primitives::aead::{self, AeadKey, Nonce, TAG_SIZE as AEAD_TAG_SIZE};
 
-use crate::operations::seed_chain::Seed;
+use crate::operations::seed_chain::{SEED_SIZE, Seed};
 use crate::tree::NodeIndex;
 
-/// Size of an encrypted seed in bytes.
-///
-/// Hybrid encapsulation (1095) + AEAD ciphertext (32 + 16 tag)
-pub const ENCRYPTED_SEED_SIZE: usize = 1095 + 48;
+/// Size of the AEAD-encrypted seed including the authentication tag.
+pub const ENCRYPTED_SEED_CIPHERTEXT_SIZE: usize = SEED_SIZE + AEAD_TAG_SIZE;
+
+/// Size of an encrypted seed in bytes (hybrid encapsulation || AEAD ciphertext).
+pub const ENCRYPTED_SEED_SIZE: usize = HYBRID_ENCAPSULATION_SIZE + ENCRYPTED_SEED_CIPHERTEXT_SIZE;
 
 /// AEAD nonce for seed encryption (all zeros - single-use key).
 ///
@@ -48,8 +50,8 @@ const SEED_ENCRYPTION_NONCE: [u8; 24] = [0u8; 24];
 pub struct EncryptedNodeSeed {
     /// The KEM encapsulation (ephemeral key + sntrup ciphertext).
     pub encapsulation: HybridEncapsulation,
-    /// The AEAD-encrypted seed (32 bytes + 16-byte tag).
-    pub ciphertext: [u8; 48],
+    /// The AEAD-encrypted seed (seed bytes + AEAD tag).
+    pub ciphertext: [u8; ENCRYPTED_SEED_CIPHERTEXT_SIZE],
 }
 
 impl EncryptedNodeSeed {
@@ -75,9 +77,9 @@ impl EncryptedNodeSeed {
             return Err(CryptoError::MalformedMessage);
         }
 
-        let encapsulation = HybridEncapsulation::from_bytes(&bytes[..1095])?;
-        let mut ciphertext = [0u8; 48];
-        ciphertext.copy_from_slice(&bytes[1095..]);
+        let encapsulation = HybridEncapsulation::from_bytes(&bytes[..HYBRID_ENCAPSULATION_SIZE])?;
+        let mut ciphertext = [0u8; ENCRYPTED_SEED_CIPHERTEXT_SIZE];
+        ciphertext.copy_from_slice(&bytes[HYBRID_ENCAPSULATION_SIZE..]);
 
         Ok(Self {
             encapsulation,
@@ -123,11 +125,11 @@ pub fn encrypt_seed_to_recipient(
     let ciphertext_vec = aead::encrypt(&aead_key, &nonce, seed, &aad)?;
 
     // Convert to fixed-size array
-    // AEAD should always produce 32 bytes plaintext + 16 byte tag = 48 bytes
-    if ciphertext_vec.len() != 48 {
+    // AEAD should always produce SEED_SIZE bytes plaintext + AEAD_TAG_SIZE bytes tag.
+    if ciphertext_vec.len() != ENCRYPTED_SEED_CIPHERTEXT_SIZE {
         return Err(CryptoError::AeadAuthenticationFailed);
     }
-    let mut ciphertext = [0u8; 48];
+    let mut ciphertext = [0u8; ENCRYPTED_SEED_CIPHERTEXT_SIZE];
     ciphertext.copy_from_slice(&ciphertext_vec);
 
     Ok(EncryptedNodeSeed {
@@ -273,6 +275,7 @@ mod tests {
         HybridKemKeypair::generate().unwrap()
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_encrypt_decrypt_roundtrip() {
         let seed = [0x42u8; 32];
@@ -285,6 +288,7 @@ mod tests {
         assert_eq!(decrypted, seed);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_encrypted_seed_serialisation() {
         let seed = [0x42u8; 32];
@@ -300,6 +304,7 @@ mod tests {
         assert_eq!(decrypted, seed);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_wrong_position_fails() {
         let seed = [0x42u8; 32];
@@ -314,6 +319,7 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_wrong_keypair_fails() {
         let seed = [0x42u8; 32];
@@ -328,6 +334,7 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_encrypted_seed_size() {
         let seed = [0x42u8; 32];
@@ -340,6 +347,7 @@ mod tests {
         assert_eq!(bytes.len(), ENCRYPTED_SEED_SIZE);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_encrypt_to_resolution() {
         let seed = [0x42u8; 32];
@@ -374,6 +382,7 @@ mod tests {
         assert_eq!(decrypted3, seed);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_encrypt_to_resolution_mismatched_lengths() {
         let seed = [0x42u8; 32];
@@ -387,6 +396,7 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_build_seed_aad() {
         let position = NodeIndex::new(2, 3);

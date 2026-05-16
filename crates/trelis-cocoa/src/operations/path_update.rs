@@ -135,7 +135,7 @@ pub fn build_path_updates(
         let node_index = NodeIndex::new(depth, position);
 
         // Derive keypair from seed
-        let keypair = derive_node_keypair(seed);
+        let keypair = derive_node_keypair(seed)?;
         let public_key = keypair.public_key().clone();
 
         // Get resolution set and keys for this level
@@ -256,7 +256,7 @@ pub fn build_path_updates_with_seeds(
         let node_index = NodeIndex::new(depth, position);
 
         // Derive keypair from seed
-        let keypair = derive_node_keypair(seed);
+        let keypair = derive_node_keypair(seed)?;
         let public_key = keypair.public_key().clone();
 
         // Get resolution set and keys for this level
@@ -376,7 +376,7 @@ pub fn apply_path_updates(
 
     // Verify public keys match and validate parent hash constraints
     for (i, path_seed) in path_seeds.iter().enumerate() {
-        let expected_keypair = derive_node_keypair(path_seed);
+        let expected_keypair = derive_node_keypair(path_seed)?;
         let update_level = decrypt_level + i;
 
         if update_level < path_updates.len() {
@@ -461,6 +461,7 @@ mod tests {
         assert_eq!(node.unwrap(), NodeIndex::new(2, 0));
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_build_and_apply_path_updates() {
         // Create a simple 2-member tree

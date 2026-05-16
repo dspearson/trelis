@@ -183,7 +183,7 @@ impl Initiator {
         let dh3 = ephemeral.x448_dh(their_bundle.one_time_key().x448())?;
 
         // Step 7: Encapsulate to their sntrup761 key (in OTK)
-        let (pq_ss, pq_ct) = their_bundle.one_time_key().sntrup_encapsulate();
+        let (pq_ss, pq_ct) = their_bundle.one_time_key().sntrup_encapsulate()?;
 
         // Convert to fixed-size arrays for transcript
         let dh1_bytes: [u8; DH_SIZE] = *dh1.as_bytes();
@@ -221,6 +221,7 @@ impl Initiator {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
     use crate::bundle::PreKeyBundle;
@@ -251,6 +252,7 @@ mod tests {
         ));
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_initiator_establish() {
         // Alice's identity
@@ -285,6 +287,7 @@ mod tests {
         assert_eq!(result.initial_message().pq_ciphertext().len(), 1039);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_initiator_rejects_invalid_signature() {
         let alice_identity = HybridIdentityKeypair::generate().unwrap();
@@ -313,6 +316,7 @@ mod tests {
         assert!(matches!(result, Err(CryptoError::BundleSignatureInvalid)));
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_initiator_rejects_expired_bundle() {
         let alice_identity = HybridIdentityKeypair::generate().unwrap();

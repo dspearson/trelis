@@ -94,11 +94,15 @@ impl StateHeader {
             return Err(CryptoError::InvalidMagic);
         }
 
+        #[allow(clippy::unwrap_used)]
+        // AUDIT: infallible — bytes.len() >= HEADER_SIZE checked above; [4..6] is within bounds
         let version = u16::from_be_bytes(bytes[4..6].try_into().unwrap());
         if version != STATE_VERSION {
             return Err(CryptoError::UnsupportedStateVersion);
         }
 
+        #[allow(clippy::unwrap_used)]
+        // AUDIT: infallible — bytes.len() >= HEADER_SIZE checked above; [6..8] is within bounds
         let flags = u16::from_be_bytes(bytes[6..8].try_into().unwrap());
 
         Ok(Self {
@@ -132,6 +136,7 @@ pub fn decode_u64(bytes: &[u8]) -> Result<u64> {
     if bytes.len() < 8 {
         return Err(CryptoError::MalformedMessage);
     }
+    #[allow(clippy::unwrap_used)] // AUDIT: infallible — bytes.len() >= 8 checked at the guard above
     Ok(u64::from_be_bytes(bytes[..8].try_into().unwrap()))
 }
 
@@ -146,6 +151,7 @@ pub fn decode_u32(bytes: &[u8]) -> Result<u32> {
     if bytes.len() < 4 {
         return Err(CryptoError::MalformedMessage);
     }
+    #[allow(clippy::unwrap_used)] // AUDIT: infallible — bytes.len() >= 4 checked at the guard above
     Ok(u32::from_be_bytes(bytes[..4].try_into().unwrap()))
 }
 

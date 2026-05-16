@@ -2,7 +2,11 @@
 //!
 //! Run with: `cargo bench -p trelis-ratchet`
 
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+// Benchmarks use .expect() for setup code; panics are acceptable in bench harness.
+// criterion_group! macro expands to a function that cannot carry doc comments.
+#![allow(clippy::expect_used, missing_docs)]
+
+use criterion::{BatchSize, BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 
 use trelis_hybrid::HybridKemKeypair;
 use trelis_ratchet::kdf::{derive_initial_root_key, kdf_rk};
@@ -130,19 +134,15 @@ fn bench_rotate_keypair(c: &mut Criterion) {
         KemRatchet::init_initiator(&session_key, their_keypair.public_key().clone(), 1000)
             .expect("init failed");
 
-    // Pre-generate keypairs to avoid including keygen in benchmark
-    let keypairs: Vec<_> = (0..100)
-        .map(|_| HybridKemKeypair::generate().expect("keygen failed"))
-        .collect();
-
-    let mut idx = 0;
-
+    // HybridKemKeypair is no longer Clone (MEM-01). iter_batched generates a fresh
+    // keypair in the setup phase, which Criterion excludes from the measured time —
+    // keeping keygen out of the benchmark without cloning.
     c.bench_function("rotate_keypair", |b| {
-        b.iter(|| {
-            let new_keypair = keypairs[idx % keypairs.len()].clone();
-            state.rotate_keypair(black_box(new_keypair));
-            idx += 1;
-        })
+        b.iter_batched(
+            || HybridKemKeypair::generate().expect("keygen failed"),
+            |new_keypair| state.rotate_keypair(black_box(new_keypair)),
+            BatchSize::SmallInput,
+        )
     });
 }
 
@@ -152,7 +152,6 @@ fn bench_init_ratchet(c: &mut Criterion) {
 
     let session_key = [0x42u8; 32];
     let their_keypair = HybridKemKeypair::generate().expect("keygen failed");
-    let our_keypair = HybridKemKeypair::generate().expect("keygen failed");
 
     group.bench_function("initiator", |b| {
         b.iter(|| {
@@ -165,15 +164,21 @@ fn bench_init_ratchet(c: &mut Criterion) {
         })
     });
 
+    // HybridKemKeypair is no longer Clone (MEM-01); generate the consumed keypair
+    // in iter_batched's setup phase so keygen stays out of the measured time.
     group.bench_function("responder", |b| {
-        b.iter(|| {
-            let state = KemRatchet::init_responder(
-                black_box(&session_key),
-                black_box(our_keypair.clone()),
-                black_box(1000),
-            );
-            black_box(state)
-        })
+        b.iter_batched(
+            || HybridKemKeypair::generate().expect("keygen failed"),
+            |our_keypair| {
+                let state = KemRatchet::init_responder(
+                    black_box(&session_key),
+                    black_box(our_keypair),
+                    black_box(1000),
+                );
+                black_box(state)
+            },
+            BatchSize::SmallInput,
+        )
     });
 
     group.finish();

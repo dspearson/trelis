@@ -392,6 +392,7 @@ mod tests {
         assert!(res.is_empty());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_resolve_populated_node() {
         let mut lookup = RealNodeLookup::new(3);
@@ -417,6 +418,7 @@ mod tests {
         assert!(res.is_empty());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_resolve_blank_internal_with_populated_children() {
         // Tree depth 2 means leaves at depth 2
@@ -442,6 +444,7 @@ mod tests {
         assert!(res.nodes.contains(&right));
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_resolve_blank_internal_with_mixed_children() {
         let mut lookup = RealNodeLookup::new(2);
@@ -472,6 +475,7 @@ mod tests {
         assert!(res.is_empty());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_resolve_set_single() {
         let mut lookup = RealNodeLookup::new(3);
@@ -482,6 +486,7 @@ mod tests {
         assert_eq!(res.len(), 1);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_resolve_set_multiple() {
         let mut lookup = RealNodeLookup::new(3);
@@ -495,6 +500,7 @@ mod tests {
         assert_eq!(res.len(), 2);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_compute_lj_root_no_sibling() {
         let mut lookup = RealNodeLookup::new(3);
@@ -507,6 +513,7 @@ mod tests {
         assert!(res.is_empty());
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_compute_lj_with_sibling() {
         let mut lookup = RealNodeLookup::new(2);
@@ -525,6 +532,7 @@ mod tests {
         assert!(res.nodes.contains(&sibling));
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_compute_lj_sibling_blank_internal() {
         let mut lookup = RealNodeLookup::new(3);
@@ -550,6 +558,7 @@ mod tests {
         assert!(res.nodes.contains(&sibling_right));
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_compute_lj_with_unmerged_leaves() {
         let mut lookup = RealNodeLookup::new(2);
@@ -581,6 +590,7 @@ mod tests {
         assert!(res.nodes.contains(&unmerged_leaf2));
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_compute_lj_unmerged_dedup() {
         let mut lookup = RealNodeLookup::new(2);
