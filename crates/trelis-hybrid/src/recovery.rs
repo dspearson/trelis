@@ -76,8 +76,9 @@ use trelis_primitives::{
 
 use crate::signature::{HybridSignature, HybridSigningKeypair, HybridSigningPublicKey};
 
-/// Context string for compromise notice signatures.
-const COMPROMISE_NOTICE_CONTEXT: &str = "trelis-compromise-notice-v1";
+// Context string imported from the central BLAKE3 derive-key registry
+// (`trelis_primitives::blake3_kdf::COMPROMISE_NOTICE_CONTEXT`) per PROTO-07-NEW1.
+use trelis_primitives::COMPROMISE_NOTICE_CONTEXT;
 
 /// Size of a key fingerprint (BLAKE3 hash of public key).
 pub const FINGERPRINT_SIZE: usize = 32;
@@ -237,6 +238,7 @@ impl<S: MlDsaScheme> CompromiseNotice<S> {
     /// # Errors
     ///
     /// Returns `SignatureVerificationFailed` if verification fails.
+    #[must_use = "the verify outcome must be checked"]
     pub fn verify(&self, signer_key: &HybridSigningPublicKey<S>) -> Result<()> {
         // Verify the signer fingerprint matches
         let expected_fingerprint = key_fingerprint(signer_key);

@@ -33,7 +33,11 @@ use trelis_primitives::random::OsRng;
 use crate::ThreadId;
 
 /// Context string for AEAD encryption in DeviceKeyWrap.
-pub const WRAP_CONTEXT: &str = "trelis-bundle-wrap-v1";
+///
+/// Re-exported from the central BLAKE3-derive-key context registry in
+/// `trelis_primitives::blake3_kdf` to avoid parallel duplicate declarations
+/// (PROTO-07-NEW1). The downstream-visible name `WRAP_CONTEXT` is preserved.
+pub use trelis_primitives::BUNDLE_WRAP_CONTEXT as WRAP_CONTEXT;
 
 /// Size of recipient key ID in bytes.
 pub const KEY_ID_SIZE: usize = 8;
@@ -360,6 +364,7 @@ mod tests {
     }
 
     #[cfg(feature = "alloc")]
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_wrap_unwrap_roundtrip() {
         let keypair = HybridKemKeypair::generate().unwrap();
@@ -380,6 +385,7 @@ mod tests {
     }
 
     #[cfg(feature = "alloc")]
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_wrap_serialisation() {
         let keypair = HybridKemKeypair::generate().unwrap();
@@ -405,6 +411,7 @@ mod tests {
     }
 
     #[cfg(feature = "alloc")]
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_wrong_context_fails() {
         let keypair = HybridKemKeypair::generate().unwrap();
@@ -434,6 +441,7 @@ mod tests {
     }
 
     #[cfg(feature = "alloc")]
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_wrong_key_id_fails() {
         let keypair = HybridKemKeypair::generate().unwrap();
@@ -500,6 +508,7 @@ mod tests {
     }
 
     #[cfg(feature = "alloc")]
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_device_key_wrap_debug() {
         let keypair = HybridKemKeypair::generate().unwrap();
@@ -541,6 +550,7 @@ mod tests {
     }
 
     #[cfg(feature = "alloc")]
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_wrong_keypair_fails() {
         let keypair1 = HybridKemKeypair::generate().unwrap();

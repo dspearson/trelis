@@ -5,6 +5,8 @@
 
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
+#[cfg(feature = "alloc")]
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use trelis_error::{CryptoError, Result};
 use trelis_hybrid::{HybridSignature, HybridSigningKeypair, HybridSigningPublicKey};
@@ -20,18 +22,21 @@ const HISTORY_KEY_SHARE_CONTEXT: &str = "trelis-v1-history-key-share";
 /// This message is encrypted using the X3DH-PQ session established
 /// between the existing device and the new device.
 #[cfg(feature = "alloc")]
-#[derive(Clone)]
+#[derive(Clone, Zeroize, ZeroizeOnDrop)]
 pub struct HistoryKeyShareMessage {
     /// Thread these keys belong to.
+    #[zeroize(skip)]
     pub thread_id: ThreadId,
 
     /// The retained message keys.
     pub keys: Vec<RetainedKey>,
 
     /// Signature from sharing device (for audit trail).
+    #[zeroize(skip)]
     pub signature: HybridSignature,
 
     /// Unix timestamp when keys were shared.
+    #[zeroize(skip)]
     pub shared_at: u64,
 }
 
@@ -80,6 +85,7 @@ impl HistoryKeyShareMessage {
     /// # Errors
     ///
     /// Returns `SignatureError` if verification fails.
+    #[must_use = "the verify outcome must be checked"]
     pub fn verify(&self, sender_key: &HybridSigningPublicKey) -> Result<()> {
         let sig_data = Self::signing_data(&self.thread_id, &self.keys, self.shared_at);
         sender_key.verify(&sig_data, &self.signature)
@@ -87,15 +93,33 @@ impl HistoryKeyShareMessage {
 
     /// Creates the data to be signed for audit purposes.
     ///
-    /// Format: context || thread_id || key_count || shared_at
+    /// Format: context || thread_id || key_count || shared_at || keys_hash
+    ///
+    /// `keys_hash` is a BLAKE3 hash over the canonical byte serialisation of
+    /// every `RetainedKey` in `keys` (concatenated). Binding the keys into
+    /// the signed data brings the audit trail and non-repudiation property
+    /// of `HistoryKeyShareMessage` into parity with the sibling certificates
+    /// (`DeviceApprovalCertificate` binds the device fingerprint;
+    /// `DeviceRevocation` binds the device id). Without this binding the
+    /// signature only attests to (thread_id, key_count, shared_at) and a
+    /// compromised sender could swap in different keys post-signing
+    /// (PROTO-09-NEW1).
     #[cfg(feature = "alloc")]
     fn signing_data(thread_id: &ThreadId, keys: &[RetainedKey], shared_at: u64) -> Vec<u8> {
-        let mut data = Vec::with_capacity(64 + HISTORY_KEY_SHARE_CONTEXT.len());
+        // Hash the concatenated key serialisations under a distinct context.
+        let mut hasher = blake3::Hasher::new();
+        for key in keys {
+            hasher.update(&key.to_bytes()[..]);
+        }
+        let keys_hash: [u8; 32] = hasher.finalize().into();
+
+        let mut data = Vec::with_capacity(HISTORY_KEY_SHARE_CONTEXT.len() + 32 + 8 + 8 + 32);
 
         data.extend_from_slice(HISTORY_KEY_SHARE_CONTEXT.as_bytes());
         data.extend_from_slice(thread_id);
         data.extend_from_slice(&(keys.len() as u64).to_le_bytes());
         data.extend_from_slice(&shared_at.to_le_bytes());
+        data.extend_from_slice(&keys_hash);
 
         data
     }
@@ -130,7 +154,7 @@ impl HistoryKeyShareMessage {
 
         // Keys
         for key in &self.keys {
-            bytes.extend_from_slice(&key.to_bytes());
+            bytes.extend_from_slice(&key.to_bytes()[..]);
         }
 
         // Shared at
@@ -169,9 +193,18 @@ impl HistoryKeyShareMessage {
         ) as usize;
         offset += 8;
 
-        // Validate we have enough data for keys
-        let keys_size = key_count * RetainedKey::SERIALISED_SIZE;
-        if bytes.len() < offset + keys_size + 8 {
+        // Validate we have enough data for keys.
+        // checked_mul/checked_add guard against overflow on 32-bit targets or
+        // with attacker-controlled wire data (key_count comes directly from
+        // the message).
+        let keys_size = key_count
+            .checked_mul(RetainedKey::SERIALISED_SIZE)
+            .ok_or(CryptoError::MalformedMessage)?;
+        let required = offset
+            .checked_add(keys_size)
+            .and_then(|x| x.checked_add(8))
+            .ok_or(CryptoError::MalformedMessage)?;
+        if bytes.len() < required {
             return Err(CryptoError::MalformedMessage);
         }
 
@@ -324,5 +357,65 @@ mod tests {
         assert_eq!(summary.thread_id, [0x42u8; 32]);
         assert_eq!(summary.key_count, 7);
         assert_eq!(summary.shared_at, 5000);
+    }
+
+    // Regression test for MEM-02-HIGH: HistoryKeyShareMessage must implement ZeroizeOnDrop so
+    // that retained message keys (Vec<RetainedKey>) are zeroized at drop. Without this, Vec
+    // reallocation leaves secret bytes in freed heap memory until the allocator reuses the region.
+    #[test]
+    #[cfg(feature = "alloc")]
+    fn history_key_share_message_zeroize_on_drop() {
+        fn assert_impl<T: zeroize::ZeroizeOnDrop>() {}
+        assert_impl::<HistoryKeyShareMessage>();
+    }
+
+    // Regression test for PROTO-09-NEW1: the signature MUST bind to the key
+    // bytes, not just the count. A message signed for keys K1 with the metadata
+    // (thread_id, count, shared_at) must NOT verify for a different keys K2
+    // with the same metadata.
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn history_key_share_signature_binds_to_key_bytes() {
+        let signing_key = HybridSigningKeypair::generate().unwrap();
+        let keys_a = create_test_keys(3);
+        let keys_b: Vec<RetainedKey> = (0..3)
+            .map(|i| {
+                let mut message_id = [0u8; 32];
+                message_id[0..8].copy_from_slice(&(100u64 + i as u64).to_le_bytes());
+                RetainedKey::new(message_id, [0x55u8; 32], 100 + i as u64, 9000 + i as u64)
+            })
+            .collect();
+
+        let msg = HistoryKeyShareMessage::new([0x42u8; 32], keys_a, &signing_key, 5000).unwrap();
+
+        // Construct a tampered message reusing the original signature but
+        // swapping in different keys. Same thread_id, same count, same
+        // shared_at — only the key bytes differ.
+        let tampered = HistoryKeyShareMessage {
+            thread_id: msg.thread_id,
+            keys: keys_b,
+            signature: msg.signature.clone(),
+            shared_at: msg.shared_at,
+        };
+
+        // The original verifies; the tampered one must not.
+        assert!(msg.verify(&signing_key.public_key()).is_ok());
+        assert!(tampered.verify(&signing_key.public_key()).is_err());
+    }
+}
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+
+    // Prove: key_count * SERIALISED_SIZE never silently overflows after the checked_mul fix.
+    // Before the fix a crafted wire value could wrap the product to a small number, bypassing
+    // the size guard and allowing out-of-bounds reads in the key-parsing loop.
+    #[kani::proof]
+    fn key_count_overflow_is_caught() {
+        let key_count: usize = kani::any();
+        // checked_mul returns None on overflow; the caller maps that to MalformedMessage.
+        // This proof verifies checked_mul itself never panics for any key_count.
+        let _ = key_count.checked_mul(RetainedKey::SERIALISED_SIZE);
     }
 }

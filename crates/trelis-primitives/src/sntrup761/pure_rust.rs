@@ -24,7 +24,7 @@ extern crate alloc;
 
 use sha2::{Digest, Sha512};
 use subtle::{ConditionallySelectable, ConstantTimeEq};
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use super::encoding::{
     P, ROUNDED_BYTES, RQ_BYTES, SECRET_KEY_BYTES, SMALL_BYTES, rounded_encode, rq_decode,
@@ -34,7 +34,13 @@ use super::poly;
 use trelis_error::{CryptoError, Result};
 
 use ntrulp::rng::{random_small, short_random};
-use rand_core::RngCore;
+// `ntrulp 0.2.5` migrated to `rand 0.10` / `rand_core 0.10`; its
+// `random_small`/`short_random` require `R: rand_core::Rng` (v0.10). Use that
+// bound here directly via the renamed workspace dep `rand_core_v10` so both
+// callers (`OsRng` for `generate()`, `SeededRng` for `generate_from_seed()`)
+// pass through unchanged — both implement `rand_core_v10::TryRng` and so
+// auto-implement `rand_core_v10::Rng` via the rand_core blanket impl.
+use rand_core_v10::Rng as RngV10;
 
 // Use our optimised R3 for R3::recip (ginv calculation)
 use super::fq::R3;
@@ -156,11 +162,12 @@ pub struct Sntrup761SecretKey {
 impl Sntrup761SecretKey {
     /// Generates a new random keypair and returns the secret key.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if key generation fails after `MAX_KEYGEN_ATTEMPTS` attempts,
-    /// which indicates a broken RNG.
-    pub fn generate() -> Self {
+    /// Returns `KeyGenerationFailed` if the underlying RNG produces no
+    /// invertible polynomial within `MAX_KEYGEN_ATTEMPTS`, which only
+    /// happens with a broken RNG.
+    pub fn generate() -> Result<Self> {
         Self::generate_from_rng(&mut OsRng)
     }
 
@@ -173,12 +180,11 @@ impl Sntrup761SecretKey {
     ///
     /// * `seed` - A 32-byte seed value
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if key generation fails after `MAX_KEYGEN_ATTEMPTS` attempts,
+    /// Returns `KeyGenerationFailed` if `MAX_KEYGEN_ATTEMPTS` is exceeded,
     /// which should never happen with a properly seeded RNG.
-    #[must_use]
-    pub fn generate_from_seed(seed: &[u8; 32]) -> Self {
+    pub fn generate_from_seed(seed: &[u8; 32]) -> Result<Self> {
         use crate::random::SeededRng;
         let mut rng = SeededRng::new(seed, "trelis-sntrup761-keygen");
         Self::generate_from_rng(&mut rng)
@@ -187,17 +193,14 @@ impl Sntrup761SecretKey {
     /// Generates a keypair using the provided RNG.
     ///
     /// This is the core implementation shared by both random and seeded generation.
-    fn generate_from_rng<R: RngCore>(rng: &mut R) -> Self {
+    fn generate_from_rng<R: RngV10>(rng: &mut R) -> Result<Self> {
         let mut keygen_attempts = 0usize;
 
         // Outer loop handles the rare case where f is not invertible mod 3
         loop {
             keygen_attempts += 1;
             if keygen_attempts > MAX_KEYGEN_ATTEMPTS {
-                panic!(
-                    "sntrup761: keypair generation failed after {} attempts - RNG may be broken",
-                    MAX_KEYGEN_ATTEMPTS
-                );
+                return Err(CryptoError::KeyGenerationFailed);
             }
 
             let mut attempts = 0usize;
@@ -206,10 +209,7 @@ impl Sntrup761SecretKey {
             let (g_coeffs, ginv_coeffs) = loop {
                 attempts += 1;
                 if attempts > MAX_KEYGEN_ATTEMPTS {
-                    panic!(
-                        "sntrup761: g generation failed after {} attempts - RNG may be broken",
-                        MAX_KEYGEN_ATTEMPTS
-                    );
+                    return Err(CryptoError::KeyGenerationFailed);
                 }
                 let g_coeffs = random_small(rng);
                 let g = R3::from(g_coeffs);
@@ -224,10 +224,7 @@ impl Sntrup761SecretKey {
             let f_coeffs = loop {
                 attempts += 1;
                 if attempts > MAX_KEYGEN_ATTEMPTS {
-                    panic!(
-                        "sntrup761: f generation failed after {} attempts - RNG may be broken",
-                        MAX_KEYGEN_ATTEMPTS
-                    );
+                    return Err(CryptoError::KeyGenerationFailed);
                 }
                 if let Ok(short) = short_random(rng) {
                     // Verify it has correct weight
@@ -285,7 +282,7 @@ impl Sntrup761SecretKey {
                 .copy_from_slice(&rho);
             bytes[SECRET_KEY_SIZE - 32..].copy_from_slice(&pk_cache);
 
-            return Self { bytes };
+            return Ok(Self { bytes });
         }
     }
 
@@ -319,6 +316,7 @@ impl Sntrup761SecretKey {
     }
 
     /// Decapsulates a ciphertext to recover the shared secret.
+    #[must_use = "the decapsulated shared secret must be checked"]
     pub fn decapsulate(&self, ciphertext: &Sntrup761Ciphertext) -> Result<Sntrup761SharedSecret> {
         // Parse secret key components
         let f_coeffs = small_decode(
@@ -452,6 +450,16 @@ impl Sntrup761PublicKey {
             });
         }
 
+        // Reject all-zero public keys: an all-zero polynomial is not a valid sntrup761
+        // public key. While implicit rejection limits practical impact (encapsulation
+        // against a zero key produces a pseudorandom output bound to rho), explicit
+        // rejection is the fail-loudly behaviour consistent with X448's all-zero DH
+        // output guard (x448.rs:177). Hardening per PROTO-03-SNTRUP-ALLZERO audit finding.
+        // Re-using DecapsulationFailed: no InvalidPublicKey variant exists; see PROTO-03-SNTRUP-ALLZERO.
+        if bytes.iter().all(|&b| b == 0) {
+            return Err(CryptoError::DecapsulationFailed);
+        }
+
         let mut key_bytes = [0u8; PUBLIC_KEY_SIZE];
         key_bytes.copy_from_slice(bytes);
 
@@ -478,12 +486,12 @@ impl Sntrup761PublicKey {
 
     /// Encapsulates to this public key, producing a shared secret and ciphertext.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if random polynomial generation fails after `MAX_KEYGEN_ATTEMPTS`
-    /// attempts, which indicates a broken RNG.
-    #[must_use]
-    pub fn encapsulate(&self) -> (Sntrup761SharedSecret, Sntrup761Ciphertext) {
+    /// Returns `KeyGenerationFailed` if the underlying RNG cannot produce a
+    /// weight-W short polynomial within `MAX_KEYGEN_ATTEMPTS`, which only
+    /// happens with a broken RNG.
+    pub fn encapsulate(&self) -> Result<(Sntrup761SharedSecret, Sntrup761Ciphertext)> {
         let mut rng = OsRng;
         let mut attempts = 0usize;
 
@@ -491,10 +499,7 @@ impl Sntrup761PublicKey {
         let r_coeffs = loop {
             attempts += 1;
             if attempts > MAX_KEYGEN_ATTEMPTS {
-                panic!(
-                    "sntrup761: r generation failed after {} attempts - RNG may be broken",
-                    MAX_KEYGEN_ATTEMPTS
-                );
+                return Err(CryptoError::KeyGenerationFailed);
             }
             if let Ok(short) = short_random(&mut rng) {
                 let mut r_i8 = [0i8; P];
@@ -541,10 +546,10 @@ impl Sntrup761PublicKey {
         // Compute shared secret = SHA-512(1 || r_hash || ciphertext)[0:32]
         let ss = hash_session(1, &r_hash, &ct_bytes);
 
-        (
+        Ok((
             Sntrup761SharedSecret { bytes: ss },
             Sntrup761Ciphertext { bytes: ct_bytes },
-        )
+        ))
     }
 }
 
@@ -619,9 +624,13 @@ impl Sntrup761SharedSecret {
     }
 
     /// Returns the shared secret as a byte array.
+    ///
+    /// The bytes are wrapped in `Zeroizing<...>` so the caller's storage is
+    /// automatically zeroised on drop. Returning a raw `[u8; N]` would defeat
+    /// the type's `ZeroizeOnDrop` guarantee for the copied bytes.
     #[must_use]
-    pub fn to_bytes(&self) -> [u8; SHARED_SECRET_SIZE] {
-        self.bytes
+    pub fn to_bytes(&self) -> Zeroizing<[u8; SHARED_SECRET_SIZE]> {
+        Zeroizing::new(self.bytes)
     }
 }
 
@@ -661,7 +670,7 @@ mod tests {
 
     #[test]
     fn test_key_generation() {
-        let sk = Sntrup761SecretKey::generate();
+        let sk = Sntrup761SecretKey::generate().unwrap();
         let pk = sk.public_key();
 
         // Verify sizes
@@ -671,7 +680,7 @@ mod tests {
 
     #[test]
     fn test_key_serialisation_roundtrip() {
-        let sk = Sntrup761SecretKey::generate();
+        let sk = Sntrup761SecretKey::generate().unwrap();
         let pk = sk.public_key();
 
         // Secret key roundtrip
@@ -687,11 +696,11 @@ mod tests {
 
     #[test]
     fn test_encapsulation_decapsulation() {
-        let sk = Sntrup761SecretKey::generate();
+        let sk = Sntrup761SecretKey::generate().unwrap();
         let pk = sk.public_key();
 
         // Encapsulate
-        let (ss_enc, ct) = pk.encapsulate();
+        let (ss_enc, ct) = pk.encapsulate().unwrap();
 
         // Decapsulate
         let ss_dec = sk.decapsulate(&ct).unwrap();
@@ -702,11 +711,11 @@ mod tests {
 
     #[test]
     fn test_multiple_encapsulations_different() {
-        let sk = Sntrup761SecretKey::generate();
+        let sk = Sntrup761SecretKey::generate().unwrap();
         let pk = sk.public_key();
 
-        let (ss1, ct1) = pk.encapsulate();
-        let (ss2, ct2) = pk.encapsulate();
+        let (ss1, ct1) = pk.encapsulate().unwrap();
+        let (ss2, ct2) = pk.encapsulate().unwrap();
 
         // Different encapsulations should produce different ciphertexts and secrets
         assert_ne!(ct1.as_bytes(), ct2.as_bytes());
@@ -722,10 +731,10 @@ mod tests {
 
     #[test]
     fn test_ciphertext_serialisation() {
-        let sk = Sntrup761SecretKey::generate();
+        let sk = Sntrup761SecretKey::generate().unwrap();
         let pk = sk.public_key();
 
-        let (ss, ct) = pk.encapsulate();
+        let (ss, ct) = pk.encapsulate().unwrap();
 
         // Serialise and deserialise ciphertext
         let ct_bytes = ct.as_bytes().to_vec();
@@ -763,8 +772,8 @@ mod tests {
     #[test]
     fn test_generate_from_seed_deterministic() {
         let seed = [0x42u8; 32];
-        let sk1 = Sntrup761SecretKey::generate_from_seed(&seed);
-        let sk2 = Sntrup761SecretKey::generate_from_seed(&seed);
+        let sk1 = Sntrup761SecretKey::generate_from_seed(&seed).unwrap();
+        let sk2 = Sntrup761SecretKey::generate_from_seed(&seed).unwrap();
 
         // Same seed should produce same key
         assert_eq!(sk1.as_bytes(), sk2.as_bytes());
@@ -774,8 +783,8 @@ mod tests {
     fn test_generate_from_seed_different_seeds() {
         let seed1 = [0x42u8; 32];
         let seed2 = [0x43u8; 32];
-        let sk1 = Sntrup761SecretKey::generate_from_seed(&seed1);
-        let sk2 = Sntrup761SecretKey::generate_from_seed(&seed2);
+        let sk1 = Sntrup761SecretKey::generate_from_seed(&seed1).unwrap();
+        let sk2 = Sntrup761SecretKey::generate_from_seed(&seed2).unwrap();
 
         // Different seeds should produce different keys
         assert_ne!(sk1.as_bytes(), sk2.as_bytes());
@@ -784,11 +793,11 @@ mod tests {
     #[test]
     fn test_generate_from_seed_kem_works() {
         let seed = [0x42u8; 32];
-        let sk = Sntrup761SecretKey::generate_from_seed(&seed);
+        let sk = Sntrup761SecretKey::generate_from_seed(&seed).unwrap();
         let pk = sk.public_key();
 
         // KEM should work with seeded keys
-        let (ss_enc, ct) = pk.encapsulate();
+        let (ss_enc, ct) = pk.encapsulate().unwrap();
         let ss_dec = sk.decapsulate(&ct).unwrap();
         assert_eq!(ss_enc.as_bytes(), ss_dec.as_bytes());
     }
@@ -802,11 +811,11 @@ mod tests {
     /// This prevents distinguishing valid from invalid ciphertexts.
     #[test]
     fn test_decapsulation_with_corrupted_ciphertext() {
-        let sk = Sntrup761SecretKey::generate();
+        let sk = Sntrup761SecretKey::generate().unwrap();
         let pk = sk.public_key();
 
         // Generate valid encapsulation
-        let (ss_valid, ct) = pk.encapsulate();
+        let (ss_valid, ct) = pk.encapsulate().unwrap();
 
         // Corrupt the ciphertext (flip a byte)
         let mut ct_corrupted_bytes = *ct.as_bytes();
@@ -848,10 +857,10 @@ mod tests {
     /// Test that decapsulation with corrupted confirmation hash triggers implicit rejection.
     #[test]
     fn test_decapsulation_corrupted_confirmation() {
-        let sk = Sntrup761SecretKey::generate();
+        let sk = Sntrup761SecretKey::generate().unwrap();
         let pk = sk.public_key();
 
-        let (ss_valid, ct) = pk.encapsulate();
+        let (ss_valid, ct) = pk.encapsulate().unwrap();
 
         // Corrupt the confirmation hash (last 32 bytes of ciphertext)
         let mut ct_bad_confirm_bytes = *ct.as_bytes();
@@ -877,10 +886,10 @@ mod tests {
     /// follow the same code path and return successfully.
     #[test]
     fn test_decapsulation_timing_consistency() {
-        let sk = Sntrup761SecretKey::generate();
+        let sk = Sntrup761SecretKey::generate().unwrap();
         let pk = sk.public_key();
 
-        let (_ss_valid, ct_valid) = pk.encapsulate();
+        let (_ss_valid, ct_valid) = pk.encapsulate().unwrap();
 
         // Create various invalid ciphertexts
         let mut ct_zero = [0u8; CIPHERTEXT_SIZE];
@@ -920,5 +929,20 @@ mod tests {
             ss2.as_bytes(),
             "Valid decap should be deterministic"
         );
+    }
+
+    #[test]
+    fn test_all_zero_public_key_rejected() {
+        // PROTO-03-SNTRUP-ALLZERO hardening: all-zero key must be rejected at
+        // construction time, consistent with X448's all-zero DH output guard (x448.rs:177).
+        let zero_key = [0u8; PUBLIC_KEY_SIZE];
+        let result = Sntrup761PublicKey::from_bytes(&zero_key);
+        assert!(result.is_err(), "all-zero public key must be rejected");
+
+        // Valid key must still be accepted.
+        let sk = Sntrup761SecretKey::generate().unwrap();
+        let pk_bytes = sk.public_key().to_bytes();
+        let result = Sntrup761PublicKey::from_bytes(&pk_bytes);
+        assert!(result.is_ok(), "valid public key must be accepted");
     }
 }

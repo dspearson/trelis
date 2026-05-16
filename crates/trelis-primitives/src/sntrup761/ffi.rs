@@ -35,11 +35,11 @@
 //! use trelis_primitives::sntrup761::{Sntrup761SecretKey, Sntrup761PublicKey};
 //!
 //! // Generate a keypair
-//! let secret_key = Sntrup761SecretKey::generate();
+//! let secret_key = Sntrup761SecretKey::generate().unwrap();
 //! let public_key = secret_key.public_key();
 //!
 //! // Encapsulate: sender creates shared secret and ciphertext
-//! let (shared_secret, ciphertext) = public_key.encapsulate();
+//! let (shared_secret, ciphertext) = public_key.encapsulate().unwrap();
 //!
 //! // Decapsulate: receiver recovers shared secret from ciphertext
 //! let recovered_secret = secret_key.decapsulate(&ciphertext).unwrap();
@@ -59,7 +59,7 @@ use pqcrypto_traits::kem::{
 };
 
 use subtle::ConstantTimeEq;
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use trelis_error::{CryptoError, Result};
 
@@ -94,8 +94,14 @@ pub struct Sntrup761SecretKey {
 #[cfg(feature = "std")]
 impl Sntrup761SecretKey {
     /// Generates a new random keypair and returns the secret key.
-    #[must_use]
-    pub fn generate() -> Self {
+    ///
+    /// # Errors
+    ///
+    /// The C FFI backend (`sntrup761::keypair`) does not currently expose a
+    /// failure path; this function always returns `Ok`. The signature is
+    /// `Result<Self>` so it matches the pure-Rust backend's signature
+    /// across the conditional-compile boundary.
+    pub fn generate() -> Result<Self> {
         let (pk, sk) = sntrup761::keypair();
 
         let mut bytes = [0u8; SECRET_KEY_SIZE];
@@ -104,10 +110,10 @@ impl Sntrup761SecretKey {
         let mut public_key_bytes = [0u8; PUBLIC_KEY_SIZE];
         public_key_bytes.copy_from_slice(pk.as_bytes());
 
-        Self {
+        Ok(Self {
             bytes,
             public_key_bytes,
-        }
+        })
     }
 
     /// Generates a keypair deterministically from a 32-byte seed.
@@ -120,15 +126,13 @@ impl Sntrup761SecretKey {
     ///
     /// * `seed` - A 32-byte seed value
     ///
-    /// # Note
+    /// # Errors
     ///
-    /// This uses the pure Rust implementation (same as WASM backend) rather
-    /// than the C FFI, since the C implementation doesn't support seeded
-    /// key generation.
-    #[must_use]
-    pub fn generate_from_seed(seed: &[u8; 32]) -> Self {
+    /// Returns `KeyGenerationFailed` if the underlying pure-Rust keygen
+    /// exhausts its retry budget (RNG-broken indicator).
+    pub fn generate_from_seed(seed: &[u8; 32]) -> Result<Self> {
         // Use the pure Rust implementation for deterministic keygen
-        let wasm_sk = super::pure_rust::Sntrup761SecretKey::generate_from_seed(seed);
+        let wasm_sk = super::pure_rust::Sntrup761SecretKey::generate_from_seed(seed)?;
 
         // Convert to std format
         let mut bytes = [0u8; SECRET_KEY_SIZE];
@@ -139,10 +143,10 @@ impl Sntrup761SecretKey {
         let mut public_key_bytes = [0u8; PUBLIC_KEY_SIZE];
         public_key_bytes.copy_from_slice(&bytes[pk_start..pk_start + PUBLIC_KEY_SIZE]);
 
-        Self {
+        Ok(Self {
             bytes,
             public_key_bytes,
-        }
+        })
     }
 
     /// Creates a secret key from raw bytes.
@@ -197,6 +201,7 @@ impl Sntrup761SecretKey {
     /// sntrup761 provides implicit rejection: if decapsulation fails,
     /// a pseudorandom value derived from the ciphertext and secret key
     /// is returned instead of an error. This prevents timing attacks.
+    #[must_use = "the decapsulated shared secret must be checked"]
     pub fn decapsulate(&self, ciphertext: &Sntrup761Ciphertext) -> Result<Sntrup761SharedSecret> {
         let sk = sntrup761::SecretKey::from_bytes(&self.bytes)
             .map_err(|_| CryptoError::DecapsulationFailed)?;
@@ -242,6 +247,16 @@ impl Sntrup761PublicKey {
             });
         }
 
+        // Reject all-zero public keys: an all-zero polynomial is not a valid sntrup761
+        // public key. The C FFI backend (`pqcrypto-ntruprime`) does not validate this
+        // either, so the guard is added here for parity with the pure-Rust backend
+        // (PROTO-03-SNTRUP-ALLZERO) and to keep behaviour byte-for-byte symmetric
+        // across the two backends. Re-using `DecapsulationFailed`: no `InvalidPublicKey`
+        // variant exists.
+        if bytes.iter().all(|&b| b == 0) {
+            return Err(CryptoError::DecapsulationFailed);
+        }
+
         let mut key_bytes = [0u8; PUBLIC_KEY_SIZE];
         key_bytes.copy_from_slice(bytes);
 
@@ -270,10 +285,17 @@ impl Sntrup761PublicKey {
     ///
     /// The shared secret should be used as input to a KDF before use as a key.
     /// The ciphertext should be sent to the key owner for decapsulation.
-    #[must_use]
-    pub fn encapsulate(&self) -> (Sntrup761SharedSecret, Sntrup761Ciphertext) {
+    ///
+    /// # Errors
+    ///
+    /// Returns `EncapsulationFailed` if the internal public key bytes do not
+    /// parse — by construction, `Sntrup761PublicKey` is only constructed from
+    /// validated input, so this branch is effectively unreachable on this
+    /// backend. The signature is `Result<...>` to match the pure-Rust
+    /// backend's signature across the conditional-compile boundary.
+    pub fn encapsulate(&self) -> Result<(Sntrup761SharedSecret, Sntrup761Ciphertext)> {
         let pk = sntrup761::PublicKey::from_bytes(&self.bytes)
-            .expect("valid public key bytes should parse");
+            .map_err(|_| CryptoError::EncapsulationFailed)?;
 
         let (ss, ct) = sntrup761::encapsulate(&pk);
 
@@ -283,10 +305,10 @@ impl Sntrup761PublicKey {
         let mut ct_bytes = [0u8; CIPHERTEXT_SIZE];
         ct_bytes.copy_from_slice(ct.as_bytes());
 
-        (
+        Ok((
             Sntrup761SharedSecret { bytes: ss_bytes },
             Sntrup761Ciphertext { bytes: ct_bytes },
-        )
+        ))
     }
 }
 
@@ -364,9 +386,13 @@ impl Sntrup761SharedSecret {
     }
 
     /// Returns the shared secret as a byte array.
+    ///
+    /// The bytes are wrapped in `Zeroizing<...>` so the caller's storage is
+    /// automatically zeroised on drop. Returning a raw `[u8; N]` would defeat
+    /// the type's `ZeroizeOnDrop` guarantee for the copied bytes.
     #[must_use]
-    pub fn to_bytes(&self) -> [u8; SHARED_SECRET_SIZE] {
-        self.bytes
+    pub fn to_bytes(&self) -> Zeroizing<[u8; SHARED_SECRET_SIZE]> {
+        Zeroizing::new(self.bytes)
     }
 }
 
@@ -394,7 +420,7 @@ mod tests {
 
     #[test]
     fn test_key_generation() {
-        let sk = Sntrup761SecretKey::generate();
+        let sk = Sntrup761SecretKey::generate().unwrap();
         let pk = sk.public_key();
 
         assert_eq!(sk.as_bytes().len(), SECRET_KEY_SIZE);
@@ -403,10 +429,10 @@ mod tests {
 
     #[test]
     fn test_encapsulate_decapsulate_roundtrip() {
-        let sk = Sntrup761SecretKey::generate();
+        let sk = Sntrup761SecretKey::generate().unwrap();
         let pk = sk.public_key();
 
-        let (ss1, ct) = pk.encapsulate();
+        let (ss1, ct) = pk.encapsulate().unwrap();
         let ss2 = sk.decapsulate(&ct).expect("decapsulation should succeed");
 
         assert!(bool::from(ss1.ct_eq(&ss2)));
@@ -414,12 +440,12 @@ mod tests {
 
     #[test]
     fn test_multiple_encapsulations() {
-        let sk = Sntrup761SecretKey::generate();
+        let sk = Sntrup761SecretKey::generate().unwrap();
         let pk = sk.public_key();
 
         // Multiple encapsulations should produce different ciphertexts
-        let (ss1, ct1) = pk.encapsulate();
-        let (ss2, ct2) = pk.encapsulate();
+        let (ss1, ct1) = pk.encapsulate().unwrap();
+        let (ss2, ct2) = pk.encapsulate().unwrap();
 
         // Shared secrets and ciphertexts should differ
         assert_ne!(ct1.as_bytes(), ct2.as_bytes());
@@ -435,14 +461,14 @@ mod tests {
 
     #[test]
     fn test_different_keys_different_secrets() {
-        let sk1 = Sntrup761SecretKey::generate();
+        let sk1 = Sntrup761SecretKey::generate().unwrap();
         let pk1 = sk1.public_key();
 
-        let sk2 = Sntrup761SecretKey::generate();
+        let sk2 = Sntrup761SecretKey::generate().unwrap();
         let pk2 = sk2.public_key();
 
-        let (ss1, _) = pk1.encapsulate();
-        let (ss2, _) = pk2.encapsulate();
+        let (ss1, _) = pk1.encapsulate().unwrap();
+        let (ss2, _) = pk2.encapsulate().unwrap();
 
         assert!(!bool::from(ss1.ct_eq(&ss2)));
     }
@@ -457,7 +483,7 @@ mod tests {
 
     #[test]
     fn test_public_key_from_bytes() {
-        let sk = Sntrup761SecretKey::generate();
+        let sk = Sntrup761SecretKey::generate().unwrap();
         let pk1 = sk.public_key();
 
         let pk2 = Sntrup761PublicKey::from_bytes(pk1.as_bytes()).unwrap();
@@ -467,7 +493,7 @@ mod tests {
 
     #[test]
     fn test_secret_key_from_bytes_roundtrip() {
-        let sk1 = Sntrup761SecretKey::generate();
+        let sk1 = Sntrup761SecretKey::generate().unwrap();
         let pk1 = sk1.public_key();
 
         let sk2 = Sntrup761SecretKey::from_bytes(sk1.as_bytes()).unwrap();
@@ -477,7 +503,7 @@ mod tests {
         assert_eq!(pk1.as_bytes(), pk2.as_bytes());
 
         // Both should decapsulate correctly
-        let (ss, ct) = pk1.encapsulate();
+        let (ss, ct) = pk1.encapsulate().unwrap();
         let recovered = sk2.decapsulate(&ct).unwrap();
 
         assert!(bool::from(ss.ct_eq(&recovered)));
@@ -485,10 +511,10 @@ mod tests {
 
     #[test]
     fn test_ciphertext_from_bytes() {
-        let sk = Sntrup761SecretKey::generate();
+        let sk = Sntrup761SecretKey::generate().unwrap();
         let pk = sk.public_key();
 
-        let (ss1, ct1) = pk.encapsulate();
+        let (ss1, ct1) = pk.encapsulate().unwrap();
 
         let ct2 = Sntrup761Ciphertext::from_bytes(ct1.as_bytes()).unwrap();
         let ss2 = sk.decapsulate(&ct2).unwrap();
@@ -498,27 +524,27 @@ mod tests {
 
     #[test]
     fn test_ciphertext_sizes() {
-        let sk = Sntrup761SecretKey::generate();
+        let sk = Sntrup761SecretKey::generate().unwrap();
         let pk = sk.public_key();
 
-        let (_, ct) = pk.encapsulate();
+        let (_, ct) = pk.encapsulate().unwrap();
 
         assert_eq!(ct.as_bytes().len(), CIPHERTEXT_SIZE);
     }
 
     #[test]
     fn test_shared_secret_constant_time_eq() {
-        let sk = Sntrup761SecretKey::generate();
+        let sk = Sntrup761SecretKey::generate().unwrap();
         let pk = sk.public_key();
 
-        let (ss1, ct) = pk.encapsulate();
+        let (ss1, ct) = pk.encapsulate().unwrap();
         let ss2 = sk.decapsulate(&ct).unwrap();
 
         // Same secrets should be equal
         assert!(bool::from(ss1.ct_eq(&ss2)));
 
         // Different encapsulations should produce different secrets
-        let (ss3, _) = pk.encapsulate();
+        let (ss3, _) = pk.encapsulate().unwrap();
         assert!(!bool::from(ss1.ct_eq(&ss3)));
     }
 
@@ -532,5 +558,14 @@ mod tests {
     fn test_invalid_ciphertext_length() {
         let result = Sntrup761Ciphertext::from_bytes(&[0u8; 100]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_all_zero_public_key_rejected() {
+        // PROTO-03-SNTRUP-ALLZERO hardening (FFI backend parity): all-zero key
+        // must be rejected at construction time, mirroring the pure-Rust backend.
+        let zero_key = [0u8; PUBLIC_KEY_SIZE];
+        let result = Sntrup761PublicKey::from_bytes(&zero_key);
+        assert!(result.is_err(), "all-zero public key must be rejected");
     }
 }

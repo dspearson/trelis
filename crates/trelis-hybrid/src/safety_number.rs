@@ -38,11 +38,10 @@ use alloc::vec::Vec;
 
 use crate::identity::HybridIdentityPublicKey;
 
-/// Context string for standard safety number derivation (forward-secrecy only).
-pub const SAFETY_NUMBER_CONTEXT: &str = "trelis-safety-number-v1";
-
-/// Context string for history-sync-enabled safety numbers.
-pub const SAFETY_NUMBER_SYNC_CONTEXT: &str = "trelis-safety-number-sync-v1";
+/// Context strings re-exported from the central BLAKE3 derive-key registry
+/// in `trelis_primitives::blake3_kdf` (PROTO-07-NEW1). The downstream-visible
+/// names are preserved.
+pub use trelis_primitives::{SAFETY_NUMBER_CONTEXT, SAFETY_NUMBER_SYNC_CONTEXT};
 
 /// Size of the thread ID for history-sync safety numbers.
 pub const THREAD_ID_SIZE: usize = 32;
@@ -342,6 +341,7 @@ fn base64_url_decode(s: &str) -> Option<Vec<u8>> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
     use crate::HybridIdentityKeypair;

@@ -10,8 +10,9 @@ use zeroize::Zeroize;
 
 use crate::bundle::SignedPreKeyBundle;
 
-/// Context string for X3DH-PQ session key derivation.
-pub const SESSION_CONTEXT: &str = "trelis-session-v1";
+/// Context string for X3DH-PQ session key derivation. Re-exported from
+/// `trelis_primitives::blake3_kdf` registry (PROTO-07-NEW1).
+pub use trelis_primitives::SESSION_CONTEXT;
 
 /// Size of a BLAKE3 hash output.
 pub const HASH_SIZE: usize = 32;
@@ -188,6 +189,7 @@ fn hash_bundle(bundle: &SignedPreKeyBundle) -> [u8; HASH_SIZE] {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
 
