@@ -6,12 +6,16 @@
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
+#[cfg(feature = "alloc")]
 use trelis_error::{CryptoError, Result};
-use trelis_hybrid::{HybridSignature, HybridSigningKeypair, HybridSigningPublicKey};
+use trelis_hybrid::HybridSignature;
+#[cfg(feature = "alloc")]
+use trelis_hybrid::{HybridSigningKeypair, HybridSigningPublicKey};
 
 use crate::DeviceId;
 
 /// Context string for device revocation signatures.
+#[cfg(feature = "alloc")]
 const REVOCATION_CONTEXT: &str = "trelis-v1-device-revocation";
 
 /// Reason for device revocation.
@@ -91,6 +95,7 @@ pub struct DeviceRevocation {
 
 impl DeviceRevocation {
     /// Size of the fixed portion (before signature).
+    #[cfg(feature = "alloc")]
     const FIXED_SIZE: usize = 16 + 8 + 1; // device_id + timestamp + reason
 
     /// Creates a new device revocation certificate.

@@ -69,9 +69,10 @@
 use alloc::vec::Vec;
 
 use trelis_error::{CryptoError, Result};
+use trelis_primitives::{DefaultMlDsaScheme, MlDsaScheme};
+#[cfg(any(feature = "std", feature = "wasm"))]
 use trelis_primitives::{
-    DefaultMlDsaScheme, Ed448SigningKey, MlDsaScheme, RECOVERY_ED448_CONTEXT,
-    RECOVERY_MLDSA_CONTEXT, derive_key,
+    Ed448SigningKey, RECOVERY_ED448_CONTEXT, RECOVERY_MLDSA_CONTEXT, derive_key,
 };
 
 use crate::signature::{HybridSignature, HybridSigningKeypair, HybridSigningPublicKey};

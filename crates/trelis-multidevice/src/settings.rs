@@ -6,9 +6,11 @@
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
+#[cfg(feature = "alloc")]
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::ThreadId;
+#[cfg(feature = "alloc")]
 use crate::retained_key::RetainedKey;
 
 /// Per-thread configuration for history synchronisation.

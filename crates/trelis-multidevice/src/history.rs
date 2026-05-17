@@ -8,13 +8,17 @@ use alloc::vec::Vec;
 #[cfg(feature = "alloc")]
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
+#[cfg(feature = "alloc")]
 use trelis_error::{CryptoError, Result};
+#[cfg(feature = "alloc")]
 use trelis_hybrid::{HybridSignature, HybridSigningKeypair, HybridSigningPublicKey};
 
 use crate::ThreadId;
+#[cfg(feature = "alloc")]
 use crate::retained_key::RetainedKey;
 
 /// Context string for history key share signatures.
+#[cfg(feature = "alloc")]
 const HISTORY_KEY_SHARE_CONTEXT: &str = "trelis-v1-history-key-share";
 
 /// History key share message for sending retained keys to a new device.

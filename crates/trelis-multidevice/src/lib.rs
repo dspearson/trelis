@@ -48,6 +48,11 @@ mod approval;
 #[cfg(any(feature = "std", feature = "wasm"))]
 mod device_key_wrap;
 mod history;
+// `retained_key` only has internal users that are themselves alloc-gated
+// (Vec<RetainedKey>, alloc-gated re-export). Gating the module matches the
+// existing `device_key_wrap` precedent and keeps `--no-default-features`
+// clean of dead-code.
+#[cfg(feature = "alloc")]
 mod retained_key;
 mod revocation;
 mod settings;

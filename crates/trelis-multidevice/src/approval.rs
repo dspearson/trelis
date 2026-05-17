@@ -38,12 +38,16 @@
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
+#[cfg(feature = "alloc")]
 use trelis_error::{CryptoError, Result};
-use trelis_hybrid::{HybridSignature, HybridSigningKeypair, HybridSigningPublicKey};
+use trelis_hybrid::HybridSignature;
+#[cfg(feature = "alloc")]
+use trelis_hybrid::{HybridSigningKeypair, HybridSigningPublicKey};
 
 use crate::DeviceId;
 
 /// Context string for device approval signatures.
+#[cfg(feature = "alloc")]
 const APPROVAL_CONTEXT: &str = "trelis-v1-device-approval";
 
 /// Size of a device fingerprint (BLAKE3 hash of public key).
