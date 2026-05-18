@@ -145,18 +145,56 @@ pub const SIG_DEVICE_ATTEST_CONTEXT: &str = "trelis-sig-device-attest-v1";
 
 /// Context for device seed derivation from hardware entropy.
 ///
-/// Used to derive a device-specific seed from hardware random sources.
+/// Used by [`derive_device_seed`] to derive a device-specific seed from
+/// hardware random sources (e.g. a secure enclave) before that seed is fed
+/// into [`HybridIdentityKeypair::generate_from_seed`](../../trelis_hybrid/identity/struct.HybridIdentityKeypair.html).
 pub const DEVICE_SEED_CONTEXT: &str = "trelis-device-seed-v1";
 
 /// Context for device identity key derivation.
 ///
-/// Used to derive the device's identity key from the device seed.
+/// Used inside `HybridIdentityKeypair::generate_from_seed` to derive the
+/// device's KEM-side identity seed from the device seed (`identity` in this
+/// naming refers to "the keypair that *receives* messages addressed to the
+/// device", i.e. the X448 + sntrup761 KEM keypair — see
+/// [`DEVICE_SIGNING_KEY_CONTEXT`] for the signing side).
 pub const DEVICE_IDENTITY_KEY_CONTEXT: &str = "trelis-device-identity-key-v1";
 
 /// Context for device signing key derivation.
 ///
-/// Used to derive the device's signing key from the device seed.
+/// Used inside `HybridIdentityKeypair::generate_from_seed` to derive the
+/// device's signing keypair seed from the device seed.
 pub const DEVICE_SIGNING_KEY_CONTEXT: &str = "trelis-device-signing-key-v1";
+
+/// Derive a canonical 32-byte device seed from raw hardware entropy.
+///
+/// This is the recommended pre-step before calling
+/// `HybridIdentityKeypair::generate_from_seed`: take the raw hardware-entropy
+/// bytes (any length), run them through BLAKE3 with [`DEVICE_SEED_CONTEXT`],
+/// and feed the resulting 32-byte seed to the seeded identity-keypair
+/// constructor. The same input always produces the same output, so the
+/// derived identity is stable across reboots and reproducible from the
+/// secure-enclave secret.
+///
+/// # Threat-model fit
+///
+/// The hardware entropy itself is the trust root; this function does NOT
+/// add entropy, it just provides domain separation so that the same
+/// hardware secret cannot be misused as a key in some other Trelis context
+/// (the BLAKE3 derive_key construction prevents cross-context substitution).
+///
+/// # Example
+///
+/// ```ignore
+/// use trelis_primitives::derive_device_seed;
+/// // hardware_secret might come from a TPM, SecureEnclave, etc.
+/// let hardware_secret = [0x42u8; 32];
+/// let device_seed = derive_device_seed(&hardware_secret);
+/// // device_seed is now ready for HybridIdentityKeypair::generate_from_seed
+/// ```
+#[must_use]
+pub fn derive_device_seed(hardware_entropy: &[u8]) -> Zeroizing<[u8; OUTPUT_SIZE]> {
+    Zeroizing::new(blake3::derive_key(DEVICE_SEED_CONTEXT, hardware_entropy))
+}
 
 // ============================================================================
 // Additional Recovery Contexts (Spec Appendix C)

@@ -41,6 +41,20 @@
 
 use core::marker::PhantomData;
 use subtle::ConstantTimeEq;
+/// BLAKE3 context for splitting a 32-byte hybrid-signing seed into the Ed448
+/// component's first 32-byte block (part 1 of the 57-byte Ed448 seed).
+const HYBRID_SIGNING_ED448_SEED_CONTEXT: &str = "trelis-hybrid-signing-ed448-v1";
+
+/// BLAKE3 context for splitting a 32-byte hybrid-signing seed into the Ed448
+/// component's second 32-byte block (the first 25 bytes form part 2 of the
+/// 57-byte Ed448 seed). Mirrors the `-v1-2` second-derivation pattern used by
+/// `derive_recovery_keypair` in `recovery.rs`.
+const HYBRID_SIGNING_ED448_SEED_CONTEXT_2: &str = "trelis-hybrid-signing-ed448-v1-2";
+
+/// BLAKE3 context for deriving the ML-DSA-65 keypair seed from a 32-byte
+/// hybrid-signing seed.
+const HYBRID_SIGNING_MLDSA_SEED_CONTEXT: &str = "trelis-hybrid-signing-mldsa-v1";
+
 use trelis_primitives::{
     DefaultMlDsaScheme, Ed448Signature, Ed448SigningKey, Ed448VerifyingKey, MlDsaScheme, blake3_kdf,
 };
@@ -120,6 +134,48 @@ impl<S: MlDsaScheme> HybridSigningKeypair<S> {
     pub fn generate() -> Result<Self> {
         let ed448_secret = Ed448SigningKey::generate()?;
         let mldsa_secret = S::generate()?;
+
+        let public_key = HybridSigningPublicKey {
+            ed448: ed448_secret.verifying_key(),
+            mldsa: S::verifying_key(&mldsa_secret),
+            _marker: PhantomData,
+        };
+
+        Ok(Self {
+            public_key,
+            ed448_secret,
+            mldsa_secret,
+        })
+    }
+
+    /// Generates a hybrid signing keypair deterministically from a 32-byte
+    /// seed.
+    ///
+    /// The seed is split via BLAKE3 with two domain-separated contexts (for
+    /// Ed448 and for ML-DSA-65) before being fed to each primitive's seeded
+    /// constructor. The same seed always produces the same keypair, so this
+    /// is the right entry point for hardware-attested device identity (see
+    /// `derive_device_seed` in `trelis-primitives` and
+    /// `HybridIdentityKeypair::generate_from_seed`).
+    ///
+    /// # Errors
+    ///
+    /// Returns `KeyGenerationFailed` if the ML-DSA seeded constructor exhausts
+    /// its rejection-sampling budget under the derived seed (RNG-broken
+    /// indicator that should not occur with healthy inputs).
+    pub fn generate_from_seed(seed: &[u8; 32]) -> Result<Self> {
+        // 57-byte Ed448 seed expansion via two BLAKE3 derivations, matching the
+        // pattern used by `derive_recovery_keypair` in `recovery.rs`.
+        let ed448_seed_part1 = blake3_kdf::derive_key(HYBRID_SIGNING_ED448_SEED_CONTEXT, seed);
+        let ed448_seed_part2 = blake3_kdf::derive_key(HYBRID_SIGNING_ED448_SEED_CONTEXT_2, seed);
+        let mut ed448_seed = [0u8; 57];
+        ed448_seed[..32].copy_from_slice(ed448_seed_part1.as_slice());
+        ed448_seed[32..57].copy_from_slice(&ed448_seed_part2[..25]);
+
+        let mldsa_seed = blake3_kdf::derive_key(HYBRID_SIGNING_MLDSA_SEED_CONTEXT, seed);
+
+        let ed448_secret = Ed448SigningKey::from_seed(ed448_seed);
+        let mldsa_secret = S::generate_from_seed(&mldsa_seed)?;
 
         let public_key = HybridSigningPublicKey {
             ed448: ed448_secret.verifying_key(),

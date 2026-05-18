@@ -33,6 +33,7 @@ use crate::combiner::HybridSharedSecret;
 use crate::kem::{HybridEncapsulation, HybridKemKeypair, HybridKemPublicKey};
 use crate::signature::{HybridSignature, HybridSigningKeypair, HybridSigningPublicKey};
 use trelis_error::{CryptoError, Result};
+use trelis_primitives::{DEVICE_IDENTITY_KEY_CONTEXT, DEVICE_SIGNING_KEY_CONTEXT, derive_key};
 
 /// Size of hybrid signing public key in bytes.
 pub const SIGNING_PK_SIZE: usize = crate::signature::PUBLIC_KEY_SIZE;
@@ -107,6 +108,51 @@ impl HybridIdentityKeypair {
     fn generate_inner() -> Result<Self> {
         let signing = Box::new(HybridSigningKeypair::generate()?);
         let kem = Box::new(HybridKemKeypair::generate()?);
+
+        let public_key = HybridIdentityPublicKey {
+            signing: signing.public_key().clone(),
+            kem: kem.public_key().clone(),
+        };
+
+        Ok(Self {
+            public_key,
+            signing,
+            kem,
+        })
+    }
+
+    /// Generates a hybrid identity keypair deterministically from a 32-byte
+    /// device seed.
+    ///
+    /// Pair this with [`trelis_primitives::derive_device_seed`] which expands
+    /// raw hardware entropy through `DEVICE_SEED_CONTEXT` into a canonical
+    /// device seed; that seed is then split here via two domain-separated
+    /// BLAKE3 derivations:
+    ///
+    /// - `DEVICE_SIGNING_KEY_CONTEXT` → signing-keypair sub-seed (Ed448 + ML-DSA-65)
+    /// - `DEVICE_IDENTITY_KEY_CONTEXT` → KEM-keypair sub-seed (X448 + sntrup761)
+    ///
+    /// The two sub-seeds are independent (different BLAKE3 contexts), so a
+    /// compromise of one component's seed does not leak the other's.
+    ///
+    /// The same input seed always produces the same identity keypair, which
+    /// is the property hardware-attested device identities depend on: the
+    /// device's secure enclave holds the entropy, and the identity keypair
+    /// can be regenerated on demand without persisting the secret bytes in
+    /// process memory.
+    ///
+    /// # Errors
+    ///
+    /// Returns `KeyGenerationFailed` if either underlying primitive's seeded
+    /// constructor fails (typically only if the seeded RNG path encounters an
+    /// unexpected rejection-sampling exhaustion, which should not happen with
+    /// healthy seeds).
+    pub fn generate_from_seed(seed: &[u8; 32]) -> Result<Self> {
+        let signing_seed = derive_key(DEVICE_SIGNING_KEY_CONTEXT, seed);
+        let kem_seed = derive_key(DEVICE_IDENTITY_KEY_CONTEXT, seed);
+
+        let signing = Box::new(HybridSigningKeypair::generate_from_seed(&signing_seed)?);
+        let kem = Box::new(HybridKemKeypair::generate_from_seed(&kem_seed)?);
 
         let public_key = HybridIdentityPublicKey {
             signing: signing.public_key().clone(),
@@ -412,5 +458,70 @@ mod tests {
 
         let signature = identity1.sign(b"test").unwrap();
         assert!(identity2.public_key().verify(b"test", &signature).is_err());
+    }
+
+    /// HW-01 / HW-03 regression: `generate_from_seed` is deterministic — the
+    /// same input seed always produces the same identity keypair (signing
+    /// public key bytes AND KEM public key bytes both equal).
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_generate_from_seed_deterministic() {
+        let seed = [0x42u8; 32];
+
+        let identity1 = HybridIdentityKeypair::generate_from_seed(&seed).unwrap();
+        let identity2 = HybridIdentityKeypair::generate_from_seed(&seed).unwrap();
+
+        assert_eq!(
+            identity1.public_key().to_bytes(),
+            identity2.public_key().to_bytes(),
+            "same seed must yield identical public key (signing + KEM)"
+        );
+        assert_eq!(
+            identity1.to_bytes(),
+            identity2.to_bytes(),
+            "same seed must yield identical secret key"
+        );
+    }
+
+    /// HW-02 regression: different seeds produce different identities.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_generate_from_seed_different_seeds() {
+        let seed1 = [0x42u8; 32];
+        let seed2 = [0x43u8; 32];
+
+        let identity1 = HybridIdentityKeypair::generate_from_seed(&seed1).unwrap();
+        let identity2 = HybridIdentityKeypair::generate_from_seed(&seed2).unwrap();
+
+        assert_ne!(
+            identity1.public_key().to_bytes(),
+            identity2.public_key().to_bytes(),
+            "different seeds must yield distinct identities"
+        );
+    }
+
+    /// Seeded identity is functionally usable: sign + verify works.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_seeded_identity_sign_verify() {
+        let seed = [0xABu8; 32];
+        let identity = HybridIdentityKeypair::generate_from_seed(&seed).unwrap();
+        let message = b"seeded identity sign-verify round trip";
+
+        let signature = identity.sign(message).unwrap();
+        assert!(identity.public_key().verify(message, &signature).is_ok());
+    }
+
+    /// Seeded identity is functionally usable: encapsulate + decapsulate works.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_seeded_identity_kem_roundtrip() {
+        let seed = [0xCDu8; 32];
+        let identity = HybridIdentityKeypair::generate_from_seed(&seed).unwrap();
+
+        let (ss_sender, encap) = identity.public_key().kem().encapsulate().unwrap();
+        let ss_recipient = identity.decapsulate(&encap).unwrap();
+
+        assert_eq!(ss_sender.as_bytes(), ss_recipient.as_bytes());
     }
 }

@@ -213,6 +213,9 @@ pub use blake3_kdf::{
     // Domain separation contexts
     BUNDLE_WRAP_CONTEXT,
     COMPROMISE_NOTICE_CONTEXT,
+    DEVICE_IDENTITY_KEY_CONTEXT,
+    DEVICE_SEED_CONTEXT,
+    DEVICE_SIGNING_KEY_CONTEXT,
     DerivedKey,
     HYBRID_KEM_CONTEXT,
     OUTPUT_SIZE,
@@ -225,6 +228,7 @@ pub use blake3_kdf::{
     SAFETY_NUMBER_CONTEXT,
     SAFETY_NUMBER_SYNC_CONTEXT,
     SESSION_CONTEXT,
+    derive_device_seed,
     derive_key,
     hash,
     keyed_hash,
