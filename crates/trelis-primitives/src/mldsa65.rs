@@ -197,6 +197,66 @@ impl MlDsa65SigningKey {
         Ok(MlDsa65Signature { bytes: sig })
     }
 
+    /// Signs a message using a **hedged-entropy RNG** so the signing
+    /// randomness is bound to both the message and a fresh per-call
+    /// random value.
+    ///
+    /// This is the spec's recommended ML-DSA-65 signing variant (see
+    /// `crypto-spec/sections/05-signature-schemes.tex` §5.5). The hedge
+    /// pattern is:
+    ///
+    /// ```text
+    /// fresh_random   := system_RNG(32 bytes)
+    /// hedge_entropy  := BLAKE3-derive_key(MLDSA_HEDGE_CONTEXT,
+    ///                                     fresh_random || message)
+    /// signing_RNG    := DeterministicRng(hedge_entropy)
+    /// signature      := ml_dsa_65.try_sign_with_rng(signing_RNG, message, "")
+    /// ```
+    ///
+    /// Compared to plain `sign`, hedging adds defence-in-depth: a
+    /// partially-predictable system RNG cannot reveal the per-signature
+    /// nonce, because the actual signing RNG is a deterministic PRNG keyed
+    /// by both the fresh random AND the message digest. The signature
+    /// produced is still a valid ML-DSA-65 signature that verifies under
+    /// the standard `verify` path — the wire bytes are unchanged.
+    ///
+    /// # Errors
+    ///
+    /// - `RngFailure` if the system CSPRNG fails (still needed for the
+    ///   fresh random input to the hedge).
+    /// - `InvalidSignature` if the underlying ML-DSA-65 signing fails.
+    pub fn sign_hedged(&self, message: &[u8]) -> Result<MlDsa65Signature> {
+        // Fresh random input to the hedge — without this the construction
+        // collapses to deterministic signing (which is also a valid mode but
+        // is not what "hedged" means).
+        let mut fresh_random = [0u8; 32];
+        fill_bytes(&mut fresh_random)?;
+
+        // hedge_entropy = BLAKE3-derive_key(MLDSA_HEDGE_CONTEXT,
+        //                                   fresh_random || message)
+        let mut hasher = blake3::Hasher::new_derive_key(crate::blake3_kdf::MLDSA_HEDGE_CONTEXT);
+        hasher.update(&fresh_random);
+        hasher.update(message);
+        let hedge_entropy: [u8; 32] = *hasher.finalize().as_bytes();
+
+        // Wipe the fresh_random bytes before the signing call — the hedge
+        // entropy is downstream of them and the value is no longer needed.
+        // The hedge_entropy itself is owned by the DeterministicRng below
+        // (which Zeroize-on-drop the seed and per-block state).
+        zeroize::Zeroize::zeroize(&mut fresh_random[..]);
+
+        let mut rng = DeterministicRng::new(&hedge_entropy);
+
+        // self.bytes was validated in the constructor; re-parsing is infallible.
+        #[allow(clippy::expect_used)]
+        let sk = ml_dsa_65::PrivateKey::try_from_bytes(self.bytes)
+            .expect("key bytes validated in constructor");
+        let sig = sk
+            .try_sign_with_rng(&mut rng, message, &[])
+            .map_err(|_| CryptoError::InvalidSignature)?;
+        Ok(MlDsa65Signature { bytes: sig })
+    }
+
     /// Wraps this signing key in a `GuardedBox` for enhanced memory protection.
     ///
     /// The returned `GuardedBox` provides:
@@ -630,6 +690,41 @@ mod tests {
         let signature = signing_key.sign(&message).unwrap();
 
         assert!(verifying_key.verify(&message, &signature).is_ok());
+    }
+
+    /// SIG-01 regression: sign_hedged is non-deterministic (same key + same
+    /// message → distinct signatures across calls) because the per-signature
+    /// entropy is hedged with fresh system randomness.
+    #[test]
+    fn test_sign_hedged_non_deterministic() {
+        let signing_key = MlDsa65SigningKey::generate().unwrap();
+        let message = b"hedged signing must not be deterministic";
+
+        let sig1 = signing_key.sign_hedged(message).unwrap();
+        let sig2 = signing_key.sign_hedged(message).unwrap();
+
+        assert_ne!(
+            sig1.to_bytes(),
+            sig2.to_bytes(),
+            "hedged signatures over the same message must differ"
+        );
+    }
+
+    /// SIG-01 regression: hedged signatures verify under the standard verify
+    /// path. The wire bytes are still a valid ML-DSA-65 signature; hedging
+    /// only changes how the signing-side RNG is derived.
+    #[test]
+    fn test_sign_hedged_verifies_under_standard_verify() {
+        let signing_key = MlDsa65SigningKey::generate().unwrap();
+        let verifying_key = signing_key.verifying_key();
+        let message = b"hedged signature still verifies normally";
+
+        let sig = signing_key.sign_hedged(message).unwrap();
+
+        assert!(
+            verifying_key.verify(message, &sig).is_ok(),
+            "hedged signature must verify under the unchanged verify path"
+        );
     }
 
     #[test]
