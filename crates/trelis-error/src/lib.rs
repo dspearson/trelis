@@ -753,15 +753,14 @@ mod tests {
             assert_eq!(
                 v.category(),
                 ErrorCategory::Security,
-                "{:?} must route through the Security category",
-                v
+                "{v:?} must route through the Security category",
             );
-            assert!(v.is_security_error(), "{:?} must report as security", v);
-            assert!(!v.is_fatal(), "{:?} must not be fatal", v);
+            assert!(v.is_security_error(), "{v:?} must report as security");
+            assert!(!v.is_fatal(), "{v:?} must not be fatal");
             // Display string is non-empty and does not leak the literal
             // variant name (which is rustdoc, not user-facing).
             let s = v.to_string();
-            assert!(!s.is_empty(), "{:?} Display must be non-empty", v);
+            assert!(!s.is_empty(), "{v:?} Display must be non-empty");
         }
 
         // Specific Display strings — pin to catch accidental wording changes.

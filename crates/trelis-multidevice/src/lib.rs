@@ -65,14 +65,14 @@ mod retained_key;
 mod revocation;
 mod settings;
 
-pub use approval::{
-    DeviceApprovalCertificate, FINGERPRINT_SIZE, NonceWindow, SERVER_NONCE_SIZE, USER_ID_SIZE,
-};
-// `device_fingerprint`, `HistoryKeyShareMessage`, `ThreadKeyStore`, and
-// `RetainedKey` are themselves `#[cfg(feature = "alloc")]`-gated in their
-// modules (they own `Vec`-based fields). Match the gate on the re-exports.
+pub use approval::{FINGERPRINT_SIZE, NonceWindow, SERVER_NONCE_SIZE, USER_ID_SIZE};
+// `DeviceApprovalCertificate`, `device_fingerprint`,
+// `HistoryKeyShareMessage`, `ThreadKeyStore`, and `RetainedKey` are
+// themselves `#[cfg(feature = "alloc")]`-gated in their modules (they own
+// `Vec`-based fields or use alloc-only helpers). Match the gate on the
+// re-exports.
 #[cfg(feature = "alloc")]
-pub use approval::device_fingerprint;
+pub use approval::{DeviceApprovalCertificate, device_fingerprint};
 #[cfg(any(feature = "std", feature = "wasm"))]
 pub use device_key_wrap::{
     DEVICE_KEY_WRAP_SIZE, DeviceKeyWrap, KEY_ID_SIZE, WRAP_CONTEXT, WrapContext, WrapPurpose,

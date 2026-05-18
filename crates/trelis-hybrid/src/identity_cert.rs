@@ -307,19 +307,18 @@ impl CertifiedSafetyNumber {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(2 * (CERTIFICATE_WIRE_SIZE + SIGNATURE_WIRE_SIZE) + 33);
         bytes.extend_from_slice(self.safety_number.fingerprint());
-        match (&self.their_certificate, &self.their_signature) {
-            (Some(their_cert), Some(their_sig)) => {
-                bytes.push(0x01);
-                bytes.extend_from_slice(&self.our_certificate.to_bytes());
-                bytes.extend_from_slice(&self.our_signature.to_bytes());
-                bytes.extend_from_slice(&their_cert.to_bytes());
-                bytes.extend_from_slice(&their_sig.to_bytes());
-            }
-            _ => {
-                bytes.push(0x00);
-                bytes.extend_from_slice(&self.our_certificate.to_bytes());
-                bytes.extend_from_slice(&self.our_signature.to_bytes());
-            }
+        if let (Some(their_cert), Some(their_sig)) =
+            (&self.their_certificate, &self.their_signature)
+        {
+            bytes.push(0x01);
+            bytes.extend_from_slice(&self.our_certificate.to_bytes());
+            bytes.extend_from_slice(&self.our_signature.to_bytes());
+            bytes.extend_from_slice(&their_cert.to_bytes());
+            bytes.extend_from_slice(&their_sig.to_bytes());
+        } else {
+            bytes.push(0x00);
+            bytes.extend_from_slice(&self.our_certificate.to_bytes());
+            bytes.extend_from_slice(&self.our_signature.to_bytes());
         }
         bytes
     }

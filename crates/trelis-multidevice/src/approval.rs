@@ -146,6 +146,7 @@ impl NonceWindow {
 ///                || server_nonce (32) || approving_device_pk (2009)
 ///                || approved_at (8) || signature (3423)
 /// ```
+#[cfg(feature = "alloc")]
 #[derive(Clone)]
 pub struct DeviceApprovalCertificate {
     /// ID of the device that created this approval.
@@ -171,6 +172,7 @@ pub struct DeviceApprovalCertificate {
     pub signature: HybridSignature,
 }
 
+#[cfg(feature = "alloc")]
 impl DeviceApprovalCertificate {
     /// Wire-format body size (before the signature).
     #[cfg(feature = "alloc")]
@@ -377,6 +379,7 @@ impl DeviceApprovalCertificate {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl core::fmt::Debug for DeviceApprovalCertificate {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("DeviceApprovalCertificate")
