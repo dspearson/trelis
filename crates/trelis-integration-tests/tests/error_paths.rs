@@ -784,10 +784,6 @@ mod crypto_error_tests {
 
         // Protocol errors
         assert_eq!(
-            CryptoError::SessionNotInitialised.category(),
-            ErrorCategory::Protocol
-        );
-        assert_eq!(
             CryptoError::NoActiveSession.category(),
             ErrorCategory::Protocol
         );
@@ -889,7 +885,6 @@ mod crypto_error_tests {
             CryptoError::KeyGenerationFailed,
             CryptoError::KeyDerivationFailed,
             CryptoError::SignatureVerificationFailed,
-            CryptoError::HybridSignatureVerificationFailed,
             CryptoError::InvalidSignature,
             CryptoError::DecryptionFailed,
             CryptoError::AeadAuthenticationFailed,
@@ -904,7 +899,6 @@ mod crypto_error_tests {
                 expected: 1039,
                 actual: 100,
             },
-            CryptoError::SessionNotInitialised,
             CryptoError::UnknownSenderKey,
             CryptoError::MessageCounterTooOld,
             CryptoError::MessageCounterTooFarAhead {
@@ -937,7 +931,7 @@ mod crypto_error_tests {
                 expected: 100,
                 available: 50,
             },
-            CryptoError::BundleSignatureInvalid,
+            CryptoError::InvalidBundleSignature,
             CryptoError::BundleExpired,
             CryptoError::BundleTimestampInFuture,
             CryptoError::WrongRecipient,
@@ -949,7 +943,7 @@ mod crypto_error_tests {
             CryptoError::InvalidTreeState,
             CryptoError::InvalidGroupSize,
             CryptoError::GroupIdMismatch,
-            CryptoError::CannotRemoveSelf,
+            CryptoError::SelfRemovalForbidden,
             CryptoError::InvalidLeafPosition,
             CryptoError::RemovedFromGroup,
             CryptoError::EpochMismatch {

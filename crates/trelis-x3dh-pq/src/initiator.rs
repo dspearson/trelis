@@ -152,7 +152,7 @@ impl Initiator {
     ///
     /// # Errors
     ///
-    /// - `BundleSignatureInvalid` if bundle signature verification fails
+    /// - `InvalidBundleSignature` if bundle signature verification fails
     /// - `BundleTimestampInFuture` if bundle was created in the future
     /// - `BundleExpired` if bundle has expired
     /// - `RngFailure` if random number generation fails
@@ -313,7 +313,7 @@ mod tests {
         signed_bundle.bundle.identity_signing = bob_signing.public_key().clone();
 
         let result = Initiator::establish(&alice_identity, &signed_bundle, 1500);
-        assert!(matches!(result, Err(CryptoError::BundleSignatureInvalid)));
+        assert!(matches!(result, Err(CryptoError::InvalidBundleSignature)));
     }
 
     #[cfg_attr(miri, ignore)]

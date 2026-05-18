@@ -138,7 +138,7 @@ impl SignedPreKeyBundle {
     ///
     /// # Errors
     ///
-    /// Returns `BundleSignatureInvalid` if the signature is invalid.
+    /// Returns `InvalidBundleSignature` if the signature is invalid.
     #[cfg(feature = "alloc")]
     #[must_use = "the verify outcome must be checked"]
     pub fn verify(&self) -> Result<()> {
@@ -146,7 +146,7 @@ impl SignedPreKeyBundle {
         self.bundle
             .identity_signing
             .verify(&data, &self.signature)
-            .map_err(|_| CryptoError::BundleSignatureInvalid)
+            .map_err(|_| CryptoError::InvalidBundleSignature)
     }
 
     /// Validates bundle timestamps against the current time.
@@ -299,7 +299,7 @@ mod tests {
         // Verification should fail
         assert!(matches!(
             signed.verify(),
-            Err(CryptoError::BundleSignatureInvalid)
+            Err(CryptoError::InvalidBundleSignature)
         ));
     }
 }

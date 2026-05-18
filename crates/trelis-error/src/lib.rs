@@ -47,20 +47,21 @@ pub enum CryptoError {
     KeyGenerationFailed,
 
     /// Key derivation function failed.
+    ///
+    /// Reserved for KDF code paths. Caller can retry with different inputs
+    /// if the derivation is non-deterministic, or surface the failure to
+    /// the operator if the inputs are well-formed.
     KeyDerivationFailed,
 
     // ─── Signature Errors ───────────────────────────────────────────────────
     /// Signature verification failed.
     ///
     /// This error is intentionally vague to prevent timing attacks.
-    /// It does not distinguish between Ed448 and ML-DSA-65 failures.
+    /// It does not distinguish between Ed448 and ML-DSA-65 failures,
+    /// and (after Phase 11's CLEAN-06 merge) it covers hybrid-signature
+    /// failures where either or both component algorithms failed —
+    /// callers receive the same external signal regardless.
     SignatureVerificationFailed,
-
-    /// Hybrid signature verification failed.
-    ///
-    /// Both Ed448 and ML-DSA-65 signatures must verify.
-    /// This error is returned if either or both fail.
-    HybridSignatureVerificationFailed,
 
     /// Invalid signature format or length.
     InvalidSignature,
@@ -74,12 +75,34 @@ pub enum CryptoError {
     },
 
     // ─── Encryption Errors ──────────────────────────────────────────────────
-    /// Decryption failed due to invalid ciphertext or wrong key.
+    /// Decryption failed due to invalid ciphertext, wrong key, or any other
+    /// failure of a high-level decrypt path.
     ///
-    /// This error is intentionally vague to prevent oracle attacks.
+    /// **Intentionally vague.** This variant is used when a higher-level
+    /// decrypt path cannot or should not reveal whether the failure is at
+    /// the AEAD-tag check, the key derivation, or the post-decrypt
+    /// validation. Returning the same external signal for every internal
+    /// branch is the standard oracle-attack defence — distinguishing causes
+    /// would let an attacker learn which step rejected the ciphertext.
+    ///
+    /// Use [`AeadAuthenticationFailed`](Self::AeadAuthenticationFailed)
+    /// only when the caller has already narrowed the failure to the AEAD
+    /// layer specifically AND oracle safety is not a concern (e.g.,
+    /// internal symmetric-only paths that never see attacker-controlled
+    /// ciphertexts).
     DecryptionFailed,
 
     /// AEAD authentication tag verification failed.
+    ///
+    /// **Specifically the AEAD tag check failed.** Use this variant when
+    /// the caller has already narrowed the failure to the AEAD layer and
+    /// oracle safety is NOT a concern (e.g., internal symmetric-only
+    /// paths where the ciphertext is not attacker-controlled).
+    ///
+    /// For attacker-facing decrypt paths (anything that processes a
+    /// message from the wire), prefer
+    /// [`DecryptionFailed`](Self::DecryptionFailed) — the uniform external
+    /// signal prevents oracle attacks.
     AeadAuthenticationFailed,
 
     /// Nonce has invalid length.
@@ -109,16 +132,22 @@ pub enum CryptoError {
     },
 
     // ─── Protocol Errors ────────────────────────────────────────────────────
-    /// Session has not been initialised.
-    SessionNotInitialised,
-
     /// Unknown sender public key (not in known keys).
+    ///
+    /// Reserved for sender-side known-keys validation. Caller can request a
+    /// key-transparency update for the sender or reject the message.
     UnknownSenderKey,
 
     /// Message counter is too old (possible replay or lost sync).
+    ///
+    /// Reserved for replay-protection logic. Caller logs the anomaly and
+    /// rejects the message (Security category).
     MessageCounterTooOld,
 
     /// Message counter is too far ahead (exceeds MAX_SKIP).
+    ///
+    /// Reserved for sync-loss detection. Caller logs the gap and either
+    /// re-establishes the session or drops the message.
     MessageCounterTooFarAhead {
         /// Maximum allowed skip.
         max_skip: u64,
@@ -127,18 +156,31 @@ pub enum CryptoError {
     },
 
     /// Too many skipped keys stored (exceeds limit).
+    ///
+    /// Reserved for skipped-keys cache bounds. Caller can clean the cache
+    /// or refuse to accept further out-of-order messages.
     TooManySkippedKeys {
         /// Maximum allowed skipped keys.
         limit: usize,
     },
 
     /// Skipped key has expired (exceeded MAX_AGE).
+    ///
+    /// Reserved for skipped-keys age-based expiry. Caller logs and rejects
+    /// the message — the original key is no longer reachable.
     SkippedKeyExpired,
 
     /// Duplicate message detected (replay attack).
+    ///
+    /// Caller rejects the message (Security category). The current code
+    /// path uses this only in the replay-defence test; protocol callers
+    /// surface this when the same wire-counter is observed twice.
     DuplicateMessage,
 
     /// Epoch is too old for processing.
+    ///
+    /// Reserved for replay-candidate detection at the epoch boundary.
+    /// Caller logs and rejects (Security category).
     EpochTooOld {
         /// Minimum accepted epoch.
         minimum: u64,
@@ -178,9 +220,17 @@ pub enum CryptoError {
     MalformedMessage,
 
     /// Invalid header format.
+    ///
+    /// Reserved for wire-format header parsing failures distinct from
+    /// `MalformedMessage` (which is the more general parse-failed variant).
+    /// Caller rejects the message and may log the malformed header.
     InvalidHeader,
 
     /// Unexpected end of input during parsing.
+    ///
+    /// Reserved for truncation detection in wire-format parsers. Carries
+    /// the expected/available byte counts as a diagnostic. Caller rejects
+    /// the message and may log the truncation.
     UnexpectedEndOfInput {
         /// Expected minimum bytes.
         expected: usize,
@@ -190,7 +240,7 @@ pub enum CryptoError {
 
     // ─── Bundle Errors ──────────────────────────────────────────────────────
     /// Pre-key bundle signature verification failed.
-    BundleSignatureInvalid,
+    InvalidBundleSignature,
 
     /// Pre-key bundle has expired.
     BundleExpired,
@@ -200,9 +250,15 @@ pub enum CryptoError {
 
     // ─── Device Wrap Errors ─────────────────────────────────────────────────
     /// Device key wrap is for wrong recipient.
+    ///
+    /// Reserved for the device-wrap addressing logic. Caller drops the
+    /// message and may log the misaddress.
     WrongRecipient,
 
     /// Context mismatch in device key wrap.
+    ///
+    /// Reserved for device-wrap context-string validation. Caller logs
+    /// and rejects.
     ContextMismatch,
 
     // ─── Random Number Generation ───────────────────────────────────────────
@@ -211,15 +267,29 @@ pub enum CryptoError {
 
     // ─── Tree/Group Errors ──────────────────────────────────────────────────
     /// Invalid tree node index.
+    ///
+    /// Reserved for tree-data-structure invariant violation. Indicates an
+    /// internal logic bug or an attack on the tree integrity (Protocol
+    /// category — caller may need to resync session state).
     InvalidNodeIndex,
 
     /// Member not found in group.
+    ///
+    /// Reserved for group-membership lookup. Caller refreshes the group
+    /// state and retries.
     MemberNotFound,
 
     /// Group is full (maximum members reached).
+    ///
+    /// Reserved for the capacity-bound check at member add. Fatal category
+    /// — caller surrenders the operation.
     GroupFull,
 
     /// Invalid tree state.
+    ///
+    /// Reserved for general tree-integrity invariant violation (distinct
+    /// from `InvalidNodeIndex` which is index-specific). Fatal category —
+    /// caller surrenders the operation.
     InvalidTreeState,
 
     /// Invalid group size (e.g., zero members).
@@ -229,7 +299,7 @@ pub enum CryptoError {
     GroupIdMismatch,
 
     /// Cannot remove yourself from the group.
-    CannotRemoveSelf,
+    SelfRemovalForbidden,
 
     /// Invalid leaf position in tree.
     InvalidLeafPosition,
@@ -250,7 +320,13 @@ pub enum CryptoError {
     RateLimitExceeded,
 
     // ─── Session Errors ─────────────────────────────────────────────────────
-    /// No active session established.
+    /// No active session — either before initialisation or after teardown.
+    ///
+    /// Phase 11 CLEAN-06 merged the previously-separate `SessionNotInitialised`
+    /// variant into this one: no in-tree match site distinguished the two,
+    /// and the merge keeps the surface smaller. Callers respond to this
+    /// variant by establishing (or re-establishing) a session — typically
+    /// via the X3DH-PQ initiator/responder flow.
     NoActiveSession,
 
     /// Session has been marked as compromised.
@@ -262,7 +338,9 @@ pub enum CryptoError {
     /// Message arrived out of order (ordered delivery required).
     ///
     /// Per-message KEM ratchet requires ordered, reliable delivery.
-    /// This error indicates transport failure or session desync.
+    /// This error indicates transport failure or session desync. Reserved
+    /// for the per-message-KEM-ratchet ordering checks. Caller logs and
+    /// may re-establish session.
     MessageOrderViolation {
         /// Expected message number.
         expected: u64,
@@ -290,9 +368,6 @@ impl fmt::Display for CryptoError {
 
             // Signature errors
             Self::SignatureVerificationFailed => write!(f, "signature verification failed"),
-            Self::HybridSignatureVerificationFailed => {
-                write!(f, "hybrid signature verification failed")
-            }
             Self::InvalidSignature => write!(f, "invalid signature format"),
             Self::InvalidContextLength { actual, max } => {
                 write!(
@@ -320,7 +395,6 @@ impl fmt::Display for CryptoError {
             }
 
             // Protocol errors
-            Self::SessionNotInitialised => write!(f, "session not initialised"),
             Self::UnknownSenderKey => write!(f, "unknown sender public key"),
             Self::MessageCounterTooOld => write!(f, "message counter too old"),
             Self::MessageCounterTooFarAhead { max_skip, gap } => {
@@ -380,7 +454,7 @@ impl fmt::Display for CryptoError {
             }
 
             // Bundle errors
-            Self::BundleSignatureInvalid => write!(f, "bundle signature invalid"),
+            Self::InvalidBundleSignature => write!(f, "invalid bundle signature"),
             Self::BundleExpired => write!(f, "bundle has expired"),
             Self::BundleTimestampInFuture => write!(f, "bundle timestamp is in the future"),
 
@@ -398,7 +472,7 @@ impl fmt::Display for CryptoError {
             Self::InvalidTreeState => write!(f, "invalid tree state"),
             Self::InvalidGroupSize => write!(f, "invalid group size"),
             Self::GroupIdMismatch => write!(f, "group ID mismatch"),
-            Self::CannotRemoveSelf => write!(f, "cannot remove yourself from group"),
+            Self::SelfRemovalForbidden => write!(f, "cannot remove yourself from group"),
             Self::InvalidLeafPosition => write!(f, "invalid leaf position"),
             Self::RemovedFromGroup => write!(f, "you have been removed from the group"),
             Self::EpochMismatch { expected, received } => {
@@ -461,8 +535,7 @@ impl CryptoError {
             Self::RateLimitExceeded => ErrorCategory::Transient,
 
             // Protocol errors requiring session reset
-            Self::SessionNotInitialised
-            | Self::SessionExhausted { .. }
+            Self::SessionExhausted { .. }
             | Self::EpochTooOld { .. }
             | Self::UnknownSenderKey
             | Self::UnknownRecipientKeyId
@@ -472,7 +545,7 @@ impl CryptoError {
             | Self::SessionCompromised
             | Self::NoRecipientKey
             | Self::GroupIdMismatch
-            | Self::CannotRemoveSelf
+            | Self::SelfRemovalForbidden
             | Self::InvalidLeafPosition
             | Self::RemovedFromGroup
             | Self::EpochMismatch { .. }
@@ -480,7 +553,6 @@ impl CryptoError {
 
             // Security errors (potential attacks)
             Self::SignatureVerificationFailed
-            | Self::HybridSignatureVerificationFailed
             | Self::InvalidSignature
             | Self::DecryptionFailed
             | Self::AeadAuthenticationFailed
@@ -490,7 +562,7 @@ impl CryptoError {
             | Self::TooManySkippedKeys { .. }
             | Self::SkippedKeyExpired
             | Self::DuplicateMessage
-            | Self::BundleSignatureInvalid
+            | Self::InvalidBundleSignature
             | Self::BundleExpired
             | Self::BundleTimestampInFuture
             | Self::WrongRecipient
@@ -549,7 +621,7 @@ mod tests {
             ErrorCategory::Transient
         );
         assert_eq!(
-            CryptoError::SessionNotInitialised.category(),
+            CryptoError::NoActiveSession.category(),
             ErrorCategory::Protocol
         );
         assert_eq!(

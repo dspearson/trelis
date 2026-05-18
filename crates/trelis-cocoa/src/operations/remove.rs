@@ -84,7 +84,7 @@ pub fn remove_member(
 ) -> Result<RemoveCommit> {
     // Step 1: Validation
     if removed_position == session.our_leaf_position() {
-        return Err(trelis_error::CryptoError::CannotRemoveSelf);
+        return Err(trelis_error::CryptoError::SelfRemovalForbidden);
     }
 
     if removed_position >= session.member_count() {
@@ -620,7 +620,7 @@ mod tests {
         let result = remove_member(&mut session, &our_identity, [0x01u8; 32], 0);
         assert!(matches!(
             result,
-            Err(trelis_error::CryptoError::CannotRemoveSelf)
+            Err(trelis_error::CryptoError::SelfRemovalForbidden)
         ));
     }
 
