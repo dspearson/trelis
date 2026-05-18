@@ -1487,7 +1487,12 @@ fn deserialize_ratchet_state(bytes: &[u8]) -> trelis_error::Result<trelis_ratche
     for _ in 0..send_count {
         state.increment_send_count();
     }
-    state.set_recv_count(recv_count.saturating_sub(1));
+    // set_recv_count(n) stores n+1, so we have to call it with recv_count-1
+    // to restore the exact value. For recv_count==0 the responder default is
+    // already 0; calling set_recv_count(0) would bump it to 1.
+    if recv_count > 0 {
+        state.set_recv_count(recv_count - 1);
+    }
 
     state.set_status(match status_byte {
         0 => trelis_ratchet::RatchetStatus::Uninitialised,
@@ -1900,8 +1905,17 @@ fn deserialize_welcome(bytes: &[u8]) -> Result<trelis_cocoa::operations::Welcome
 // Internal helper to serialise CocoaSession
 fn serialize_cocoa_session(session: &trelis_cocoa::CocoaSession) -> Vec<u8> {
     // Format v2: group_id (32) + user_id (32) + epoch_number (8) + leaf_pos (4) +
-    // member_count (4) + tree_depth (4) + transcript_hash (32) + init_secret (32) +
+    // member_count (4) + tree_depth (4) + transcript_hash (32) + epoch_secret (32) +
     // message_counter (8) + our_keypair (1819)
+    //
+    // We persist the current epoch_secret (the input to EpochSecrets::derive)
+    // rather than the init_secret (one of its derived outputs). join_group on
+    // the receiving side wants the epoch_secret so that the reconstructed
+    // EpochSecrets::derive produces the same app_secret as the original; if
+    // we wrote init_secret here, the rebuilt session would compute
+    // derive_app_secret(init_secret) instead of derive_app_secret(epoch_secret)
+    // and self-decrypt of any encrypted message after a round-trip would fail
+    // with AeadAuthenticationFailed.
     const SIZE: usize = 32 + 32 + 8 + 4 + 4 + 4 + 32 + 32 + 8 + 1819;
     let mut buf = Vec::with_capacity(SIZE);
 
@@ -1912,7 +1926,7 @@ fn serialize_cocoa_session(session: &trelis_cocoa::CocoaSession) -> Vec<u8> {
     buf.extend_from_slice(&session.member_count().to_le_bytes());
     buf.extend_from_slice(&session.tree().tree_depth().to_le_bytes());
     buf.extend_from_slice(session.transcript_hash());
-    buf.extend_from_slice(session.init_secret());
+    buf.extend_from_slice(session.current_epoch_secret());
     buf.extend_from_slice(&session.message_counter().to_le_bytes());
     buf.extend_from_slice(&session.our_keypair().to_bytes()[..]);
 
@@ -1943,26 +1957,26 @@ fn deserialize_cocoa_session(bytes: &[u8]) -> trelis_error::Result<trelis_cocoa:
     let mut transcript_hash = [0u8; 32];
     transcript_hash.copy_from_slice(&bytes[84..116]);
 
-    // Check if this is new format with init_secret and message_counter
-    let (init_secret, message_counter, keypair_offset) = if bytes.len() >= NEW_SIZE {
-        // New format: has init_secret and message_counter
-        let mut init_secret = [0u8; 32];
-        init_secret.copy_from_slice(&bytes[116..148]);
+    // Check if this is new format with epoch_secret and message_counter
+    let (epoch_secret, message_counter, keypair_offset) = if bytes.len() >= NEW_SIZE {
+        // New format: has the raw epoch_secret and message_counter
+        let mut epoch_secret = [0u8; 32];
+        epoch_secret.copy_from_slice(&bytes[116..148]);
         let message_counter = u64::from_le_bytes(bytes[148..156].try_into().unwrap());
-        (init_secret, message_counter, 156)
+        (epoch_secret, message_counter, 156)
     } else {
         // Old format: derive from transcript_hash (backwards compatible but less accurate)
-        let init_secret =
+        let epoch_secret =
             *trelis_primitives::derive_key(COCOA_WASM_LEGACY_SESSION_CONTEXT, &transcript_hash);
-        (init_secret, 0u64, 116)
+        (epoch_secret, 0u64, 116)
     };
 
     let our_keypair =
         trelis_hybrid::HybridKemKeypair::from_bytes(&bytes[keypair_offset..keypair_offset + 1819])?;
 
-    // Use init_secret as the epoch_secret to restore session state
-    // Note: For epoch 0, init_secret IS derived from the original epoch_secret
-    // For epoch N, we use the stored init_secret which allows proper key derivation
+    // Feed the stored epoch_secret into join_group as the epoch_secret so the
+    // rebuilt EpochSecrets matches the original — derive_app_secret(epoch_secret)
+    // and friends will produce the same per-message keys as the sender did.
     let mut session = trelis_cocoa::CocoaSession::join_group(
         group_id,
         user_id,
@@ -1970,7 +1984,7 @@ fn deserialize_cocoa_session(bytes: &[u8]) -> trelis_error::Result<trelis_cocoa:
         leaf_position,
         tree_depth,
         member_count,
-        &init_secret,
+        &epoch_secret,
         transcript_hash,
     );
 

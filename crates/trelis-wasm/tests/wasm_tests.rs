@@ -627,7 +627,11 @@ mod safety_number_tests {
         let display = get_string_field(&result, "display");
 
         assert_eq!(fingerprint.len(), 32);
-        assert_eq!(display.len(), 60); // 60 decimal digits
+        // display is a formatted two-line block (six groups of five digits
+        // per line, single-space separators, newline between rows). Count
+        // just the digits to verify the documented 60-digit safety number.
+        let digit_count = display.chars().filter(|c| c.is_ascii_digit()).count();
+        assert_eq!(digit_count, 60);
     }
 
     #[wasm_bindgen_test]
@@ -1154,11 +1158,11 @@ mod cocoa_tests {
         let encrypt_result = cocoa_encrypt(&session, plaintext).unwrap();
 
         let session_after = get_bytes_field(&encrypt_result, "session");
-        let ciphertext = get_bytes_field(&encrypt_result, "ciphertext");
-        assert!(!ciphertext.is_empty());
+        let encrypted_message = get_bytes_field(&encrypt_result, "encrypted_message");
+        assert!(!encrypted_message.is_empty());
 
         // Decrypt the message
-        let decrypt_result = cocoa_decrypt(&session_after, &ciphertext).unwrap();
+        let decrypt_result = cocoa_decrypt(&session_after, &encrypted_message).unwrap();
         let decrypted = get_bytes_field(&decrypt_result, "plaintext");
         assert_eq!(decrypted, plaintext);
     }
@@ -1173,11 +1177,11 @@ mod cocoa_tests {
 
         let epoch = get_number_field(&info, "epoch") as u32;
         let member_count = get_number_field(&info, "member_count") as u32;
-        let our_leaf_index = get_number_field(&info, "our_leaf_index") as u32;
+        let our_leaf_position = get_number_field(&info, "our_leaf_position") as u32;
 
         assert_eq!(epoch, 0);
         assert_eq!(member_count, 1);
-        assert_eq!(our_leaf_index, 0);
+        assert_eq!(our_leaf_position, 0);
     }
 
     #[wasm_bindgen_test]
@@ -1191,10 +1195,12 @@ mod cocoa_tests {
 
             let encrypt_result = cocoa_encrypt(&session, plaintext.as_bytes()).unwrap();
             session = get_bytes_field(&encrypt_result, "session");
-            let ciphertext = get_bytes_field(&encrypt_result, "ciphertext");
+            let encrypted_message = get_bytes_field(&encrypt_result, "encrypted_message");
 
-            let decrypt_result = cocoa_decrypt(&session, &ciphertext).unwrap();
-            session = get_bytes_field(&decrypt_result, "session");
+            // cocoa_decrypt is read-only — it returns {plaintext} only, no
+            // updated session — so we keep the post-encrypt session for the
+            // next loop iteration.
+            let decrypt_result = cocoa_decrypt(&session, &encrypted_message).unwrap();
             let decrypted = get_bytes_field(&decrypt_result, "plaintext");
 
             assert_eq!(decrypted, plaintext.as_bytes());
@@ -1210,7 +1216,7 @@ mod cocoa_tests {
         let rotate_result = cocoa_rotate_keypair(&session).unwrap();
 
         let session_after = get_bytes_field(&rotate_result, "session");
-        let new_public_key = get_bytes_field(&rotate_result, "new_public_key");
+        let new_public_key = get_bytes_field(&rotate_result, "public_key");
 
         assert!(!session_after.is_empty());
         assert_eq!(new_public_key.len(), 1214);
@@ -1243,20 +1249,24 @@ mod multidevice_tests {
 
     #[wasm_bindgen_test]
     fn test_device_fingerprint() {
-        let kem = hybrid_kem_generate().unwrap();
-        let public_key = get_bytes_field(&kem, "public_key");
+        // device_fingerprint takes a 2,009-byte hybrid signing public key,
+        // which is the first half of the full hybrid identity public key.
+        let identity = hybrid_identity_generate().unwrap();
+        let identity_public = get_bytes_field(&identity, "public_key");
+        let signing_public = &identity_public[..2009];
 
-        let fingerprint = device_fingerprint(&public_key).unwrap();
+        let fingerprint = device_fingerprint(signing_public).unwrap();
         assert_eq!(fingerprint.len(), 32);
     }
 
     #[wasm_bindgen_test]
     fn test_device_fingerprint_deterministic() {
-        let kem = hybrid_kem_generate().unwrap();
-        let public_key = get_bytes_field(&kem, "public_key");
+        let identity = hybrid_identity_generate().unwrap();
+        let identity_public = get_bytes_field(&identity, "public_key");
+        let signing_public = &identity_public[..2009];
 
-        let fp1 = device_fingerprint(&public_key).unwrap();
-        let fp2 = device_fingerprint(&public_key).unwrap();
+        let fp1 = device_fingerprint(signing_public).unwrap();
+        let fp2 = device_fingerprint(signing_public).unwrap();
 
         assert_eq!(fp1, fp2);
     }
@@ -1358,11 +1368,13 @@ mod multidevice_tests {
         let signing_secret = &identity_secret[..4089];
         let signing_public = &identity_public[..2009];
 
-        let device_fingerprint = random_bytes_32().unwrap();
+        // device_revocation_create takes a 16-byte device ID (NOT a 32-byte
+        // device fingerprint).
+        let device_id = vec![0x01u8; 16];
 
         let revocation = device_revocation_create(
-            &device_fingerprint,
-            1, // reason: compromised
+            &device_id,
+            1, // reason: DeviceLost (RevocationReason::from_byte(1))
             1234567890,
             signing_secret,
         )
@@ -1467,14 +1479,16 @@ mod multidevice_tests {
     fn test_thread_settings_create() {
         let thread_id = random_bytes_32().unwrap();
         let settings = thread_settings_create(
-            &thread_id, false, // ephemeral
+            &thread_id, false, // ephemeral=false => history sync ON
             1234567890,
         )
         .unwrap();
 
-        // Returns JsValue object
-        let ephemeral = get_bool_field(&settings, "ephemeral");
-        assert!(!ephemeral);
+        // The binding exposes the underlying boolean flag rather than the
+        // `ephemeral` argument name. With ephemeral=false the new settings
+        // have history_sync_enabled=true.
+        let history_sync_enabled = get_bool_field(&settings, "history_sync_enabled");
+        assert!(history_sync_enabled);
     }
 
     #[wasm_bindgen_test]
@@ -1488,10 +1502,15 @@ mod multidevice_tests {
 
         let parsed = retained_key_parse(&retained).unwrap();
 
-        let parsed_key = get_bytes_field(&parsed, "key");
+        // retained_key_parse intentionally does NOT return the message_key —
+        // the comment in lib.rs says "message_key is protected". Round-trip
+        // the visible fields (message_id, sequence, timestamp) instead.
+        let parsed_message_id = get_bytes_field(&parsed, "message_id");
+        let parsed_sequence = get_number_field(&parsed, "sequence") as u64;
         let parsed_timestamp = get_number_field(&parsed, "timestamp") as u64;
 
-        assert_eq!(parsed_key, message_key);
+        assert_eq!(parsed_message_id, message_id);
+        assert_eq!(parsed_sequence, 0);
         assert_eq!(parsed_timestamp, timestamp);
     }
 
