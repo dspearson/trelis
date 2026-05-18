@@ -28,7 +28,7 @@ use trelis_error::Result;
 use trelis_hybrid::HybridKemKeypair;
 use trelis_primitives::fill_bytes;
 
-use crate::key_schedule::{advance_seed_chain, h1_seed_derive};
+use crate::key_schedule::{advance_seed_chain, derive_h1_seed};
 
 /// Size of a seed in bytes.
 pub const SEED_SIZE: usize = 32;
@@ -88,7 +88,7 @@ pub fn derive_path_seeds(leaf_seed: &Seed, path_length: usize) -> Vec<Seed> {
 
     let mut current = *leaf_seed;
     for _ in 1..path_length {
-        current = *h1_seed_derive(&current);
+        current = *derive_h1_seed(&current);
         seeds.push(current);
     }
 
@@ -200,7 +200,7 @@ mod tests {
 
         // Each subsequent should be H1 of the previous
         for i in 1..path.len() {
-            assert_eq!(path[i], *h1_seed_derive(&path[i - 1]));
+            assert_eq!(path[i], *derive_h1_seed(&path[i - 1]));
         }
     }
 
@@ -214,7 +214,7 @@ mod tests {
         // Level 1 should be H1(leaf_seed)
         assert_eq!(
             get_seed_at_level(&leaf_seed, 1),
-            *h1_seed_derive(&leaf_seed)
+            *derive_h1_seed(&leaf_seed)
         );
 
         // Consistency with derive_path_seeds

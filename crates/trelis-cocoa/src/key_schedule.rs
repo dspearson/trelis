@@ -69,23 +69,32 @@ pub const USER_ID_CONTEXT: &str = "cocoa-sa-v1-user-id";
 /// Each call advances the seed one level up the tree. Output is wrapped in
 /// `Zeroizing<>` because the seed is secret material (ERGO-02 / MEM-03-NEW1).
 #[must_use]
-pub fn h1_seed_derive(delta: &[u8; 32]) -> Zeroizing<[u8; 32]> {
+pub fn derive_h1_seed(delta: &[u8; 32]) -> Zeroizing<[u8; 32]> {
     Zeroizing::new(blake3::derive_key(H1_CONTEXT, delta))
 }
 
-/// H2: Deterministic keypair seed generation.
+/// Private const-context-only key-derivation helper (test-only).
 ///
-/// Generates seed material for keypair creation using the spec-defined
-/// `cocoa-sa-v1-keygen-{key_type}` context-string template.
+/// **This function is private by design (`fn`, not `pub fn`) AND is
+/// gated on `#[cfg(all(test, feature = "alloc"))]` — production code
+/// never sees it.** Passing user-controlled bytes as a BLAKE3 derivation
+/// context would silently weaken domain separation by allowing
+/// adversarial context-string collisions with other registry entries.
 ///
-/// Restricted to `#[cfg(test)]`: production code calls one of the two safe
-/// wrappers `h2_keygen_x448` / `h2_keygen_sntrup` (which use the named
-/// registry constants `H2_CONTEXT_X448` / `H2_CONTEXT_SNTRUP`). The dynamic
-/// `key_type` parameter is retained as a test-only helper that the
-/// equivalence checks in `mod tests` use to cross-validate the wrappers
-/// against the spec template. Exposing it publicly would allow callers to
-/// construct context strings that collide with other registry entries
-/// (API-04-NEW1).
+/// The only legitimate callers are the const-context-wrapper public
+/// functions [`h2_keygen_x448`] and [`h2_keygen_sntrup`] (which pin
+/// `key_type` to a compile-time-constant string at the const registry
+/// `H2_CONTEXT_X448` / `H2_CONTEXT_SNTRUP`). This dynamic-context
+/// helper exists in the test module so the equivalence checks below
+/// can cross-validate the wrappers against the spec template.
+///
+/// **Do NOT make this function `pub`** (nor relax the `#[cfg(test)]`
+/// gate). If a new key type is needed, add a new `h2_keygen_<new_type>`
+/// public wrapper whose `key_type` is a const string literal registered
+/// in the central `H2_CONTEXT_*` constants block above.
+///
+/// Closes audit finding API-04-NEW1 (Phase 11 ERGO-03 disposition:
+/// already private; finding moot).
 #[cfg(all(test, feature = "alloc"))]
 #[must_use]
 fn h2_keygen_seed(seed: &[u8; 32], key_type: &str) -> [u8; 32] {
@@ -280,7 +289,7 @@ pub fn derive_message_nonce(app_secret: &[u8; 32], counter: u64) -> Zeroizing<[u
 pub fn advance_seed_chain(leaf_seed: &[u8; 32], levels: u32) -> Zeroizing<[u8; 32]> {
     let mut current = *leaf_seed;
     for _ in 0..levels {
-        current = *h1_seed_derive(&current);
+        current = *derive_h1_seed(&current);
     }
     Zeroizing::new(current)
 }
@@ -292,8 +301,8 @@ mod tests {
     #[test]
     fn test_h1_deterministic() {
         let delta = [0x42u8; 32];
-        let result1 = h1_seed_derive(&delta);
-        let result2 = h1_seed_derive(&delta);
+        let result1 = derive_h1_seed(&delta);
+        let result2 = derive_h1_seed(&delta);
         assert_eq!(result1, result2);
     }
 
@@ -301,7 +310,7 @@ mod tests {
     fn test_h1_different_inputs() {
         let delta1 = [0x42u8; 32];
         let delta2 = [0x43u8; 32];
-        assert_ne!(h1_seed_derive(&delta1), h1_seed_derive(&delta2));
+        assert_ne!(derive_h1_seed(&delta1), derive_h1_seed(&delta2));
     }
 
     #[test]
@@ -327,6 +336,27 @@ mod tests {
         // Verify context strings match the spec
         assert_eq!(H2_CONTEXT_X448, "cocoa-sa-v1-keygen-x448");
         assert_eq!(H2_CONTEXT_SNTRUP, "cocoa-sa-v1-keygen-sntrup");
+    }
+
+    #[test]
+    fn test_h2_keygen_public_wrappers_are_the_only_entry_points() {
+        // Visibility-confirming check for ERGO-03 / API-04-NEW1: the only
+        // legitimate public entry points are the const-context wrappers
+        // h2_keygen_x448 and h2_keygen_sntrup. The dynamic-context helper
+        // h2_keygen_seed is private and test-only (see its doc-comment).
+        //
+        // If h2_keygen_seed is ever made public, downstream callers can
+        // supply user-controlled context strings — a domain-separation
+        // failure mode. This test does not enforce visibility at compile
+        // time (Rust has no negative-visibility test), but it pins the
+        // public API in source control: any reviewer adding `pub` to
+        // h2_keygen_seed must justify that change against this comment
+        // and against API-04-NEW1 in the audit register.
+        let seed = [0x42u8; 32];
+        let x = h2_keygen_x448(&seed);
+        let s = h2_keygen_sntrup(&seed);
+        assert_eq!(x.len(), 32);
+        assert_eq!(s.len(), 32);
     }
 
     #[test]
@@ -410,10 +440,10 @@ mod tests {
         assert_eq!(*advanced0, seed);
 
         let advanced1 = advance_seed_chain(&seed, 1);
-        assert_eq!(advanced1, h1_seed_derive(&seed));
+        assert_eq!(advanced1, derive_h1_seed(&seed));
 
         let advanced2 = advance_seed_chain(&seed, 2);
-        assert_eq!(advanced2, h1_seed_derive(&h1_seed_derive(&seed)));
+        assert_eq!(advanced2, derive_h1_seed(&derive_h1_seed(&seed)));
     }
 
     #[test]
