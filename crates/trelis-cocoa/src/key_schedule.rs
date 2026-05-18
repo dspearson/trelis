@@ -258,22 +258,48 @@ pub fn derive_init_secret(epoch_secret: &[u8; 32]) -> Zeroizing<[u8; 32]> {
     Zeroizing::new(blake3::derive_key(INIT_SECRET_CONTEXT, epoch_secret))
 }
 
-/// Derives message key from app secret and counter. Output wrapped in `Zeroizing<>` (ERGO-02).
+/// Derives a per-sender message key from `app_secret`, the sender's tree leaf
+/// position, and the sender's local message counter. Output wrapped in
+/// `Zeroizing<>` (ERGO-02).
+///
+/// Binding `sender_leaf_position` into the derivation guarantees that two
+/// distinct senders at the same `(epoch, counter)` derive disjoint keys —
+/// fixing the cross-sender nonce-reuse risk that existed in v0.4 (see
+/// audit-notes-impl-gaps §4.2). The KDF input layout is
+/// `app_secret || sender_leaf_position_le_u32 || counter_le_u64`.
 #[must_use]
-pub fn derive_message_key(app_secret: &[u8; 32], counter: u64) -> Zeroizing<[u8; 32]> {
+pub fn derive_message_key(
+    app_secret: &[u8; 32],
+    sender_leaf_position: u32,
+    counter: u64,
+) -> Zeroizing<[u8; 32]> {
     let mut hasher = blake3::Hasher::new_derive_key(MESSAGE_KEY_CONTEXT);
     hasher.update(app_secret);
+    hasher.update(&sender_leaf_position.to_le_bytes());
     hasher.update(&counter.to_le_bytes());
     Zeroizing::new(*hasher.finalize().as_bytes())
 }
 
-/// Derives message nonce from app secret and counter. Output wrapped in `Zeroizing<>`
-/// for defence-in-depth — though AEAD nonces are conceptually public, leaking them
-/// across sessions has been shown to enable key recovery in several AEADs (ERGO-02).
+/// Derives a per-sender message nonce from `app_secret`, the sender's tree leaf
+/// position, and the sender's local message counter. Output wrapped in
+/// `Zeroizing<>` for defence-in-depth — though AEAD nonces are conceptually
+/// public, leaking them across sessions has been shown to enable key recovery
+/// in several AEADs (ERGO-02).
+///
+/// `sender_leaf_position` is bound into the nonce derivation alongside the key
+/// (see `derive_message_key`) so that any future refactor that accidentally
+/// re-derived one without the position would not silently re-introduce nonce
+/// reuse across senders. The KDF input layout is
+/// `app_secret || sender_leaf_position_le_u32 || counter_le_u64`.
 #[must_use]
-pub fn derive_message_nonce(app_secret: &[u8; 32], counter: u64) -> Zeroizing<[u8; 24]> {
+pub fn derive_message_nonce(
+    app_secret: &[u8; 32],
+    sender_leaf_position: u32,
+    counter: u64,
+) -> Zeroizing<[u8; 24]> {
     let mut hasher = blake3::Hasher::new_derive_key(MESSAGE_NONCE_CONTEXT);
     hasher.update(app_secret);
+    hasher.update(&sender_leaf_position.to_le_bytes());
     hasher.update(&counter.to_le_bytes());
     let hash = hasher.finalize();
     let mut nonce = [0u8; 24];
@@ -418,9 +444,10 @@ mod tests {
     #[test]
     fn test_message_key_derivation() {
         let app = [0x42u8; 32];
+        let leaf = 0u32;
 
-        let key0 = derive_message_key(&app, 0);
-        let key1 = derive_message_key(&app, 1);
+        let key0 = derive_message_key(&app, leaf, 0);
+        let key1 = derive_message_key(&app, leaf, 1);
 
         assert_ne!(key0, key1);
     }
@@ -428,8 +455,31 @@ mod tests {
     #[test]
     fn test_message_nonce_size() {
         let app = [0x42u8; 32];
-        let nonce = derive_message_nonce(&app, 0);
+        let nonce = derive_message_nonce(&app, 0, 0);
         assert_eq!(nonce.len(), 24);
+    }
+
+    /// Per-sender chains: two senders at the same epoch and counter derive disjoint
+    /// keys and nonces. This is the regression guard against the v0.4 cross-sender
+    /// nonce-reuse risk documented in audit-notes-impl-gaps §4.2.
+    #[test]
+    fn test_per_sender_chains_distinct() {
+        let app = [0x42u8; 32];
+        let counter = 0u64;
+
+        let key_a = derive_message_key(&app, 0, counter);
+        let key_b = derive_message_key(&app, 1, counter);
+        let nonce_a = derive_message_nonce(&app, 0, counter);
+        let nonce_b = derive_message_nonce(&app, 1, counter);
+
+        assert_ne!(
+            key_a, key_b,
+            "two senders at same counter must derive disjoint keys"
+        );
+        assert_ne!(
+            nonce_a, nonce_b,
+            "two senders at same counter must derive disjoint nonces"
+        );
     }
 
     #[test]

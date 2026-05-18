@@ -63,15 +63,20 @@ impl EpochSecrets {
         &self.init_secret
     }
 
-    /// Derives a message key for the given counter.
+    /// Derives a per-sender message key for the given `(sender_leaf_position, counter)`.
+    ///
+    /// Two senders at the same epoch and same local counter derive disjoint keys
+    /// and nonces because `sender_leaf_position` is bound into both KDF inputs.
+    /// See `key_schedule::derive_message_key` for the KDF layout.
     #[must_use]
-    pub fn derive_message_key(&self, counter: u64) -> MessageKey {
-        let key = *derive_message_key(&self.app_secret, counter);
-        let nonce = *derive_message_nonce(&self.app_secret, counter);
+    pub fn derive_message_key(&self, sender_leaf_position: u32, counter: u64) -> MessageKey {
+        let key = *derive_message_key(&self.app_secret, sender_leaf_position, counter);
+        let nonce = *derive_message_nonce(&self.app_secret, sender_leaf_position, counter);
 
         MessageKey {
             key,
             nonce,
+            sender_leaf_position,
             counter,
         }
     }
@@ -88,14 +93,16 @@ impl core::fmt::Debug for EpochSecrets {
     }
 }
 
-/// A message key for encrypting/decrypting a single message.
+/// A per-sender message key for encrypting/decrypting a single message.
 #[derive(Clone, Zeroize, ZeroizeOnDrop)]
 pub struct MessageKey {
     /// The 32-byte encryption key.
     key: [u8; 32],
     /// The 24-byte nonce for XChaCha20-Poly1305.
     nonce: [u8; 24],
-    /// Message counter (for ordering).
+    /// Sender's leaf position in the tree (bound into key + nonce derivation).
+    sender_leaf_position: u32,
+    /// Sender's local message counter (for ordering within their chain).
     counter: u64,
 }
 
@@ -112,6 +119,12 @@ impl MessageKey {
         &self.nonce
     }
 
+    /// Returns the sender's leaf position bound into this key.
+    #[must_use]
+    pub fn sender_leaf_position(&self) -> u32 {
+        self.sender_leaf_position
+    }
+
     /// Returns the message counter.
     #[must_use]
     pub fn counter(&self) -> u64 {
@@ -124,6 +137,7 @@ impl core::fmt::Debug for MessageKey {
         f.debug_struct("MessageKey")
             .field("key", &"[REDACTED]")
             .field("nonce", &"[REDACTED]")
+            .field("sender_leaf_position", &self.sender_leaf_position)
             .field("counter", &self.counter)
             .finish()
     }
@@ -206,10 +220,16 @@ impl Epoch {
         &self.transcript_hash
     }
 
-    /// Derives the next message key and increments the counter.
+    /// Derives the next per-sender message key and increments OUR local counter.
+    ///
+    /// `our_leaf_position` is the local member's leaf position in the tree;
+    /// it is bound into both the key and the nonce derivation so that this
+    /// member's `(epoch, counter)` chain is disjoint from every other member's.
     #[allow(clippy::expect_used)] // u64 overflow is impossible in practice
-    pub fn next_message_key(&mut self) -> MessageKey {
-        let key = self.secrets.derive_message_key(self.message_counter);
+    pub fn next_message_key(&mut self, our_leaf_position: u32) -> MessageKey {
+        let key = self
+            .secrets
+            .derive_message_key(our_leaf_position, self.message_counter);
         self.message_counter = self
             .message_counter
             .checked_add(1)
@@ -217,10 +237,13 @@ impl Epoch {
         key
     }
 
-    /// Derives a message key for a specific counter (for decryption).
+    /// Derives a per-sender message key for a specific
+    /// `(sender_leaf_position, counter)` pair (for decryption). The
+    /// `sender_leaf_position` is read from the incoming ciphertext's metadata.
     #[must_use]
-    pub fn message_key_for_counter(&self, counter: u64) -> MessageKey {
-        self.secrets.derive_message_key(counter)
+    pub fn message_key_for_counter(&self, sender_leaf_position: u32, counter: u64) -> MessageKey {
+        self.secrets
+            .derive_message_key(sender_leaf_position, counter)
     }
 
     /// Sets the message counter directly (for deserialization).
@@ -319,13 +342,40 @@ mod tests {
     fn test_message_key_derivation() {
         let epoch_secret = [0x42u8; 32];
         let secrets = EpochSecrets::derive(&epoch_secret);
+        let leaf = 0u32;
 
-        let key0 = secrets.derive_message_key(0);
-        let key1 = secrets.derive_message_key(1);
+        let key0 = secrets.derive_message_key(leaf, 0);
+        let key1 = secrets.derive_message_key(leaf, 1);
 
-        // Different counters produce different keys
+        // Different counters produce different keys (for the same sender).
         assert_ne!(key0.key(), key1.key());
         assert_ne!(key0.nonce(), key1.nonce());
+    }
+
+    /// Per-sender chains: same epoch, same counter, different leaf positions
+    /// must derive disjoint keys and nonces. Regression guard against the v0.4
+    /// cross-sender nonce-reuse risk (audit-notes-impl-gaps §4.2 / COCOA-01).
+    #[test]
+    fn test_message_key_per_sender_distinct() {
+        let epoch_secret = [0x42u8; 32];
+        let secrets = EpochSecrets::derive(&epoch_secret);
+        let counter = 0u64;
+
+        let key_a = secrets.derive_message_key(0, counter);
+        let key_b = secrets.derive_message_key(1, counter);
+
+        assert_ne!(
+            key_a.key(),
+            key_b.key(),
+            "two senders at same counter must derive disjoint keys"
+        );
+        assert_ne!(
+            key_a.nonce(),
+            key_b.nonce(),
+            "two senders at same counter must derive disjoint nonces"
+        );
+        assert_eq!(key_a.sender_leaf_position(), 0);
+        assert_eq!(key_b.sender_leaf_position(), 1);
     }
 
     #[test]
@@ -356,15 +406,18 @@ mod tests {
     fn test_next_message_key_increments() {
         let epoch_secret = [0x42u8; 32];
         let transcript = [0x00u8; 32];
+        let our_leaf = 0u32;
 
         let mut epoch = Epoch::initial(&epoch_secret, transcript);
 
-        let key0 = epoch.next_message_key();
+        let key0 = epoch.next_message_key(our_leaf);
         assert_eq!(key0.counter(), 0);
+        assert_eq!(key0.sender_leaf_position(), our_leaf);
         assert_eq!(epoch.message_counter(), 1);
 
-        let key1 = epoch.next_message_key();
+        let key1 = epoch.next_message_key(our_leaf);
         assert_eq!(key1.counter(), 1);
+        assert_eq!(key1.sender_leaf_position(), our_leaf);
         assert_eq!(epoch.message_counter(), 2);
     }
 
@@ -421,7 +474,7 @@ mod tests {
     #[test]
     fn test_message_key_debug_redacted() {
         let secrets = EpochSecrets::derive(&[0x42u8; 32]);
-        let key = secrets.derive_message_key(42);
+        let key = secrets.derive_message_key(0, 42);
         let debug = format!("{:?}", key);
 
         assert!(debug.contains("REDACTED"));

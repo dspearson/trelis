@@ -224,20 +224,27 @@ impl CocoaSession {
     ///
     /// # Security
     ///
-    /// - Each message uses a unique (key, nonce) pair derived from counter
-    /// - AAD binds ciphertext to group_id, epoch, and counter
-    /// - Forward secrecy: past messages cannot be decrypted after epoch advance
+    /// - Each message uses a unique (key, nonce) pair derived from the sender's
+    ///   leaf position **and** their local counter, so two members of the same
+    ///   group at the same `(epoch, counter)` derive disjoint keys (per-sender
+    ///   chains; COCOA-01).
+    /// - AAD binds ciphertext to `group_id`, `epoch`, `sender_leaf_position`,
+    ///   and `counter` (COCOA-02). A man-in-the-middle that flips the sender
+    ///   field on the wire causes AEAD verification to fail.
+    /// - Forward secrecy: past messages cannot be decrypted after epoch advance.
     ///
     /// # Errors
     ///
     /// Returns `EncryptionFailed` if AEAD encryption fails.
     pub fn encrypt(&mut self, plaintext: &[u8]) -> Result<EncryptedMessage> {
-        let message_key = self.epoch.next_message_key();
+        let our_leaf_position = self.our_leaf_position;
+        let message_key = self.epoch.next_message_key(our_leaf_position);
 
-        // Construct AAD: group_id || epoch || counter
-        let mut aad = Vec::with_capacity(48);
+        // Construct AAD: group_id || epoch || sender_leaf_position || counter (52 bytes)
+        let mut aad = Vec::with_capacity(52);
         aad.extend_from_slice(&self.group_id);
         aad.extend_from_slice(&self.epoch.number().to_le_bytes());
+        aad.extend_from_slice(&our_leaf_position.to_le_bytes());
         aad.extend_from_slice(&message_key.counter().to_le_bytes());
 
         // Encrypt
@@ -247,6 +254,7 @@ impl CocoaSession {
 
         Ok(EncryptedMessage {
             epoch: self.epoch.number(),
+            sender_leaf_position: our_leaf_position,
             counter: message_key.counter(),
             ciphertext,
         })
@@ -269,7 +277,9 @@ impl CocoaSession {
     /// # Errors
     ///
     /// - `EpochMismatch` if message epoch doesn't match session epoch
-    /// - `DecryptionFailed` if AEAD verification fails (tampered or wrong key)
+    /// - `DecryptionFailed` if AEAD verification fails (tampered or wrong key,
+    ///   including any tampering of the `sender_leaf_position` field, since
+    ///   that field is bound into both the KDF inputs and the AAD)
     #[must_use = "the decrypted plaintext must be checked or used"]
     pub fn decrypt(&self, message: &EncryptedMessage) -> Result<Vec<u8>> {
         // Verify epoch matches
@@ -280,13 +290,16 @@ impl CocoaSession {
             });
         }
 
-        // Get message key for this counter
-        let message_key = self.epoch.message_key_for_counter(message.counter);
+        // Get per-sender message key for this counter (COCOA-01)
+        let message_key = self
+            .epoch
+            .message_key_for_counter(message.sender_leaf_position, message.counter);
 
-        // Construct AAD
-        let mut aad = Vec::with_capacity(48);
+        // Construct AAD: group_id || epoch || sender_leaf_position || counter (COCOA-02)
+        let mut aad = Vec::with_capacity(52);
         aad.extend_from_slice(&self.group_id);
         aad.extend_from_slice(&message.epoch.to_le_bytes());
+        aad.extend_from_slice(&message.sender_leaf_position.to_le_bytes());
         aad.extend_from_slice(&message.counter.to_le_bytes());
 
         // Decrypt
@@ -325,13 +338,16 @@ impl CocoaSession {
         // Derive epoch secrets from the raw epoch secret (same as the sender did)
         let secrets = EpochSecrets::derive(epoch_secret);
 
-        // Derive message key using the counter from the message
-        let message_key = secrets.derive_message_key(message.counter);
+        // Derive per-sender message key using the leaf position + counter
+        // from the message (COCOA-01)
+        let message_key = secrets.derive_message_key(message.sender_leaf_position, message.counter);
 
-        // Construct AAD: group_id || epoch || counter (same scheme as decrypt())
-        let mut aad = Vec::with_capacity(48);
+        // Construct AAD: group_id || epoch || sender_leaf_position || counter
+        // (same scheme as decrypt(), COCOA-02)
+        let mut aad = Vec::with_capacity(52);
         aad.extend_from_slice(&self.group_id);
         aad.extend_from_slice(&message.epoch.to_le_bytes());
+        aad.extend_from_slice(&message.sender_leaf_position.to_le_bytes());
         aad.extend_from_slice(&message.counter.to_le_bytes());
 
         // Decrypt
@@ -377,12 +393,21 @@ impl Drop for CocoaSession {
 }
 
 /// An encrypted group message.
+///
+/// Wire layout (24-byte header + variable ciphertext):
+/// `epoch_le_u64 (8) || sender_leaf_position_le_u32 (4) || counter_le_u64 (8) ||
+/// ciphertext_len_le_u32 (4) || ciphertext (variable)`
+///
+/// `sender_leaf_position` was added in v0.5.0 to fix the cross-sender nonce-reuse
+/// risk that existed in v0.4 (see audit-notes-impl-gaps §4.2 / COCOA-01).
 #[cfg(feature = "alloc")]
 #[derive(Debug, Clone)]
 pub struct EncryptedMessage {
     /// Epoch number when encrypted.
     pub epoch: u64,
-    /// Message counter within the epoch.
+    /// Sender's leaf position in the tree (bound into KDF + AAD).
+    pub sender_leaf_position: u32,
+    /// Sender's local message counter within their per-sender chain.
     pub counter: u64,
     /// Encrypted ciphertext (includes AEAD tag).
     pub ciphertext: Vec<u8>,
@@ -390,6 +415,10 @@ pub struct EncryptedMessage {
 
 #[cfg(feature = "alloc")]
 impl EncryptedMessage {
+    /// Wire-format header size: `epoch (8) + sender_leaf_position (4) +
+    /// counter (8) + ciphertext_len (4)`.
+    const HEADER_SIZE: usize = 24;
+
     /// Serialises the encrypted message.
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -400,8 +429,9 @@ impl EncryptedMessage {
             u32::try_from(self.ciphertext.len()).is_ok(),
             "EncryptedMessage::to_bytes: ciphertext length exceeds u32 wire-format limit"
         );
-        let mut bytes = Vec::with_capacity(16 + 4 + self.ciphertext.len());
+        let mut bytes = Vec::with_capacity(Self::HEADER_SIZE + self.ciphertext.len());
         bytes.extend_from_slice(&self.epoch.to_le_bytes());
+        bytes.extend_from_slice(&self.sender_leaf_position.to_le_bytes());
         bytes.extend_from_slice(&self.counter.to_le_bytes());
         bytes.extend_from_slice(&(self.ciphertext.len() as u32).to_le_bytes());
         bytes.extend_from_slice(&self.ciphertext);
@@ -410,7 +440,7 @@ impl EncryptedMessage {
 
     /// Deserialises an encrypted message.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
-        if bytes.len() < 20 {
+        if bytes.len() < Self::HEADER_SIZE {
             return Err(CryptoError::MalformedMessage);
         }
 
@@ -419,33 +449,39 @@ impl EncryptedMessage {
                 .try_into()
                 .map_err(|_| CryptoError::MalformedMessage)?,
         );
+        let sender_leaf_position = u32::from_le_bytes(
+            bytes[8..12]
+                .try_into()
+                .map_err(|_| CryptoError::MalformedMessage)?,
+        );
         let counter = u64::from_le_bytes(
-            bytes[8..16]
+            bytes[12..20]
                 .try_into()
                 .map_err(|_| CryptoError::MalformedMessage)?,
         );
         let ct_len = u32::from_le_bytes(
-            bytes[16..20]
+            bytes[20..24]
                 .try_into()
                 .map_err(|_| CryptoError::MalformedMessage)?,
         ) as usize;
 
         // Guard against usize overflow on 32-bit targets (e.g. wasm32): on
         // those targets `usize::MAX == u32::MAX`, so a maximal ct_len plus
-        // the 20-byte header wraps around and the subsequent length check
+        // the 24-byte header wraps around and the subsequent length check
         // would pass spuriously, leading to a slice-bounds panic on a
         // malformed input. checked_add returns None on overflow.
-        let end = 20usize
+        let end = Self::HEADER_SIZE
             .checked_add(ct_len)
             .ok_or(CryptoError::MalformedMessage)?;
         if bytes.len() < end {
             return Err(CryptoError::MalformedMessage);
         }
 
-        let ciphertext = bytes[20..end].to_vec();
+        let ciphertext = bytes[Self::HEADER_SIZE..end].to_vec();
 
         Ok(Self {
             epoch,
+            sender_leaf_position,
             counter,
             ciphertext,
         })
@@ -535,6 +571,7 @@ mod tests {
     fn test_encrypted_message_serialisation() {
         let message = EncryptedMessage {
             epoch: 42,
+            sender_leaf_position: 3,
             counter: 7,
             ciphertext: b"encrypted data".to_vec(),
         };
@@ -543,19 +580,21 @@ mod tests {
         let recovered = EncryptedMessage::from_bytes(&bytes).unwrap();
 
         assert_eq!(recovered.epoch, 42);
+        assert_eq!(recovered.sender_leaf_position, 3);
         assert_eq!(recovered.counter, 7);
         assert_eq!(recovered.ciphertext, b"encrypted data");
     }
 
     /// Regression: a malformed message whose declared ciphertext length is
-    /// u32::MAX would, with naive `bytes.len() < 20 + ct_len`, overflow usize
-    /// on 32-bit targets (notably wasm32) and either pass the bounds check
-    /// spuriously or trigger a slice-bounds panic. The deserialiser must
-    /// reject this with MalformedMessage, not panic.
+    /// u32::MAX would, with naive `bytes.len() < HEADER + ct_len`, overflow
+    /// usize on 32-bit targets (notably wasm32) and either pass the bounds
+    /// check spuriously or trigger a slice-bounds panic. The deserialiser
+    /// must reject this with MalformedMessage, not panic.
     #[test]
     fn test_encrypted_message_overflow_rejected() {
-        let mut bytes = Vec::with_capacity(20);
+        let mut bytes = Vec::with_capacity(24);
         bytes.extend_from_slice(&0u64.to_le_bytes()); // epoch
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // sender_leaf_position
         bytes.extend_from_slice(&0u64.to_le_bytes()); // counter
         bytes.extend_from_slice(&u32::MAX.to_le_bytes()); // ct_len = 4 GiB
         // No body — length should be flagged before any indexing.
@@ -683,6 +722,138 @@ mod tests {
         assert_eq!(&decrypted, plaintext);
         assert_eq!(member1.epoch_number(), 1);
         assert_eq!(member2.epoch_number(), 1);
+    }
+
+    /// Regression for the cross-sender nonce-reuse risk that existed in v0.4
+    /// (audit-notes-impl-gaps §4.2, COCOA-01). Two members of the same group
+    /// at the same epoch both call encrypt() once each, so both derive at
+    /// their own local counter = 0. Their ciphertexts MUST NOT share the
+    /// `(key, nonce)` pair, which they would have done before per-sender
+    /// chains were introduced.
+    ///
+    /// The post-fix evidence: each member's `EncryptedMessage` carries its
+    /// own `sender_leaf_position`, and the derived AEAD key/nonce inside the
+    /// session are bound to that position. We verify three things:
+    ///   1. The two members report different `sender_leaf_position` values.
+    ///   2. The two ciphertexts differ even if the plaintexts are identical.
+    ///   3. Each member can decrypt the other member's message (cross-decrypt
+    ///      proves the per-sender derivation is symmetric: the receiver re-
+    ///      derives using the sender's leaf, not its own).
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_two_members_same_counter_distinct_keys() {
+        let group_id = [0x42u8; 32];
+        let epoch_secret = [0xABu8; 32];
+        let transcript = [0x00u8; 32];
+
+        let mut member_at_0 = CocoaSession::create_group(
+            group_id,
+            [0x01u8; 32],
+            HybridKemKeypair::generate().unwrap(),
+            2,
+            &epoch_secret,
+        )
+        .unwrap();
+
+        let mut member_at_1 = CocoaSession::join_group(
+            group_id,
+            [0x02u8; 32],
+            HybridKemKeypair::generate().unwrap(),
+            1, // leaf position 1
+            1, // depth 1 for 2 members
+            2,
+            &epoch_secret,
+            transcript,
+        );
+
+        // The vulnerability was: same plaintext at counter=0 from two members
+        // would have produced identical ciphertext (same key, same nonce, same
+        // plaintext → same AEAD output).
+        let plaintext = b"identical plaintext from both members";
+        let ct_from_0 = member_at_0.encrypt(plaintext).unwrap();
+        let ct_from_1 = member_at_1.encrypt(plaintext).unwrap();
+
+        assert_eq!(
+            ct_from_0.counter, 0,
+            "member_at_0's local counter should start at 0"
+        );
+        assert_eq!(
+            ct_from_1.counter, 0,
+            "member_at_1's local counter should start at 0"
+        );
+        assert_eq!(
+            ct_from_0.sender_leaf_position, 0,
+            "creator's leaf position should be 0"
+        );
+        assert_eq!(
+            ct_from_1.sender_leaf_position, 1,
+            "joiner's leaf position should be 1"
+        );
+
+        // Ciphertexts must differ — the heart of the fix.
+        assert_ne!(
+            ct_from_0.ciphertext, ct_from_1.ciphertext,
+            "v0.4 regression: two members at same (epoch, counter) must \
+             produce distinct ciphertexts (per-sender chains, COCOA-01)"
+        );
+
+        // Cross-decrypt: each member can read the other's message because the
+        // receiver re-derives the per-sender key from the sender's leaf
+        // position carried in the wire metadata.
+        let plain_at_1 = member_at_1.decrypt(&ct_from_0).unwrap();
+        let plain_at_0 = member_at_0.decrypt(&ct_from_1).unwrap();
+        assert_eq!(plain_at_1, plaintext);
+        assert_eq!(plain_at_0, plaintext);
+    }
+
+    /// COCOA-02 regression: the sender leaf position is bound into the per-
+    /// message AAD. If a man-in-the-middle flips that field on the wire (to
+    /// e.g. impersonate a different member), AEAD verification MUST fail —
+    /// both because the receiver derives a different per-sender key for the
+    /// tampered leaf position, and because the AAD includes the (now-mismatched)
+    /// leaf position alongside the ciphertext.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_aad_sender_tamper_rejects() {
+        let group_id = [0x42u8; 32];
+        let epoch_secret = [0xABu8; 32];
+        let transcript = [0x00u8; 32];
+
+        let mut member_at_0 = CocoaSession::create_group(
+            group_id,
+            [0x01u8; 32],
+            HybridKemKeypair::generate().unwrap(),
+            2,
+            &epoch_secret,
+        )
+        .unwrap();
+
+        let member_at_1 = CocoaSession::join_group(
+            group_id,
+            [0x02u8; 32],
+            HybridKemKeypair::generate().unwrap(),
+            1,
+            1,
+            2,
+            &epoch_secret,
+            transcript,
+        );
+
+        let plaintext = b"genuine message from member 0";
+        let mut tampered = member_at_0.encrypt(plaintext).unwrap();
+        assert_eq!(tampered.sender_leaf_position, 0);
+
+        // Attacker flips the sender field to claim the message came from
+        // member 1. Both fields are within the wire-format header and the
+        // ciphertext bytes themselves are unchanged.
+        tampered.sender_leaf_position = 1;
+
+        let result = member_at_1.decrypt(&tampered);
+        assert!(
+            matches!(result, Err(CryptoError::AeadAuthenticationFailed)),
+            "tampered sender_leaf_position must fail AEAD authentication, got {:?}",
+            result
+        );
     }
 
     #[cfg_attr(miri, ignore)]
