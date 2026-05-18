@@ -471,12 +471,15 @@ pub fn derive_recovery_keypair<S: MlDsaScheme>(
 ///
 /// ```text
 /// +----------------------+-------+
-/// | identity_pk          | var   | HybridSigningPublicKey (Ed448 + ML-DSA)
-/// | recovery_pk          | var   | HybridSigningPublicKey (Ed448 + ML-DSA)
+/// | identity_pk          | 2009  | HybridSigningPublicKey (Ed448 + ML-DSA)
+/// | recovery_pk          | 2009  | HybridSigningPublicKey (Ed448 + ML-DSA)
 /// | registered_at        | 8     | Unix timestamp (LE)
 /// | signature            | 3423  | HybridSignature
 /// +----------------------+-------+
+/// Total: 7,449 bytes
 /// ```
+///
+/// Serialise with [`Self::to_bytes`]; parse with [`Self::from_bytes`].
 ///
 /// # Domain separation
 ///
@@ -541,7 +544,74 @@ impl<S: MlDsaScheme> RecoveryKeyAttestation<S> {
         data.extend_from_slice(&registered_at.to_le_bytes());
         data
     }
+
+    /// Serialises the attestation to its canonical wire form.
+    ///
+    /// Layout: `identity_pk (2,009) || recovery_pk (2,009) ||
+    /// registered_at (8 LE) || signature (3,423)` = 7,449 bytes.
+    #[must_use]
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(Self::WIRE_SIZE);
+        bytes.extend_from_slice(&self.identity_pk.to_bytes());
+        bytes.extend_from_slice(&self.recovery_pk.to_bytes());
+        bytes.extend_from_slice(&self.registered_at.to_le_bytes());
+        bytes.extend_from_slice(&self.signature.to_bytes());
+        bytes
+    }
+
+    /// Parses an attestation from its canonical wire form.
+    ///
+    /// Does NOT call [`Self::verify`]; the caller must do so before trusting
+    /// the parsed attestation.
+    ///
+    /// # Errors
+    ///
+    /// Returns `MalformedMessage` if the slice has the wrong size or any
+    /// sub-component fails to decode.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() != Self::WIRE_SIZE {
+            return Err(CryptoError::MalformedMessage);
+        }
+
+        let mut offset = 0;
+        let identity_pk =
+            HybridSigningPublicKey::<S>::from_bytes(&bytes[offset..offset + SIGNING_PK_WIRE_SIZE])
+                .map_err(|_| CryptoError::MalformedMessage)?;
+        offset += SIGNING_PK_WIRE_SIZE;
+
+        let recovery_pk =
+            HybridSigningPublicKey::<S>::from_bytes(&bytes[offset..offset + SIGNING_PK_WIRE_SIZE])
+                .map_err(|_| CryptoError::MalformedMessage)?;
+        offset += SIGNING_PK_WIRE_SIZE;
+
+        let registered_at = u64::from_le_bytes(
+            bytes[offset..offset + 8]
+                .try_into()
+                .map_err(|_| CryptoError::MalformedMessage)?,
+        );
+        offset += 8;
+
+        let signature = HybridSignature::<S>::from_bytes(&bytes[offset..])
+            .map_err(|_| CryptoError::MalformedMessage)?;
+
+        Ok(Self {
+            identity_pk,
+            recovery_pk,
+            registered_at,
+            signature,
+        })
+    }
+
+    /// Total wire size in bytes (`identity_pk + recovery_pk + registered_at +
+    /// signature`).
+    pub const WIRE_SIZE: usize =
+        SIGNING_PK_WIRE_SIZE + SIGNING_PK_WIRE_SIZE + 8 + SIGNATURE_WIRE_SIZE;
 }
+
+/// Size of `HybridSigningPublicKey` on the wire (Ed448 57 + ML-DSA-65 1,952).
+const SIGNING_PK_WIRE_SIZE: usize = 2_009;
+/// Size of `HybridSignature` on the wire (Ed448 114 + ML-DSA-65 3,309).
+const SIGNATURE_WIRE_SIZE: usize = 3_423;
 
 #[cfg(feature = "alloc")]
 impl<S: MlDsaScheme> core::fmt::Debug for RecoveryKeyAttestation<S> {
@@ -559,6 +629,7 @@ impl<S: MlDsaScheme> core::fmt::Debug for RecoveryKeyAttestation<S> {
 #[allow(clippy::unwrap_used, clippy::needless_borrow)]
 mod tests {
     use super::*;
+    use alloc::vec;
     use trelis_primitives::MlDsa65Fips204;
 
     // Type aliases for tests - use FIPS 204 (standard) for consistent testing
@@ -837,5 +908,80 @@ mod tests {
         attestation.identity_pk = other_identity.public_key().clone();
 
         assert!(attestation.verify().is_err());
+    }
+
+    #[test]
+    fn test_recovery_key_attestation_wire_size_constant() {
+        // identity_pk (2,009) + recovery_pk (2,009) + registered_at (8)
+        // + signature (3,423) = 7,449
+        assert_eq!(TestAttestation::WIRE_SIZE, 2_009 + 2_009 + 8 + 3_423);
+        assert_eq!(TestAttestation::WIRE_SIZE, 7_449);
+    }
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_recovery_key_attestation_serialisation_roundtrip() {
+        let identity_keypair = TestKeypair::generate().unwrap();
+        let recovery_keypair = derive_recovery_keypair::<MlDsa65Fips204>(&[0x44u8; 32]).unwrap();
+
+        let attestation = TestAttestation::create(
+            &identity_keypair,
+            recovery_keypair.public_key(),
+            1_704_067_200,
+        )
+        .unwrap();
+
+        let bytes = attestation.to_bytes();
+        assert_eq!(bytes.len(), TestAttestation::WIRE_SIZE);
+
+        let parsed = TestAttestation::from_bytes(&bytes).unwrap();
+        assert!(parsed.verify().is_ok());
+        assert_eq!(parsed.registered_at, 1_704_067_200);
+        assert_eq!(
+            parsed.identity_pk.to_bytes(),
+            identity_keypair.public_key().to_bytes()
+        );
+        assert_eq!(
+            parsed.recovery_pk.to_bytes(),
+            recovery_keypair.public_key().to_bytes()
+        );
+    }
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_recovery_key_attestation_from_bytes_wrong_length() {
+        // Too short
+        let too_short = vec![0u8; TestAttestation::WIRE_SIZE - 1];
+        assert!(matches!(
+            TestAttestation::from_bytes(&too_short),
+            Err(CryptoError::MalformedMessage)
+        ));
+
+        // Too long
+        let too_long = vec![0u8; TestAttestation::WIRE_SIZE + 1];
+        assert!(matches!(
+            TestAttestation::from_bytes(&too_long),
+            Err(CryptoError::MalformedMessage)
+        ));
+
+        // Empty
+        assert!(matches!(
+            TestAttestation::from_bytes(&[]),
+            Err(CryptoError::MalformedMessage)
+        ));
+    }
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_recovery_key_attestation_from_bytes_corrupt_body() {
+        // Right length, but the bytes don't decode as valid public keys.
+        // The Ed448 verifying-key parser rejects most random byte patterns,
+        // so an all-zeros buffer of the right length still fails sub-component
+        // decoding rather than silently producing a malformed attestation.
+        let all_zeros = vec![0u8; TestAttestation::WIRE_SIZE];
+        assert!(matches!(
+            TestAttestation::from_bytes(&all_zeros),
+            Err(CryptoError::MalformedMessage)
+        ));
     }
 }
