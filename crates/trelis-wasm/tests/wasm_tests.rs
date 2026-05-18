@@ -3,6 +3,14 @@
 //! Run with: `wasm-pack test --headless --chrome crates/trelis-wasm`
 
 #![cfg(target_arch = "wasm32")]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::useless_vec,
+    clippy::len_zero,
+    clippy::needless_borrow
+)]
 
 use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;
@@ -970,17 +978,28 @@ mod x3dh_session_tests {
         let alice_secret = get_bytes_field(&alice, "secret_key");
         let alice_public = get_bytes_field(&alice, "public_key");
 
+        // Split Alice's identity public into the signing half (Ed448+ML-DSA,
+        // 2,009 bytes) and the X448 portion of her KEM half (first 56 bytes
+        // of the 1,214-byte KEM key). The responder binding takes these as
+        // separate arguments because session establishment only consumes the
+        // X448 portion of Alice's identity KEM.
+        let alice_signing_public = &alice_public[..2009];
+        let alice_x448_public = &alice_public[2009..2009 + 56];
+
         let (signed_bundle, bob_identity_secret, bob_otk_secret) = create_signed_bundle();
 
         // Alice initiates
         let alice_result = x3dh_initiator_establish(&alice_secret, &signed_bundle, 2000).unwrap();
         let initial_message = get_bytes_field(&alice_result, "initial_message");
 
-        // Bob responds
+        // Bob responds (needs his own signed bundle to verify the OTK identity
+        // that Alice's initial message references)
         let bob_result = x3dh_responder_establish(
             &bob_identity_secret,
             &bob_otk_secret,
-            &alice_public,
+            alice_signing_public,
+            alice_x448_public,
+            &signed_bundle,
             &initial_message,
         )
         .unwrap();
@@ -1006,8 +1025,11 @@ mod ratchet_tests {
         let their_kem = hybrid_kem_generate().unwrap();
         let their_public = get_bytes_field(&their_kem, "public_key");
 
-        let state = ratchet_init_initiator(&session_key, &their_public, 1000).unwrap();
-        assert!(state.len() > 0);
+        let init = ratchet_init_initiator(&session_key, &their_public, 1000).unwrap();
+        let state = get_bytes_field(&init, "state");
+        let our_public_key = get_bytes_field(&init, "our_public_key");
+        assert!(!state.is_empty());
+        assert_eq!(our_public_key.len(), 1214);
     }
 
     #[wasm_bindgen_test]
@@ -1015,40 +1037,46 @@ mod ratchet_tests {
         let session_key = random_bytes_32().unwrap();
         let our_kem = hybrid_kem_generate().unwrap();
         let our_secret = get_bytes_field(&our_kem, "secret_key");
-        let our_public = get_bytes_field(&our_kem, "public_key");
 
-        let state = ratchet_init_responder(&session_key, &our_secret, &our_public, 1000).unwrap();
-        assert!(state.len() > 0);
+        let init = ratchet_init_responder(&session_key, &our_secret, 1000).unwrap();
+        let state = get_bytes_field(&init, "state");
+        let our_public_key = get_bytes_field(&init, "our_public_key");
+        assert!(!state.is_empty());
+        assert_eq!(our_public_key.len(), 1214);
     }
 
     #[wasm_bindgen_test]
     fn test_ratchet_send_receive_roundtrip() {
-        // Setup: Alice and Bob establish ratchets
+        // Setup: Alice and Bob establish ratchets.
         let session_key = random_bytes_32().unwrap();
 
         let bob_kem = hybrid_kem_generate().unwrap();
         let bob_secret = get_bytes_field(&bob_kem, "secret_key");
         let bob_public = get_bytes_field(&bob_kem, "public_key");
 
-        // Alice initializes as initiator with Bob's public key
-        let alice_state = ratchet_init_initiator(&session_key, &bob_public, 1000).unwrap();
+        // Alice initialises as initiator with Bob's public key.
+        let alice_init = ratchet_init_initiator(&session_key, &bob_public, 1000).unwrap();
+        let alice_state = get_bytes_field(&alice_init, "state");
 
-        // Bob initializes as responder with his keypair
-        let bob_state =
-            ratchet_init_responder(&session_key, &bob_secret, &bob_public, 1000).unwrap();
+        // Bob initialises as responder with his own keypair.
+        let bob_init = ratchet_init_responder(&session_key, &bob_secret, 1000).unwrap();
+        let bob_state = get_bytes_field(&bob_init, "state");
 
-        // Alice sends a message
+        // Alice sends a message.
         let plaintext = b"Hello, Bob!";
         let send_result = ratchet_send(&alice_state, plaintext, 1001).unwrap();
 
         let alice_state_new = get_bytes_field(&send_result, "state");
-        let message = get_bytes_field(&send_result, "message");
+        let header = get_bytes_field(&send_result, "header");
+        let nonce = get_bytes_field(&send_result, "nonce");
+        let ciphertext = get_bytes_field(&send_result, "ciphertext");
 
-        assert!(alice_state_new.len() > 0);
-        assert!(message.len() > 0);
+        assert!(!alice_state_new.is_empty());
+        assert_eq!(nonce.len(), 24);
+        assert!(!ciphertext.is_empty());
 
-        // Bob receives the message
-        let recv_result = ratchet_receive(&bob_state, &message, 1001).unwrap();
+        // Bob receives the message via the wire-decomposed shape.
+        let recv_result = ratchet_receive(&bob_state, &header, &nonce, &ciphertext, 1001).unwrap();
 
         let decrypted = get_bytes_field(&recv_result, "plaintext");
         assert_eq!(decrypted, plaintext);
@@ -1062,18 +1090,23 @@ mod ratchet_tests {
         let bob_secret = get_bytes_field(&bob_kem, "secret_key");
         let bob_public = get_bytes_field(&bob_kem, "public_key");
 
-        let mut alice_state = ratchet_init_initiator(&session_key, &bob_public, 1000).unwrap();
-        let mut bob_state =
-            ratchet_init_responder(&session_key, &bob_secret, &bob_public, 1000).unwrap();
+        let alice_init = ratchet_init_initiator(&session_key, &bob_public, 1000).unwrap();
+        let mut alice_state = get_bytes_field(&alice_init, "state");
+
+        let bob_init = ratchet_init_responder(&session_key, &bob_secret, 1000).unwrap();
+        let mut bob_state = get_bytes_field(&bob_init, "state");
 
         for i in 0..3 {
             let plaintext = format!("Message {}", i);
 
             let send_result = ratchet_send(&alice_state, plaintext.as_bytes(), 1001 + i).unwrap();
             alice_state = get_bytes_field(&send_result, "state");
-            let message = get_bytes_field(&send_result, "message");
+            let header = get_bytes_field(&send_result, "header");
+            let nonce = get_bytes_field(&send_result, "nonce");
+            let ciphertext = get_bytes_field(&send_result, "ciphertext");
 
-            let recv_result = ratchet_receive(&bob_state, &message, 1001 + i).unwrap();
+            let recv_result =
+                ratchet_receive(&bob_state, &header, &nonce, &ciphertext, 1001 + i).unwrap();
             bob_state = get_bytes_field(&recv_result, "state");
             let decrypted = get_bytes_field(&recv_result, "plaintext");
 
@@ -1089,38 +1122,31 @@ mod ratchet_tests {
 mod cocoa_tests {
     use super::*;
 
-    #[wasm_bindgen_test]
-    fn test_cocoa_create_group() {
-        let group_id = random_bytes_32().unwrap();
-        let user_id = random_bytes_32().unwrap();
+    /// Build the inputs every cocoa_create_group test needs: a fresh identity
+    /// keypair, a fresh KEM keypair, and a random user id.
+    fn fresh_creator_inputs() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+        let identity = hybrid_identity_generate().unwrap();
+        let identity_secret = get_bytes_field(&identity, "secret_key");
         let kem = hybrid_kem_generate().unwrap();
         let kem_secret = get_bytes_field(&kem, "secret_key");
-        let epoch_secret = random_bytes_32().unwrap();
+        let user_id = random_bytes_32().unwrap();
+        (identity_secret, kem_secret, user_id)
+    }
 
-        let result = cocoa_create_group(
-            &group_id,
-            &user_id,
-            &kem_secret,
-            10, // max_members
-            &epoch_secret,
-        )
-        .unwrap();
+    #[wasm_bindgen_test]
+    fn test_cocoa_create_group() {
+        let (identity_secret, kem_secret, user_id) = fresh_creator_inputs();
+
+        let result = cocoa_create_group(&identity_secret, &kem_secret, &user_id).unwrap();
 
         let session = get_bytes_field(&result, "session");
-        assert!(session.len() > 0);
+        assert!(!session.is_empty());
     }
 
     #[wasm_bindgen_test]
     fn test_cocoa_encrypt_decrypt() {
-        let group_id = random_bytes_32().unwrap();
-        let user_id = random_bytes_32().unwrap();
-        let kem = hybrid_kem_generate().unwrap();
-        let kem_secret = get_bytes_field(&kem, "secret_key");
-        let epoch_secret = random_bytes_32().unwrap();
-
-        let create_result =
-            cocoa_create_group(&group_id, &user_id, &kem_secret, 10, &epoch_secret).unwrap();
-
+        let (identity_secret, kem_secret, user_id) = fresh_creator_inputs();
+        let create_result = cocoa_create_group(&identity_secret, &kem_secret, &user_id).unwrap();
         let session = get_bytes_field(&create_result, "session");
 
         // Encrypt a message
@@ -1129,27 +1155,18 @@ mod cocoa_tests {
 
         let session_after = get_bytes_field(&encrypt_result, "session");
         let ciphertext = get_bytes_field(&encrypt_result, "ciphertext");
-
-        assert!(ciphertext.len() > 0);
+        assert!(!ciphertext.is_empty());
 
         // Decrypt the message
         let decrypt_result = cocoa_decrypt(&session_after, &ciphertext).unwrap();
-
         let decrypted = get_bytes_field(&decrypt_result, "plaintext");
         assert_eq!(decrypted, plaintext);
     }
 
     #[wasm_bindgen_test]
     fn test_cocoa_session_info() {
-        let group_id = random_bytes_32().unwrap();
-        let user_id = random_bytes_32().unwrap();
-        let kem = hybrid_kem_generate().unwrap();
-        let kem_secret = get_bytes_field(&kem, "secret_key");
-        let epoch_secret = random_bytes_32().unwrap();
-
-        let create_result =
-            cocoa_create_group(&group_id, &user_id, &kem_secret, 10, &epoch_secret).unwrap();
-
+        let (identity_secret, kem_secret, user_id) = fresh_creator_inputs();
+        let create_result = cocoa_create_group(&identity_secret, &kem_secret, &user_id).unwrap();
         let session = get_bytes_field(&create_result, "session");
 
         let info = cocoa_session_info(&session).unwrap();
@@ -1157,25 +1174,16 @@ mod cocoa_tests {
         let epoch = get_number_field(&info, "epoch") as u32;
         let member_count = get_number_field(&info, "member_count") as u32;
         let our_leaf_index = get_number_field(&info, "our_leaf_index") as u32;
-        let returned_group_id = get_bytes_field(&info, "group_id");
 
         assert_eq!(epoch, 0);
         assert_eq!(member_count, 1);
         assert_eq!(our_leaf_index, 0);
-        assert_eq!(returned_group_id, group_id);
     }
 
     #[wasm_bindgen_test]
     fn test_cocoa_multiple_encryptions() {
-        let group_id = random_bytes_32().unwrap();
-        let user_id = random_bytes_32().unwrap();
-        let kem = hybrid_kem_generate().unwrap();
-        let kem_secret = get_bytes_field(&kem, "secret_key");
-        let epoch_secret = random_bytes_32().unwrap();
-
-        let create_result =
-            cocoa_create_group(&group_id, &user_id, &kem_secret, 10, &epoch_secret).unwrap();
-
+        let (identity_secret, kem_secret, user_id) = fresh_creator_inputs();
+        let create_result = cocoa_create_group(&identity_secret, &kem_secret, &user_id).unwrap();
         let mut session = get_bytes_field(&create_result, "session");
 
         for i in 0..5 {
@@ -1195,47 +1203,34 @@ mod cocoa_tests {
 
     #[wasm_bindgen_test]
     fn test_cocoa_rotate_keypair() {
-        let group_id = random_bytes_32().unwrap();
-        let user_id = random_bytes_32().unwrap();
-        let kem = hybrid_kem_generate().unwrap();
-        let kem_secret = get_bytes_field(&kem, "secret_key");
-        let epoch_secret = random_bytes_32().unwrap();
-
-        let create_result =
-            cocoa_create_group(&group_id, &user_id, &kem_secret, 10, &epoch_secret).unwrap();
-
+        let (identity_secret, kem_secret, user_id) = fresh_creator_inputs();
+        let create_result = cocoa_create_group(&identity_secret, &kem_secret, &user_id).unwrap();
         let session = get_bytes_field(&create_result, "session");
 
-        // Rotate keypair
         let rotate_result = cocoa_rotate_keypair(&session).unwrap();
 
         let session_after = get_bytes_field(&rotate_result, "session");
         let new_public_key = get_bytes_field(&rotate_result, "new_public_key");
 
-        assert!(session_after.len() > 0);
+        assert!(!session_after.is_empty());
         assert_eq!(new_public_key.len(), 1214);
     }
 
     #[wasm_bindgen_test]
     fn test_cocoa_create_update() {
-        let group_id = random_bytes_32().unwrap();
-        let user_id = random_bytes_32().unwrap();
-        let kem = hybrid_kem_generate().unwrap();
-        let kem_secret = get_bytes_field(&kem, "secret_key");
-        let epoch_secret = random_bytes_32().unwrap();
-
-        let create_result =
-            cocoa_create_group(&group_id, &user_id, &kem_secret, 10, &epoch_secret).unwrap();
-
+        let (identity_secret, kem_secret, user_id) = fresh_creator_inputs();
+        let create_result = cocoa_create_group(&identity_secret, &kem_secret, &user_id).unwrap();
         let session = get_bytes_field(&create_result, "session");
 
-        let update_result = cocoa_create_update(&session).unwrap();
+        // cocoa_create_update takes (session, identity_secret) — the second
+        // argument is the signing keypair that signs the update commit.
+        let update_result = cocoa_create_update(&session, &identity_secret).unwrap();
 
         let session_after = get_bytes_field(&update_result, "session");
         let commit = get_bytes_field(&update_result, "commit");
 
-        assert!(session_after.len() > 0);
-        assert!(commit.len() > 0);
+        assert!(!session_after.is_empty());
+        assert!(!commit.is_empty());
     }
 }
 
@@ -1270,27 +1265,88 @@ mod multidevice_tests {
     fn test_device_approval_create_verify() {
         let identity = hybrid_identity_generate().unwrap();
         let identity_secret = get_bytes_field(&identity, "secret_key");
-        let identity_public = get_bytes_field(&identity, "public_key");
-
         let signing_secret = &identity_secret[..4089];
-        let signing_public = &identity_public[..2009];
 
-        let new_device_kem = hybrid_kem_generate().unwrap();
-        let new_device_public = get_bytes_field(&new_device_kem, "public_key");
+        // v0.6 layout: 16-byte device id + 32-byte user id + 32-byte
+        // server-issued nonce, all bound into the signed body.
+        let approving_device_id = vec![0x01u8; 16];
+        let user_id = vec![0x02u8; 32];
+        let new_device_fingerprint = vec![0x03u8; 32];
+        let server_nonce = vec![0x04u8; 32];
+        let approved_at = 1234567890u64;
 
-        let approval =
-            device_approval_create(&new_device_public, b"My Phone", 1234567890, signing_secret)
-                .unwrap();
+        let approval = device_approval_create(
+            &approving_device_id,
+            &user_id,
+            &new_device_fingerprint,
+            &server_nonce,
+            approved_at,
+            signing_secret,
+        )
+        .unwrap();
+        assert!(!approval.is_empty());
 
-        assert!(approval.len() > 0);
+        // Verify within the default 300-second window. The cert is now
+        // self-verifying — the approving device's public key is embedded
+        // in the cert body, so no external public key is supplied here.
+        let result = device_approval_verify(&approval, approved_at + 30, 300).unwrap();
+        assert!(get_bool_field(&result, "valid"));
 
-        let result = device_approval_verify(&approval, signing_public).unwrap();
+        // Every body field round-trips through the verify result.
+        assert_eq!(
+            get_bytes_field(&result, "approving_device_id"),
+            approving_device_id
+        );
+        assert_eq!(get_bytes_field(&result, "user_id"), user_id);
+        assert_eq!(
+            get_bytes_field(&result, "new_device_fingerprint"),
+            new_device_fingerprint
+        );
+        assert_eq!(get_bytes_field(&result, "server_nonce"), server_nonce);
+    }
 
-        let valid = get_bool_field(&result, "valid");
-        let device_name = get_bytes_field(&result, "device_name");
+    #[wasm_bindgen_test]
+    fn test_device_approval_verify_expired() {
+        let identity = hybrid_identity_generate().unwrap();
+        let identity_secret = get_bytes_field(&identity, "secret_key");
+        let signing_secret = &identity_secret[..4089];
 
-        assert!(valid);
-        assert_eq!(device_name, b"My Phone");
+        let approval = device_approval_create(
+            &vec![0x01u8; 16],
+            &vec![0x02u8; 32],
+            &vec![0x03u8; 32],
+            &vec![0x04u8; 32],
+            1000,
+            signing_secret,
+        )
+        .unwrap();
+
+        // now is 400 seconds after approved_at, window is 300 — must reject.
+        let result = device_approval_verify(&approval, 1400, 300).unwrap();
+        assert!(!get_bool_field(&result, "valid"));
+    }
+
+    #[wasm_bindgen_test]
+    fn test_device_approval_verify_future_dated() {
+        let identity = hybrid_identity_generate().unwrap();
+        let identity_secret = get_bytes_field(&identity, "secret_key");
+        let signing_secret = &identity_secret[..4089];
+
+        let approval = device_approval_create(
+            &vec![0x01u8; 16],
+            &vec![0x02u8; 32],
+            &vec![0x03u8; 32],
+            &vec![0x04u8; 32],
+            5000,
+            signing_secret,
+        )
+        .unwrap();
+
+        // now is 400 seconds BEFORE approved_at, window is 300 — must reject.
+        // The verify path uses abs_diff so both stale and future-dated certs
+        // fall outside the window.
+        let result = device_approval_verify(&approval, 4600, 300).unwrap();
+        assert!(!get_bool_field(&result, "valid"));
     }
 
     #[wasm_bindgen_test]
@@ -1325,31 +1381,86 @@ mod multidevice_tests {
 
     #[wasm_bindgen_test]
     fn test_device_key_wrap_unwrap() {
-        let identity = hybrid_identity_generate().unwrap();
-        let identity_secret = get_bytes_field(&identity, "secret_key");
+        // Build the AAD-binding fields used by both create and unwrap.
+        // The wrap binds to: recipient_key_id || purpose || thread_id ||
+        // bundle_id || epoch — these MUST match between create and unwrap or
+        // the AEAD verification at unwrap fails.
+        let secret = random_bytes_32().unwrap();
+        let recipient_kem = hybrid_kem_generate().unwrap();
+        let recipient_kem_public = get_bytes_field(&recipient_kem, "public_key");
+        let recipient_kem_secret = get_bytes_field(&recipient_kem, "secret_key");
+        let recipient_key_id = vec![0x01u8; 8];
+        let purpose: u8 = 1;
+        let thread_id = vec![0x02u8; 32];
+        let bundle_id = vec![0x03u8; 32];
+        let epoch = 1234567890u64;
 
-        let wrapping_key = random_bytes_32().unwrap();
-        let identity_secret_arr: [u8; 32] = random_bytes_32().unwrap().try_into().unwrap();
+        // device_key_wrap_create returns the canonical wrap byte string
+        // directly (NOT a JsValue object); device_key_wrap_unwrap returns
+        // the unwrapped 32-byte secret directly.
+        let wrap_bytes = device_key_wrap_create(
+            &secret,
+            &recipient_kem_public,
+            &recipient_key_id,
+            purpose,
+            &thread_id,
+            &bundle_id,
+            epoch,
+        )
+        .unwrap();
+        assert!(!wrap_bytes.is_empty());
 
-        let wrap_result = device_key_wrap_create(
-            &identity_secret,
-            &wrapping_key,
-            &identity_secret_arr,
-            1234567890,
+        let unwrapped = device_key_wrap_unwrap(
+            &wrap_bytes,
+            &recipient_kem_secret,
+            &recipient_key_id,
+            purpose,
+            &thread_id,
+            &bundle_id,
+            epoch,
+        )
+        .unwrap();
+        assert_eq!(unwrapped, secret);
+    }
+
+    #[wasm_bindgen_test]
+    fn test_device_key_wrap_unwrap_aad_tamper_rejected() {
+        let secret = random_bytes_32().unwrap();
+        let recipient_kem = hybrid_kem_generate().unwrap();
+        let recipient_kem_public = get_bytes_field(&recipient_kem, "public_key");
+        let recipient_kem_secret = get_bytes_field(&recipient_kem, "secret_key");
+        let recipient_key_id = vec![0x01u8; 8];
+        let purpose: u8 = 1;
+        let thread_id = vec![0x02u8; 32];
+        let bundle_id = vec![0x03u8; 32];
+        let epoch = 1234567890u64;
+
+        let wrap_bytes = device_key_wrap_create(
+            &secret,
+            &recipient_kem_public,
+            &recipient_key_id,
+            purpose,
+            &thread_id,
+            &bundle_id,
+            epoch,
         )
         .unwrap();
 
-        let wrapped = get_bytes_field(&wrap_result, "wrapped_data");
-        let nonce = get_bytes_field(&wrap_result, "nonce");
-
-        assert!(wrapped.len() > 0);
-        assert_eq!(nonce.len(), 24);
-
-        let unwrap_result =
-            device_key_wrap_unwrap(&wrapped, &wrapping_key, &identity_secret_arr, &nonce).unwrap();
-
-        let unwrapped = get_bytes_field(&unwrap_result, "unwrapped_data");
-        assert_eq!(unwrapped, identity_secret);
+        // Tamper with the thread_id at unwrap time — AAD differs, so the
+        // AEAD verification MUST fail rather than silently returning the
+        // wrong plaintext.
+        let mut wrong_thread_id = thread_id.clone();
+        wrong_thread_id[0] ^= 0xFF;
+        let unwrap_result = device_key_wrap_unwrap(
+            &wrap_bytes,
+            &recipient_kem_secret,
+            &recipient_key_id,
+            purpose,
+            &wrong_thread_id,
+            &bundle_id,
+            epoch,
+        );
+        assert!(unwrap_result.is_err());
     }
 
     #[wasm_bindgen_test]
