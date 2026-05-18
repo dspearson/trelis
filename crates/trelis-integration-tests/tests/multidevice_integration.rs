@@ -20,8 +20,8 @@ use trelis_error::CryptoError;
 use trelis_hybrid::{HybridKemKeypair, HybridSigningKeypair};
 use trelis_multidevice::{
     DeviceApprovalCertificate, DeviceId, DeviceKeyWrap, DeviceRevocation, FINGERPRINT_SIZE,
-    HistoryKeyShareMessage, RetainedKey, RevocationReason, RevocationRekeyEvent, ThreadId,
-    ThreadKeyStore, ThreadSettings, WrapContext, WrapPurpose, device_fingerprint,
+    HistoryKeyShareMessage, NonceWindow, RetainedKey, RevocationReason, RevocationRekeyEvent,
+    ThreadId, ThreadKeyStore, ThreadSettings, WrapContext, WrapPurpose, device_fingerprint,
 };
 use trelis_primitives::hash;
 
@@ -49,17 +49,22 @@ fn test_complete_device_onboarding_flow() {
 
     // === Step 1: Existing device creates approval certificate ===
     let approval_timestamp = 1000u64;
+    let user_id = [0x99u8; 32];
+    let server_nonce = [0xCDu8; 32];
     let approval = DeviceApprovalCertificate::new(
         existing_device_id,
+        user_id,
         new_device_fingerprint,
+        server_nonce,
         approval_timestamp,
         &existing_signing_key,
     )
     .expect("Failed to create approval certificate");
 
-    // === Step 2: New device verifies the approval ===
+    // === Step 2: New device verifies the approval (within window, self-verifying) ===
+    let now = approval_timestamp + 30;
     approval
-        .verify(&existing_signing_key.public_key())
+        .verify(now, NonceWindow::DEFAULT)
         .expect("New device should be able to verify approval");
 
     // Verify the fingerprint matches
@@ -112,25 +117,41 @@ fn test_complete_device_onboarding_flow() {
     println!("✓ Complete device onboarding flow verified");
 }
 
-/// Tests that approval certificates cannot be verified with wrong keys.
+/// Phase 16: the cert is self-verifying (`approving_device_pk` is embedded),
+/// so the v0.5 "wrong key" test no longer applies. The equivalent assurance is
+/// that a tampered embedded pk causes the signature to no longer verify.
 #[cfg_attr(miri, ignore)]
 #[test]
-fn test_approval_verification_fails_with_wrong_key() {
+fn test_approval_verification_rejects_tampered_embedded_pk() {
     let device_id: DeviceId = [0x01u8; 16];
     let signing_key = HybridSigningKeypair::generate().unwrap();
-    let wrong_key = HybridSigningKeypair::generate().unwrap();
+    let other_signing = HybridSigningKeypair::generate().unwrap();
     let fingerprint = [0xAAu8; FINGERPRINT_SIZE];
+    let user_id = [0x99u8; 32];
+    let server_nonce = [0xCDu8; 32];
 
-    let approval =
-        DeviceApprovalCertificate::new(device_id, fingerprint, 1000, &signing_key).unwrap();
+    let mut approval = DeviceApprovalCertificate::new(
+        device_id,
+        user_id,
+        fingerprint,
+        server_nonce,
+        1000,
+        &signing_key,
+    )
+    .unwrap();
 
-    let result = approval.verify(&wrong_key.public_key());
+    // Tamper: swap the embedded pk to a different key. The signature was made
+    // over the original pk's bytes, so verification with the now-mismatched pk
+    // must fail.
+    approval.approving_device_pk = other_signing.public_key().clone();
+
+    let result = approval.verify(1030, NonceWindow::DEFAULT);
     assert!(
         matches!(result, Err(CryptoError::SignatureVerificationFailed)),
-        "Verification with wrong key should fail"
+        "Verification with tampered embedded pk should fail"
     );
 
-    println!("✓ Approval verification correctly rejects wrong key");
+    println!("✓ Approval verification correctly rejects tampered embedded pk");
 }
 
 /// Tests approval certificate serialisation roundtrip.
@@ -138,21 +159,34 @@ fn test_approval_verification_fails_with_wrong_key() {
 #[test]
 fn test_approval_certificate_serialisation_roundtrip() {
     let signing_key = HybridSigningKeypair::generate().unwrap();
-    let original =
-        DeviceApprovalCertificate::new([0x42u8; 16], [0xAAu8; 32], 12345, &signing_key).unwrap();
+    let original = DeviceApprovalCertificate::new(
+        [0x42u8; 16],
+        [0x99u8; 32],
+        [0xAAu8; 32],
+        [0xCDu8; 32],
+        12345,
+        &signing_key,
+    )
+    .unwrap();
 
     let bytes = original.to_bytes();
     let recovered = DeviceApprovalCertificate::from_bytes(&bytes).unwrap();
 
     assert_eq!(recovered.approving_device_id, original.approving_device_id);
+    assert_eq!(recovered.user_id, original.user_id);
     assert_eq!(
         recovered.new_device_fingerprint,
         original.new_device_fingerprint
     );
+    assert_eq!(recovered.server_nonce, original.server_nonce);
     assert_eq!(recovered.approved_at, original.approved_at);
+    assert_eq!(
+        recovered.approving_device_pk.to_bytes(),
+        original.approving_device_pk.to_bytes()
+    );
 
-    // Signature should still verify
-    recovered.verify(&signing_key.public_key()).unwrap();
+    // Signature should still verify (self-contained, no external pk needed)
+    recovered.verify(12375, NonceWindow::DEFAULT).unwrap();
 
     println!("✓ Approval certificate serialisation roundtrip verified");
 }
@@ -707,13 +741,15 @@ fn test_onboarding_with_history_sync() {
     // === Step 1: Create and verify approval ===
     let approval = DeviceApprovalCertificate::new(
         existing_device_id,
+        [0x99u8; 32],
         new_fingerprint,
+        [0xCDu8; 32],
         5000,
         &existing_signing,
     )
     .unwrap();
 
-    approval.verify(&existing_signing.public_key()).unwrap();
+    approval.verify(5030, NonceWindow::DEFAULT).unwrap();
 
     // === Step 2: Create history share message ===
     let keys_to_share = existing_store.get_all_keys().to_vec();

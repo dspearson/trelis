@@ -418,6 +418,31 @@ pub enum CryptoError {
 
     /// Unsupported state serialisation version.
     UnsupportedStateVersion,
+
+    // ─── Multi-Device Approval / Nonce Errors (Phase 16) ────────────────────
+    /// Server-issued nonce window has elapsed.
+    ///
+    /// Returned by `DeviceApprovalCertificate::verify` when the elapsed time
+    /// since `approved_at` exceeds the caller-supplied `NonceWindow`. Distinct
+    /// from `SignatureVerificationFailed` so callers can route on the specific
+    /// freshness failure (e.g. surface "approval link expired" to the user).
+    NonceExpired,
+
+    /// Caller's replay-cache reports the approval nonce was already consumed.
+    ///
+    /// The library never maintains a nonce store; this variant is what
+    /// callers map their `ConsumeApprovalNonce` "already consumed" outcome to
+    /// when wrapping the approval-verify call. Security category — indicates a
+    /// genuine replay attempt or a buggy caller.
+    NonceReplayed,
+
+    /// Approval nonce in the cert does not match the nonce the verifier expected.
+    ///
+    /// The verifier remembers the nonce it issued for the in-flight approval
+    /// flow; if the cert carries a different `server_nonce`, this variant
+    /// fires. Security category — indicates a man-in-the-middle swap or
+    /// approval-cert reuse from a different flow.
+    NonceMismatch,
 }
 
 impl fmt::Display for CryptoError {
@@ -485,6 +510,11 @@ impl fmt::Display for CryptoError {
                     "session exhausted (current: {current}, threshold: {threshold})"
                 )
             }
+
+            // Multi-device approval / nonce errors
+            Self::NonceExpired => write!(f, "approval nonce window has elapsed"),
+            Self::NonceReplayed => write!(f, "approval nonce already consumed"),
+            Self::NonceMismatch => write!(f, "approval nonce does not match issued value"),
 
             // Wire format errors
             Self::UnsupportedProtocolVersion {
@@ -644,7 +674,10 @@ impl CryptoError {
             | Self::EncapsulationFailed
             | Self::KeyDerivationFailed
             | Self::InvalidMagic
-            | Self::UnsupportedStateVersion => ErrorCategory::Security,
+            | Self::UnsupportedStateVersion
+            | Self::NonceExpired
+            | Self::NonceReplayed
+            | Self::NonceMismatch => ErrorCategory::Security,
         }
     }
 

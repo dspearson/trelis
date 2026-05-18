@@ -1449,18 +1449,22 @@ fn verify_device_fingerprint_size() {
 
 #[test]
 fn verify_device_approval_roundtrip() {
-    use trelis_multidevice::{DeviceApprovalCertificate, device_fingerprint};
+    use trelis_multidevice::{DeviceApprovalCertificate, NonceWindow, device_fingerprint};
 
     let approving_device = HybridSigningKeypair::generate().unwrap();
     let new_device = HybridSigningKeypair::generate().unwrap();
 
     let new_device_fingerprint = device_fingerprint(&new_device.public_key());
     let device_id = [0x42u8; 16];
+    let user_id = [0x99u8; 32];
+    let server_nonce = [0xCDu8; 32];
     let timestamp = 1234567890u64;
 
     let cert = DeviceApprovalCertificate::new(
         device_id,
+        user_id,
         new_device_fingerprint,
+        server_nonce,
         timestamp,
         &approving_device,
     )
@@ -1471,11 +1475,21 @@ fn verify_device_approval_roundtrip() {
     let recovered = DeviceApprovalCertificate::from_bytes(&bytes).unwrap();
 
     assert_eq!(recovered.approving_device_id, device_id);
+    assert_eq!(recovered.user_id, user_id);
     assert_eq!(recovered.new_device_fingerprint, new_device_fingerprint);
+    assert_eq!(recovered.server_nonce, server_nonce);
     assert_eq!(recovered.approved_at, timestamp);
+    assert_eq!(
+        recovered.approving_device_pk.to_bytes(),
+        approving_device.public_key().to_bytes()
+    );
 
-    // Verify signature
-    assert!(recovered.verify(&approving_device.public_key()).is_ok());
+    // Verify the embedded-pk self-verifying path (no external pk passed).
+    assert!(
+        recovered
+            .verify(timestamp + 30, NonceWindow::DEFAULT)
+            .is_ok()
+    );
 
     println!("✓ Device approval certificate roundtrip verified");
 }

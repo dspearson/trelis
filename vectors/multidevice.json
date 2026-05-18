@@ -72,20 +72,30 @@
     },
     {
       "name": "device_approval_certificate_structure",
-      "description": "Structure of a device approval certificate",
+      "description": "Structure of a v0.6 device approval certificate (self-verifying, replay-resistant, user-bound). Embedded approving_device_pk removes the out-of-band public-key lookup required by v0.5.",
       "signing_data_format": [
         {"offset": 0, "field": "context", "value": "trelis-device-approval-v1"},
         {"offset": "context_len", "size": 16, "field": "approving_device_id"},
-        {"offset": "+16", "size": 32, "field": "new_device_fingerprint"},
-        {"offset": "+32", "size": 8, "field": "approved_at", "encoding": "u64 little-endian"}
+        {"offset": "+16", "size": 32, "field": "user_id"},
+        {"offset": "+32", "size": 32, "field": "new_device_fingerprint"},
+        {"offset": "+32", "size": 32, "field": "server_nonce"},
+        {"offset": "+32", "size": 2009, "field": "approving_device_pk"},
+        {"offset": "+2009", "size": 8, "field": "approved_at", "encoding": "u64 little-endian"}
       ],
       "serialised_format": [
         {"offset": 0, "size": 16, "field": "approving_device_id"},
-        {"offset": 16, "size": 32, "field": "new_device_fingerprint"},
-        {"offset": 48, "size": 8, "field": "approved_at", "encoding": "u64 little-endian"},
-        {"offset": 56, "size": 3423, "field": "signature"}
+        {"offset": 16, "size": 32, "field": "user_id"},
+        {"offset": 48, "size": 32, "field": "new_device_fingerprint"},
+        {"offset": 80, "size": 32, "field": "server_nonce"},
+        {"offset": 112, "size": 2009, "field": "approving_device_pk"},
+        {"offset": 2121, "size": 8, "field": "approved_at", "encoding": "u64 little-endian"},
+        {"offset": 2129, "size": 3423, "field": "signature"}
       ],
-      "total_size": 3479
+      "total_size": 5552,
+      "verify_inputs": {
+        "now": "caller-supplied Unix timestamp (seconds)",
+        "window_seconds": "validity window in seconds; default 300 (NonceWindow::DEFAULT)"
+      }
     },
     {
       "name": "device_revocation_certificate_structure",

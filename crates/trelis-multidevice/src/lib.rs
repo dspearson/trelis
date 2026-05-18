@@ -71,7 +71,9 @@ mod retained_key;
 mod revocation;
 mod settings;
 
-pub use approval::{DeviceApprovalCertificate, FINGERPRINT_SIZE};
+pub use approval::{
+    DeviceApprovalCertificate, FINGERPRINT_SIZE, NonceWindow, SERVER_NONCE_SIZE, USER_ID_SIZE,
+};
 // `device_fingerprint`, `HistoryKeyShareMessage`, `ThreadKeyStore`, and
 // `RetainedKey` are themselves `#[cfg(feature = "alloc")]`-gated in their
 // modules (they own `Vec`-based fields). Match the gate on the re-exports.

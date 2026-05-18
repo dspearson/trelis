@@ -2005,42 +2005,62 @@ pub fn device_fingerprint(public_key: &[u8]) -> Result<Vec<u8>, JsValue> {
     Ok(fingerprint.to_vec())
 }
 
-/// Create a device approval certificate.
+/// Create a device approval certificate (v0.6 layout — self-verifying).
 ///
 /// # Arguments
 /// * `approving_device_id` - 16-byte device ID of the approving device
+/// * `user_id` - 32-byte user-account identifier
 /// * `new_device_fingerprint` - 32-byte fingerprint of the new device's public key
-/// * `approved_at` - Unix timestamp
-/// * `signing_secret` - 4,089-byte signing secret key
+/// * `server_nonce` - 32-byte server-issued single-use nonce
+/// * `approved_at` - Unix timestamp (seconds)
+/// * `signing_secret` - signing keypair secret bytes
 ///
 /// # Returns
-/// Serialised approval certificate
+/// Serialised approval certificate (5,552 bytes). The embedded
+/// `approving_device_pk` is taken from the supplied keypair so the cert is
+/// self-verifying.
 #[wasm_bindgen]
 pub fn device_approval_create(
     approving_device_id: &[u8],
+    user_id: &[u8],
     new_device_fingerprint: &[u8],
+    server_nonce: &[u8],
     approved_at: u64,
     signing_secret: &[u8],
 ) -> Result<Vec<u8>, JsValue> {
     if approving_device_id.len() != 16 {
         return Err(JsValue::from_str("Device ID must be 16 bytes"));
     }
+    if user_id.len() != 32 {
+        return Err(JsValue::from_str("User ID must be 32 bytes"));
+    }
     if new_device_fingerprint.len() != 32 {
         return Err(JsValue::from_str("Fingerprint must be 32 bytes"));
+    }
+    if server_nonce.len() != 32 {
+        return Err(JsValue::from_str("Server nonce must be 32 bytes"));
     }
 
     let mut device_id = [0u8; 16];
     device_id.copy_from_slice(approving_device_id);
 
+    let mut uid = [0u8; 32];
+    uid.copy_from_slice(user_id);
+
     let mut fingerprint = [0u8; 32];
     fingerprint.copy_from_slice(new_device_fingerprint);
+
+    let mut nonce = [0u8; 32];
+    nonce.copy_from_slice(server_nonce);
 
     let keypair = trelis_hybrid::HybridSigningKeypair::from_bytes(signing_secret)
         .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
     let cert = trelis_multidevice::DeviceApprovalCertificate::new(
         device_id,
+        uid,
         fingerprint,
+        nonce,
         approved_at,
         &keypair,
     )
@@ -2049,29 +2069,42 @@ pub fn device_approval_create(
     Ok(cert.to_bytes())
 }
 
-/// Verify a device approval certificate.
+/// Verify a device approval certificate (v0.6 layout — self-verifying).
 ///
 /// # Arguments
 /// * `certificate_bytes` - Serialised approval certificate
-/// * `approver_public` - 2,009-byte approving device's signing public key
+/// * `now` - Verifier's current Unix timestamp (seconds)
+/// * `window_seconds` - Validity window in seconds (e.g. 300 for the default
+///   5-minute window). The signature verifies if `|now - approved_at|
+///   <= window_seconds`.
+///
+/// The approving device's public key is embedded inside the certificate;
+/// no external public-key argument is required.
 ///
 /// # Returns
 /// Object with verification result and certificate fields
 #[wasm_bindgen]
 pub fn device_approval_verify(
     certificate_bytes: &[u8],
-    approver_public: &[u8],
+    now: u64,
+    window_seconds: u64,
 ) -> Result<JsValue, JsValue> {
     let cert = trelis_multidevice::DeviceApprovalCertificate::from_bytes(certificate_bytes)
         .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
-    let approver_pk = trelis_hybrid::HybridSigningPublicKey::from_bytes(approver_public)
-        .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
-
-    let valid = cert.verify(&approver_pk).is_ok();
+    let window = trelis_multidevice::NonceWindow::seconds(window_seconds);
+    let verify_result = cert.verify(now, window);
+    let valid = verify_result.is_ok();
+    let error_str = match verify_result {
+        Ok(()) => None,
+        Err(e) => Some(format!("{:?}", e)),
+    };
 
     let obj = js_sys::Object::new();
     js_sys::Reflect::set(&obj, &"valid".into(), &JsValue::from_bool(valid))?;
+    if let Some(err) = error_str {
+        js_sys::Reflect::set(&obj, &"error".into(), &JsValue::from_str(&err))?;
+    }
     js_sys::Reflect::set(
         &obj,
         &"approving_device_id".into(),
@@ -2079,8 +2112,23 @@ pub fn device_approval_verify(
     )?;
     js_sys::Reflect::set(
         &obj,
+        &"user_id".into(),
+        &js_sys::Uint8Array::from(cert.user_id.as_slice()),
+    )?;
+    js_sys::Reflect::set(
+        &obj,
         &"new_device_fingerprint".into(),
         &js_sys::Uint8Array::from(cert.new_device_fingerprint.as_slice()),
+    )?;
+    js_sys::Reflect::set(
+        &obj,
+        &"server_nonce".into(),
+        &js_sys::Uint8Array::from(cert.server_nonce.as_slice()),
+    )?;
+    js_sys::Reflect::set(
+        &obj,
+        &"approving_device_pk".into(),
+        &js_sys::Uint8Array::from(cert.approving_device_pk.to_bytes().as_slice()),
     )?;
     js_sys::Reflect::set(
         &obj,
