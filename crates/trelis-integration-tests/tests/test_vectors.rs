@@ -1105,25 +1105,25 @@ mod cocoa_operations {
             .context_strings
             .get("H1")
             .expect("H1 context not found");
-        assert_eq!(h1.context, "cocoa-sa-v1-seed-derive");
+        assert_eq!(h1.context, "cocoa-sa-seed-derive-v1");
 
         let h2 = file
             .context_strings
             .get("H2")
             .expect("H2 context not found");
-        assert_eq!(h2.context, "cocoa-sa-v1-keygen");
+        assert_eq!(h2.context, "cocoa-sa-keygen");
 
         let h3 = file
             .context_strings
             .get("H3")
             .expect("H3 context not found");
-        assert_eq!(h3.context, "cocoa-sa-v1-tree-label");
+        assert_eq!(h3.context, "cocoa-sa-tree-label-v1");
 
         let h5 = file
             .context_strings
             .get("H5")
             .expect("H5 context not found");
-        assert_eq!(h5.context, "cocoa-sa-v1-epoch-secret");
+        assert_eq!(h5.context, "cocoa-sa-epoch-secret-v1");
 
         println!("✓ Verified CoCoA context strings");
     }
@@ -1169,13 +1169,13 @@ mod cocoa_operations {
             .context_strings
             .get("message_key")
             .expect("message_key context not found");
-        assert_eq!(message_key.context, "cocoa-sa-v1-message-key");
+        assert_eq!(message_key.context, "cocoa-sa-message-key-v1");
 
         let message_nonce = file
             .context_strings
             .get("message_nonce")
             .expect("message_nonce context not found");
-        assert_eq!(message_nonce.context, "cocoa-sa-v1-message-nonce");
+        assert_eq!(message_nonce.context, "cocoa-sa-message-nonce-v1");
 
         println!("✓ Verified CoCoA message key contexts");
     }
@@ -1323,25 +1323,25 @@ fn verify_multidevice_context_strings() {
         .context_strings
         .get("device_approval")
         .expect("device_approval context not found");
-    assert_eq!(approval.context, "trelis-v1-device-approval");
+    assert_eq!(approval.context, "trelis-device-approval-v1");
 
     let revocation = file
         .context_strings
         .get("device_revocation")
         .expect("device_revocation context not found");
-    assert_eq!(revocation.context, "trelis-v1-device-revocation");
+    assert_eq!(revocation.context, "trelis-device-revocation-v1");
 
     let history = file
         .context_strings
         .get("history_key_share")
         .expect("history_key_share context not found");
-    assert_eq!(history.context, "trelis-v1-history-key-share");
+    assert_eq!(history.context, "trelis-history-key-share-v1");
 
     let wrap = file
         .context_strings
         .get("device_key_wrap")
         .expect("device_key_wrap context not found");
-    assert_eq!(wrap.context, "trelis-v1-device-key-wrap");
+    assert_eq!(wrap.context, "trelis-bundle-wrap-v1");
 
     println!("✓ Multi-device context strings verified");
 }

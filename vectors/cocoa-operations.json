@@ -12,25 +12,25 @@
     "epoch_management": "Monotonically increasing epochs, each with derived secrets"
   },
   "context_strings": {
-    "H1": {"context": "cocoa-sa-v1-seed-derive", "purpose": "Seed chain advancement (leaf → root)"},
-    "H2": {"context": "cocoa-sa-v1-keygen", "purpose": "Deterministic keypair generation from seed"},
-    "H3": {"context": "cocoa-sa-v1-tree-label", "purpose": "Tree labels, round hash, transcript hash"},
-    "H4": {"context": "cocoa-sa-v1-parent-hash", "purpose": "Parent hash for tree integrity"},
-    "H5": {"context": "cocoa-sa-v1-epoch-secret", "purpose": "Epoch secret derivation"},
-    "round_hash": {"context": "cocoa-sa-v1-round-hash", "purpose": "Round hash computation"},
-    "transcript_hash": {"context": "cocoa-sa-v1-transcript-hash", "purpose": "Transcript hash chaining"},
-    "app_secret": {"context": "cocoa-sa-v1-app-secret", "purpose": "App secret derivation"},
-    "conf_key": {"context": "cocoa-sa-v1-conf-key", "purpose": "Confirmation key derivation"},
-    "init_secret": {"context": "cocoa-sa-v1-init-secret", "purpose": "Init secret for next epoch"},
-    "message_key": {"context": "cocoa-sa-v1-message-key", "purpose": "Per-message key derivation"},
-    "message_nonce": {"context": "cocoa-sa-v1-message-nonce", "purpose": "Per-message nonce derivation"}
+    "H1": {"context": "cocoa-sa-seed-derive-v1", "purpose": "Seed chain advancement (leaf → root)"},
+    "H2": {"context": "cocoa-sa-keygen", "purpose": "Deterministic keypair generation from seed"},
+    "H3": {"context": "cocoa-sa-tree-label-v1", "purpose": "Tree labels, round hash, transcript hash"},
+    "H4": {"context": "cocoa-sa-parent-hash-v1", "purpose": "Parent hash for tree integrity"},
+    "H5": {"context": "cocoa-sa-epoch-secret-v1", "purpose": "Epoch secret derivation"},
+    "round_hash": {"context": "cocoa-sa-round-hash-v1", "purpose": "Round hash computation"},
+    "transcript_hash": {"context": "cocoa-sa-transcript-hash-v1", "purpose": "Transcript hash chaining"},
+    "app_secret": {"context": "cocoa-sa-app-secret-v1", "purpose": "App secret derivation"},
+    "conf_key": {"context": "cocoa-sa-conf-key-v1", "purpose": "Confirmation key derivation"},
+    "init_secret": {"context": "cocoa-sa-init-secret-v1", "purpose": "Init secret for next epoch"},
+    "message_key": {"context": "cocoa-sa-message-key-v1", "purpose": "Per-message key derivation"},
+    "message_nonce": {"context": "cocoa-sa-message-nonce-v1", "purpose": "Per-message nonce derivation"}
   },
   "vectors": [
     {
       "name": "h1_seed_derive_zeros",
       "description": "H1 seed derivation with zero input",
       "inputs": {
-        "context": "cocoa-sa-v1-seed-derive",
+        "context": "cocoa-sa-seed-derive-v1",
         "delta_hex": "0000000000000000000000000000000000000000000000000000000000000000",
         "delta_size": 32
       },
@@ -43,7 +43,7 @@
       "name": "h1_seed_derive_pattern",
       "description": "H1 seed derivation with 0x42 pattern",
       "inputs": {
-        "context": "cocoa-sa-v1-seed-derive",
+        "context": "cocoa-sa-seed-derive-v1",
         "delta_hex": "4242424242424242424242424242424242424242424242424242424242424242",
         "delta_size": 32
       },
@@ -56,7 +56,7 @@
       "name": "h2_keygen_kem",
       "description": "H2 keypair seed generation for KEM keys",
       "inputs": {
-        "context": "cocoa-sa-v1-keygen",
+        "context": "cocoa-sa-keygen",
         "seed_hex": "4242424242424242424242424242424242424242424242424242424242424242",
         "key_type": "kem",
         "format": "context || key_type || ':' || seed"
@@ -70,7 +70,7 @@
       "name": "h2_keygen_sig",
       "description": "H2 keypair seed generation for signature keys",
       "inputs": {
-        "context": "cocoa-sa-v1-keygen",
+        "context": "cocoa-sa-keygen",
         "seed_hex": "4242424242424242424242424242424242424242424242424242424242424242",
         "key_type": "sig",
         "format": "context || key_type || ':' || seed"
@@ -85,7 +85,7 @@
       "name": "h3_tree_label",
       "description": "H3 tree label computation",
       "inputs": {
-        "context": "cocoa-sa-v1-tree-label",
+        "context": "cocoa-sa-tree-label-v1",
         "depth": 2,
         "position": 3,
         "public_key_hex": "abababababababababababababababababababababababababababababababababababababababababababababababababab",
@@ -101,7 +101,7 @@
       "name": "h3_transcript_hash",
       "description": "H3 transcript hash chaining",
       "inputs": {
-        "context": "cocoa-sa-v1-transcript-hash",
+        "context": "cocoa-sa-transcript-hash-v1",
         "prev_transcript_hex": "1111111111111111111111111111111111111111111111111111111111111111",
         "round_hash_hex": "2222222222222222222222222222222222222222222222222222222222222222",
         "format": "prev_transcript || round_hash"
@@ -115,7 +115,7 @@
       "name": "h5_epoch_secret_zeros",
       "description": "H5 epoch secret derivation with zero inputs",
       "inputs": {
-        "context": "cocoa-sa-v1-epoch-secret",
+        "context": "cocoa-sa-epoch-secret-v1",
         "init_secret_prev_hex": "0000000000000000000000000000000000000000000000000000000000000000",
         "delta_root_hex": "0000000000000000000000000000000000000000000000000000000000000000",
         "transcript_hash_hex": "0000000000000000000000000000000000000000000000000000000000000000",
@@ -133,9 +133,9 @@
         "epoch_secret_hex": "4242424242424242424242424242424242424242424242424242424242424242"
       },
       "expected": {
-        "app_secret_context": "cocoa-sa-v1-app-secret",
-        "conf_key_context": "cocoa-sa-v1-conf-key",
-        "init_secret_context": "cocoa-sa-v1-init-secret",
+        "app_secret_context": "cocoa-sa-app-secret-v1",
+        "conf_key_context": "cocoa-sa-conf-key-v1",
+        "init_secret_context": "cocoa-sa-init-secret-v1",
         "all_different": true,
         "sizes": 32
       }
@@ -148,8 +148,8 @@
         "counter": 0
       },
       "expected": {
-        "message_key_context": "cocoa-sa-v1-message-key",
-        "message_nonce_context": "cocoa-sa-v1-message-nonce",
+        "message_key_context": "cocoa-sa-message-key-v1",
+        "message_nonce_context": "cocoa-sa-message-nonce-v1",
         "message_key_size": 32,
         "message_nonce_size": 24,
         "format": "key = derive_key(context, app_secret || counter_le_u64), nonce = first 24 bytes"

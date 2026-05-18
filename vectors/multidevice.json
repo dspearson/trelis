@@ -24,19 +24,19 @@
   },
   "context_strings": {
     "device_approval": {
-      "context": "trelis-v1-device-approval",
+      "context": "trelis-device-approval-v1",
       "description": "Domain separation for device approval certificates"
     },
     "device_revocation": {
-      "context": "trelis-v1-device-revocation",
+      "context": "trelis-device-revocation-v1",
       "description": "Domain separation for device revocation certificates"
     },
     "history_key_share": {
-      "context": "trelis-v1-history-key-share",
+      "context": "trelis-history-key-share-v1",
       "description": "Domain separation for history key share messages"
     },
     "device_key_wrap": {
-      "context": "trelis-v1-device-key-wrap",
+      "context": "trelis-bundle-wrap-v1",
       "description": "Domain separation for device key wrapping"
     }
   },
@@ -74,7 +74,7 @@
       "name": "device_approval_certificate_structure",
       "description": "Structure of a device approval certificate",
       "signing_data_format": [
-        {"offset": 0, "field": "context", "value": "trelis-v1-device-approval"},
+        {"offset": 0, "field": "context", "value": "trelis-device-approval-v1"},
         {"offset": "context_len", "size": 16, "field": "approving_device_id"},
         {"offset": "+16", "size": 32, "field": "new_device_fingerprint"},
         {"offset": "+32", "size": 8, "field": "approved_at", "encoding": "u64 little-endian"}
@@ -91,7 +91,7 @@
       "name": "device_revocation_certificate_structure",
       "description": "Structure of a device revocation certificate",
       "signing_data_format": [
-        {"offset": 0, "field": "context", "value": "trelis-v1-device-revocation"},
+        {"offset": 0, "field": "context", "value": "trelis-device-revocation-v1"},
         {"offset": "context_len", "size": 16, "field": "device_id"},
         {"offset": "+16", "size": 8, "field": "revoked_at", "encoding": "u64 little-endian"},
         {"offset": "+8", "size": 1, "field": "reason"}
@@ -119,7 +119,7 @@
       "name": "history_key_share_message_structure",
       "description": "Structure of a history key share message",
       "signing_data_format": [
-        {"offset": 0, "field": "context", "value": "trelis-v1-history-key-share"},
+        {"offset": 0, "field": "context", "value": "trelis-history-key-share-v1"},
         {"offset": "context_len", "size": 32, "field": "thread_id"},
         {"offset": "+32", "size": 8, "field": "key_count", "encoding": "u64 little-endian"},
         {"offset": "+8", "size": 8, "field": "shared_at", "encoding": "u64 little-endian"}

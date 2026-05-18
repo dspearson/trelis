@@ -48,7 +48,7 @@ use crate::DeviceId;
 
 /// Context string for device approval signatures.
 #[cfg(feature = "alloc")]
-const APPROVAL_CONTEXT: &str = "trelis-v1-device-approval";
+const APPROVAL_CONTEXT: &str = "trelis-device-approval-v1";
 
 /// Size of a device fingerprint (BLAKE3 hash of public key).
 pub const FINGERPRINT_SIZE: usize = 32;

@@ -29,7 +29,7 @@ use crate::{GroupId, UserId};
 const WELCOME_INFO_PLAINTEXT_SIZE: usize = 64;
 
 /// Context for deriving welcome encryption key from shared secret.
-const WELCOME_KEY_CONTEXT: &str = "trelis-v1-welcome-key";
+const WELCOME_KEY_CONTEXT: &str = "cocoa-sa-welcome-key-v1";
 
 /// Welcome message sent to new members when joining a group.
 #[cfg(feature = "alloc")]

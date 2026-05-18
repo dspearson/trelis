@@ -28,7 +28,7 @@ use crate::retained_key::RetainedKey;
 
 /// Context string for history key share signatures.
 #[cfg(feature = "alloc")]
-const HISTORY_KEY_SHARE_CONTEXT: &str = "trelis-v1-history-key-share";
+const HISTORY_KEY_SHARE_CONTEXT: &str = "trelis-history-key-share-v1";
 
 /// History key share message for sending retained keys to a new device.
 ///

@@ -184,13 +184,13 @@
       "name": "device_revocation_context",
       "description": "Context for device revocation certificate signing",
       "inputs": {
-        "context_string": "trelis-v1-device-revocation",
-        "context_hex": "7472656c69732d76312d6465766963652d7265766f636174696f6e",
+        "context_string": "trelis-device-revocation-v1",
+        "context_hex": "7472656c69732d6465766963652d7265766f636174696f6e2d7631",
         "context_length": 27,
         "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
       },
       "expected": {
-        "derive_key_output_hex": "96f24d9bc8e5033321a40ac11dc7a7bef530c53120c5e42c6032bd512e976727"
+        "derive_key_output_hex": "413e62c19209087feb8c3901eec397582b85dcd404ef58f1bc77a8379826da35"
       },
       "usage": "Used in trelis-multidevice/src/revocation.rs (REVOCATION_CONTEXT) for device revocation"
     },
@@ -198,13 +198,13 @@
       "name": "history_key_share_context",
       "description": "Context for history key sharing between devices",
       "inputs": {
-        "context_string": "trelis-v1-history-key-share",
-        "context_hex": "7472656c69732d76312d686973746f72792d6b65792d7368617265",
+        "context_string": "trelis-history-key-share-v1",
+        "context_hex": "7472656c69732d686973746f72792d6b65792d73686172652d7631",
         "context_length": 27,
         "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
       },
       "expected": {
-        "derive_key_output_hex": "721c7049ac1032732d1e8fdb821206594a7fa8ddf8166fa4e3237f86ec39f391"
+        "derive_key_output_hex": "a0f948abf5cc33a2cefe8ae861bac6e39300326a395860b9558e8c2cdf7aad51"
       },
       "usage": "Used in trelis-multidevice/src/history.rs (HISTORY_KEY_SHARE_CONTEXT) for sharing history access"
     },

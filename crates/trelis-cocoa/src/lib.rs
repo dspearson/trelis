@@ -19,7 +19,7 @@
 //! | **Delivery Model** | Peer-to-peer broadcast | Server-mediated relay |
 //! | **KEM Primitives** | Classical (e.g., X25519) | Hybrid PQ (X448 + sntrup761) |
 //! | **Key Schedule** | Paper-specified hash | BLAKE3 with domain separation |
-//! | **Context Strings** | Paper-specified | `cocoa-sa-v1-*` namespace |
+//! | **Context Strings** | Paper-specified | `cocoa-sa-*-v1` namespace |
 //! | **Signatures** | Classical | Hybrid PQ (Ed448 + ML-DSA-65) |
 //! | **Wire Format** | Not specified | Trelis wire format with TLV |
 //!

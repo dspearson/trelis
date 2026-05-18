@@ -16,7 +16,7 @@ use crate::DeviceId;
 
 /// Context string for device revocation signatures.
 #[cfg(feature = "alloc")]
-const REVOCATION_CONTEXT: &str = "trelis-v1-device-revocation";
+const REVOCATION_CONTEXT: &str = "trelis-device-revocation-v1";
 
 /// Reason for device revocation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

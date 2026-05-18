@@ -11,7 +11,7 @@
 //! cross-protocol signature attacks:
 //!
 //! ```text
-//! context = "cocoa-sa-v1-commit-sign"
+//! context = "cocoa-sa-commit-sign-v1"
 //! message = group_id || epoch (u64 BE) || round_hash || path_updates_hash
 //! ```
 //!
@@ -35,7 +35,7 @@ use crate::{GroupId, UserId};
 ///
 /// This context is used with EdDSA/ML-DSA context signing to provide
 /// domain separation for CoCoA commit signatures.
-const COMMIT_SIGN_CONTEXT: &[u8] = b"cocoa-sa-v1-commit-sign";
+const COMMIT_SIGN_CONTEXT: &[u8] = b"cocoa-sa-commit-sign-v1";
 
 /// Content of a commit to be signed.
 ///
@@ -300,7 +300,7 @@ pub fn verify_commit_signature(
 /// Use [`canonicalise_path_update_order`] to ensure correct ordering.
 #[must_use]
 pub fn hash_path_updates(path_updates_bytes: &[u8]) -> [u8; 32] {
-    *derive_key("cocoa-sa-v1-path-updates-hash", path_updates_bytes)
+    *derive_key("cocoa-sa-path-updates-hash-v1", path_updates_bytes)
 }
 
 /// Canonicalizes path update indices for deterministic signing.
