@@ -88,7 +88,7 @@ pub fn derive_path_seeds(leaf_seed: &Seed, path_length: usize) -> Vec<Seed> {
 
     let mut current = *leaf_seed;
     for _ in 1..path_length {
-        current = h1_seed_derive(&current);
+        current = *h1_seed_derive(&current);
         seeds.push(current);
     }
 
@@ -106,7 +106,7 @@ pub fn derive_path_seeds(leaf_seed: &Seed, path_length: usize) -> Vec<Seed> {
 /// * `levels_up` - Number of levels to advance (0 = leaf, tree_depth = root)
 #[must_use]
 pub fn get_seed_at_level(leaf_seed: &Seed, levels_up: u32) -> Seed {
-    advance_seed_chain(leaf_seed, levels_up)
+    *advance_seed_chain(leaf_seed, levels_up)
 }
 
 /// Derives a KEM keypair from a node seed using H2.
@@ -200,7 +200,7 @@ mod tests {
 
         // Each subsequent should be H1 of the previous
         for i in 1..path.len() {
-            assert_eq!(path[i], h1_seed_derive(&path[i - 1]));
+            assert_eq!(path[i], *h1_seed_derive(&path[i - 1]));
         }
     }
 
@@ -212,7 +212,10 @@ mod tests {
         assert_eq!(get_seed_at_level(&leaf_seed, 0), leaf_seed);
 
         // Level 1 should be H1(leaf_seed)
-        assert_eq!(get_seed_at_level(&leaf_seed, 1), h1_seed_derive(&leaf_seed));
+        assert_eq!(
+            get_seed_at_level(&leaf_seed, 1),
+            *h1_seed_derive(&leaf_seed)
+        );
 
         // Consistency with derive_path_seeds
         let path = derive_path_seeds(&leaf_seed, 4);

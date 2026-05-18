@@ -8,6 +8,7 @@
 //! - H5: Epoch secret derivation
 
 use trelis_hybrid::HybridKemPublicKey;
+use zeroize::Zeroizing;
 
 use crate::UserId;
 
@@ -65,10 +66,11 @@ pub const USER_ID_CONTEXT: &str = "cocoa-sa-v1-user-id";
 
 /// H1: Seed chain advancement (leaf → root).
 ///
-/// Each call advances the seed one level up the tree.
+/// Each call advances the seed one level up the tree. Output is wrapped in
+/// `Zeroizing<>` because the seed is secret material (ERGO-02 / MEM-03-NEW1).
 #[must_use]
-pub fn h1_seed_derive(delta: &[u8; 32]) -> [u8; 32] {
-    blake3::derive_key(H1_CONTEXT, delta)
+pub fn h1_seed_derive(delta: &[u8; 32]) -> Zeroizing<[u8; 32]> {
+    Zeroizing::new(blake3::derive_key(H1_CONTEXT, delta))
 }
 
 /// H2: Deterministic keypair seed generation.
@@ -94,18 +96,20 @@ fn h2_keygen_seed(seed: &[u8; 32], key_type: &str) -> [u8; 32] {
 
 /// H2: Deterministic X448 keypair seed generation.
 ///
-/// Convenience function for X448 key derivation.
+/// Convenience function for X448 key derivation. Output is wrapped in
+/// `Zeroizing<>` because the seed is secret material (ERGO-02 / MEM-03-NEW1).
 #[must_use]
-pub fn h2_keygen_x448(seed: &[u8; 32]) -> [u8; 32] {
-    blake3::derive_key(H2_CONTEXT_X448, seed)
+pub fn h2_keygen_x448(seed: &[u8; 32]) -> Zeroizing<[u8; 32]> {
+    Zeroizing::new(blake3::derive_key(H2_CONTEXT_X448, seed))
 }
 
 /// H2: Deterministic sntrup761 keypair seed generation.
 ///
-/// Convenience function for sntrup761 key derivation.
+/// Convenience function for sntrup761 key derivation. Output is wrapped in
+/// `Zeroizing<>` because the seed is secret material (ERGO-02 / MEM-03-NEW1).
 #[must_use]
-pub fn h2_keygen_sntrup(seed: &[u8; 32]) -> [u8; 32] {
-    blake3::derive_key(H2_CONTEXT_SNTRUP, seed)
+pub fn h2_keygen_sntrup(seed: &[u8; 32]) -> Zeroizing<[u8; 32]> {
+    Zeroizing::new(blake3::derive_key(H2_CONTEXT_SNTRUP, seed))
 }
 
 /// H3: Tree label computation.
@@ -212,68 +216,73 @@ pub fn h4_parent_hash_h2(
 /// H5: Epoch secret derivation.
 ///
 /// Derives epoch secret from previous init secret, root seed, and transcript.
+/// Output is wrapped in `Zeroizing<>` because the epoch secret is the seed
+/// for every other epoch derivation (ERGO-02 / MEM-03-NEW1).
 #[must_use]
 pub fn h5_epoch_secret(
     init_secret_prev: &[u8; 32],
     delta_root: &[u8; 32],
     transcript_hash: &[u8; 32],
-) -> [u8; 32] {
+) -> Zeroizing<[u8; 32]> {
     let mut hasher = blake3::Hasher::new_derive_key(H5_CONTEXT);
     hasher.update(init_secret_prev);
     hasher.update(delta_root);
     hasher.update(transcript_hash);
-    *hasher.finalize().as_bytes()
+    Zeroizing::new(*hasher.finalize().as_bytes())
 }
 
-/// Derives app secret from epoch secret.
+/// Derives app secret from epoch secret. Output wrapped in `Zeroizing<>` (ERGO-02).
 #[must_use]
-pub fn derive_app_secret(epoch_secret: &[u8; 32]) -> [u8; 32] {
-    blake3::derive_key(APP_SECRET_CONTEXT, epoch_secret)
+pub fn derive_app_secret(epoch_secret: &[u8; 32]) -> Zeroizing<[u8; 32]> {
+    Zeroizing::new(blake3::derive_key(APP_SECRET_CONTEXT, epoch_secret))
 }
 
-/// Derives confirmation key from epoch secret.
+/// Derives confirmation key from epoch secret. Output wrapped in `Zeroizing<>` (ERGO-02).
 #[must_use]
-pub fn derive_conf_key(epoch_secret: &[u8; 32]) -> [u8; 32] {
-    blake3::derive_key(CONF_KEY_CONTEXT, epoch_secret)
+pub fn derive_conf_key(epoch_secret: &[u8; 32]) -> Zeroizing<[u8; 32]> {
+    Zeroizing::new(blake3::derive_key(CONF_KEY_CONTEXT, epoch_secret))
 }
 
-/// Derives init secret for next epoch from epoch secret.
+/// Derives init secret for next epoch from epoch secret. Output wrapped in `Zeroizing<>` (ERGO-02).
 #[must_use]
-pub fn derive_init_secret(epoch_secret: &[u8; 32]) -> [u8; 32] {
-    blake3::derive_key(INIT_SECRET_CONTEXT, epoch_secret)
+pub fn derive_init_secret(epoch_secret: &[u8; 32]) -> Zeroizing<[u8; 32]> {
+    Zeroizing::new(blake3::derive_key(INIT_SECRET_CONTEXT, epoch_secret))
 }
 
-/// Derives message key from app secret and counter.
+/// Derives message key from app secret and counter. Output wrapped in `Zeroizing<>` (ERGO-02).
 #[must_use]
-pub fn derive_message_key(app_secret: &[u8; 32], counter: u64) -> [u8; 32] {
+pub fn derive_message_key(app_secret: &[u8; 32], counter: u64) -> Zeroizing<[u8; 32]> {
     let mut hasher = blake3::Hasher::new_derive_key(MESSAGE_KEY_CONTEXT);
     hasher.update(app_secret);
     hasher.update(&counter.to_le_bytes());
-    *hasher.finalize().as_bytes()
+    Zeroizing::new(*hasher.finalize().as_bytes())
 }
 
-/// Derives message nonce from app secret and counter.
+/// Derives message nonce from app secret and counter. Output wrapped in `Zeroizing<>`
+/// for defence-in-depth — though AEAD nonces are conceptually public, leaking them
+/// across sessions has been shown to enable key recovery in several AEADs (ERGO-02).
 #[must_use]
-pub fn derive_message_nonce(app_secret: &[u8; 32], counter: u64) -> [u8; 24] {
+pub fn derive_message_nonce(app_secret: &[u8; 32], counter: u64) -> Zeroizing<[u8; 24]> {
     let mut hasher = blake3::Hasher::new_derive_key(MESSAGE_NONCE_CONTEXT);
     hasher.update(app_secret);
     hasher.update(&counter.to_le_bytes());
     let hash = hasher.finalize();
     let mut nonce = [0u8; 24];
     nonce.copy_from_slice(&hash.as_bytes()[..24]);
-    nonce
+    Zeroizing::new(nonce)
 }
 
 /// Advances a seed through the chain (for path updates).
 ///
 /// Given a leaf seed, advances it up the tree by applying H1 repeatedly.
+/// Output wrapped in `Zeroizing<>` (ERGO-02).
 #[must_use]
-pub fn advance_seed_chain(leaf_seed: &[u8; 32], levels: u32) -> [u8; 32] {
+pub fn advance_seed_chain(leaf_seed: &[u8; 32], levels: u32) -> Zeroizing<[u8; 32]> {
     let mut current = *leaf_seed;
     for _ in 0..levels {
-        current = h1_seed_derive(&current);
+        current = *h1_seed_derive(&current);
     }
-    current
+    Zeroizing::new(current)
 }
 
 #[cfg(test)]
@@ -309,8 +318,8 @@ mod tests {
         let seed = [0x42u8; 32];
 
         // Convenience functions should match h2_keygen_seed with the same key type
-        assert_eq!(h2_keygen_x448(&seed), h2_keygen_seed(&seed, "x448"));
-        assert_eq!(h2_keygen_sntrup(&seed), h2_keygen_seed(&seed, "sntrup"));
+        assert_eq!(*h2_keygen_x448(&seed), h2_keygen_seed(&seed, "x448"));
+        assert_eq!(*h2_keygen_sntrup(&seed), h2_keygen_seed(&seed, "sntrup"));
     }
 
     #[test]
@@ -398,7 +407,7 @@ mod tests {
         let seed = [0x42u8; 32];
 
         let advanced0 = advance_seed_chain(&seed, 0);
-        assert_eq!(advanced0, seed);
+        assert_eq!(*advanced0, seed);
 
         let advanced1 = advance_seed_chain(&seed, 1);
         assert_eq!(advanced1, h1_seed_derive(&seed));

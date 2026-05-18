@@ -1953,7 +1953,7 @@ fn deserialize_cocoa_session(bytes: &[u8]) -> trelis_error::Result<trelis_cocoa:
     } else {
         // Old format: derive from transcript_hash (backwards compatible but less accurate)
         let init_secret =
-            trelis_primitives::derive_key(COCOA_WASM_LEGACY_SESSION_CONTEXT, &transcript_hash);
+            *trelis_primitives::derive_key(COCOA_WASM_LEGACY_SESSION_CONTEXT, &transcript_hash);
         (init_secret, 0u64, 116)
     };
 

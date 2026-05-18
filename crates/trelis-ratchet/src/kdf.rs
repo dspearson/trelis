@@ -3,7 +3,7 @@
 //! The KDF uses BLAKE3's derive_key function with domain-separated
 //! context strings to derive new root keys and message keys.
 
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
@@ -150,10 +150,11 @@ pub fn kdf_rk(root_key: &[u8; 32], shared_secret: &[u8]) -> KdfOutput {
 ///
 /// # Returns
 ///
-/// The initial 32-byte root key.
+/// The initial 32-byte root key, wrapped in `Zeroizing<>` because the
+/// root key is secret material (ERGO-02 / MEM-03-NEW1).
 #[must_use]
-pub fn derive_initial_root_key(session_key: &[u8; 32]) -> [u8; 32] {
-    blake3::derive_key(KDF_INIT, session_key)
+pub fn derive_initial_root_key(session_key: &[u8; 32]) -> Zeroizing<[u8; 32]> {
+    Zeroizing::new(blake3::derive_key(KDF_INIT, session_key))
 }
 
 // DYN-01-MIRI-01: most tests exercise the alloc-only `kdf_rk` helper, so the
@@ -221,7 +222,7 @@ mod tests {
         let root_key = derive_initial_root_key(&session_key);
 
         // Should not be the same as input
-        assert_ne!(root_key, session_key);
+        assert_ne!(*root_key, session_key);
         assert_eq!(root_key.len(), 32);
     }
 

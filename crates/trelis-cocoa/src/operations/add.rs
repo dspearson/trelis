@@ -510,7 +510,7 @@ fn compute_root_label(path_seeds: &[Seed]) -> [u8; 32] {
     use trelis_primitives::blake3_kdf::derive_key;
 
     if let Some(root_seed) = path_seeds.last() {
-        derive_key(ROOT_LABEL_CONTEXT, root_seed)
+        *derive_key(ROOT_LABEL_CONTEXT, root_seed)
     } else {
         [0u8; 32]
     }
@@ -773,7 +773,7 @@ fn compute_confirmation_tag(delta_root: &Seed, transcript: &[u8; 32], epoch: u64
     input[32..64].copy_from_slice(transcript);
     input[64..72].copy_from_slice(&epoch.to_le_bytes());
 
-    derive_key(CONFIRMATION_TAG_CONTEXT, &input)
+    *derive_key(CONFIRMATION_TAG_CONTEXT, &input)
 }
 
 /// Constant-time comparison for confirmation tags.

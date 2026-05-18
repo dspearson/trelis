@@ -302,7 +302,7 @@ fn compute_root_label(path_seeds: &[Seed]) -> [u8; 32] {
     use trelis_primitives::blake3_kdf::derive_key;
 
     if let Some(root_seed) = path_seeds.last() {
-        derive_key(ROOT_LABEL_CONTEXT, root_seed)
+        *derive_key(ROOT_LABEL_CONTEXT, root_seed)
     } else {
         [0u8; 32]
     }
@@ -363,7 +363,7 @@ fn compute_confirmation_tag(delta_root: &Seed, transcript: &[u8; 32], epoch: u64
     input[32..64].copy_from_slice(transcript);
     input[64..72].copy_from_slice(&epoch.to_le_bytes());
 
-    derive_key(CONFIRMATION_TAG_CONTEXT, &input)
+    *derive_key(CONFIRMATION_TAG_CONTEXT, &input)
 }
 
 /// Processes an update commit from another member.
@@ -601,7 +601,7 @@ fn clear_unmerged_on_path(session: &mut CocoaSession, updater_leaf_position: u32
 #[must_use]
 fn derive_user_id_from_identity(identity: &HybridIdentityPublicKey) -> crate::UserId {
     use trelis_primitives::blake3_kdf::derive_key;
-    derive_key(USER_ID_CONTEXT, &identity.to_bytes())
+    *derive_key(USER_ID_CONTEXT, &identity.to_bytes())
 }
 
 /// Constant-time comparison of two 32-byte arrays.

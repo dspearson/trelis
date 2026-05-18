@@ -437,7 +437,7 @@ pub fn derive_recovery_keypair<S: MlDsaScheme>(
     let ed448_seed_part2 = derive_key(ED448_CONTEXT_2, seed);
 
     let mut ed448_seed = [0u8; 57];
-    ed448_seed[..32].copy_from_slice(&ed448_seed_part1);
+    ed448_seed[..32].copy_from_slice(ed448_seed_part1.as_slice());
     ed448_seed[32..57].copy_from_slice(&ed448_seed_part2[..25]);
 
     let ed448_secret = Ed448SigningKey::from_seed(ed448_seed);

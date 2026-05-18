@@ -31,9 +31,9 @@ impl EpochSecrets {
     pub fn derive(epoch_secret: &[u8; 32]) -> Self {
         Self {
             epoch_secret: *epoch_secret,
-            app_secret: derive_app_secret(epoch_secret),
-            conf_key: derive_conf_key(epoch_secret),
-            init_secret: derive_init_secret(epoch_secret),
+            app_secret: *derive_app_secret(epoch_secret),
+            conf_key: *derive_conf_key(epoch_secret),
+            init_secret: *derive_init_secret(epoch_secret),
         }
     }
 
@@ -66,8 +66,8 @@ impl EpochSecrets {
     /// Derives a message key for the given counter.
     #[must_use]
     pub fn derive_message_key(&self, counter: u64) -> MessageKey {
-        let key = derive_message_key(&self.app_secret, counter);
-        let nonce = derive_message_nonce(&self.app_secret, counter);
+        let key = *derive_message_key(&self.app_secret, counter);
+        let nonce = *derive_message_nonce(&self.app_secret, counter);
 
         MessageKey {
             key,

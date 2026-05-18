@@ -300,7 +300,7 @@ pub fn verify_commit_signature(
 /// Use [`canonicalise_path_update_order`] to ensure correct ordering.
 #[must_use]
 pub fn hash_path_updates(path_updates_bytes: &[u8]) -> [u8; 32] {
-    derive_key("cocoa-sa-v1-path-updates-hash", path_updates_bytes)
+    *derive_key("cocoa-sa-v1-path-updates-hash", path_updates_bytes)
 }
 
 /// Canonicalizes path update indices for deterministic signing.

@@ -76,7 +76,7 @@ impl HybridSharedSecret {
         let combined = blake3_kdf::derive_key(CONTEXT, &input);
         input.zeroize();
 
-        Self { bytes: combined }
+        Self { bytes: *combined }
     }
 
     /// Returns the shared secret as bytes.
@@ -183,7 +183,7 @@ mod tests {
         reversed_input[SNTRUP_SS_SIZE..SNTRUP_SS_SIZE + X448_SS_SIZE].copy_from_slice(&x448_ss);
 
         let reversed = blake3_kdf::derive_key(CONTEXT, &reversed_input);
-        assert_ne!(combined.as_bytes(), &reversed);
+        assert_ne!(combined.as_bytes(), &*reversed);
     }
 
     #[test]

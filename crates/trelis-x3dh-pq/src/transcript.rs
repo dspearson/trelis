@@ -6,7 +6,7 @@
 
 use trelis_hybrid::HybridSigningPublicKey;
 use trelis_wire::constants::{SNTRUP761_SS_SIZE, X448_PK_SIZE};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::bundle::SignedPreKeyBundle;
 
@@ -99,10 +99,14 @@ impl Transcript {
     /// 6. DH3 - 56 bytes
     /// 7. PQ_ss - 32 bytes
     ///
-    /// Total: 296 bytes
+    /// Total: 296 bytes.
+    ///
+    /// The output contains DH and PQ shared-secret bytes, so it is wrapped
+    /// in `Zeroizing<>` to ensure the intermediate KDF input is zeroized on
+    /// drop (ERGO-02 / MEM-03-NEW1).
     #[must_use]
-    pub fn to_bytes(&self) -> [u8; TRANSCRIPT_SIZE] {
-        let mut output = [0u8; TRANSCRIPT_SIZE];
+    pub fn to_bytes(&self) -> Zeroizing<[u8; TRANSCRIPT_SIZE]> {
+        let mut output = Zeroizing::new([0u8; TRANSCRIPT_SIZE]);
         let mut offset = 0;
 
         // Identity hashes (prevents UKS attacks)
@@ -132,11 +136,15 @@ impl Transcript {
     /// Derives the shared secret using BLAKE3 derive_key.
     ///
     /// This produces a 32-byte shared secret that is then used to derive
-    /// the root key, send chain, and receive chain.
+    /// the root key, send chain, and receive chain. Wrapped in `Zeroizing<>`
+    /// (ERGO-02 / MEM-03-NEW1).
     #[must_use]
-    pub fn derive_shared_secret(&self) -> [u8; HASH_SIZE] {
+    pub fn derive_shared_secret(&self) -> Zeroizing<[u8; HASH_SIZE]> {
         let transcript_bytes = self.to_bytes();
-        blake3::derive_key(SESSION_CONTEXT, &transcript_bytes)
+        Zeroizing::new(blake3::derive_key(
+            SESSION_CONTEXT,
+            transcript_bytes.as_slice(),
+        ))
     }
 }
 

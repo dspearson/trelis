@@ -286,8 +286,8 @@ impl<S: MlDsaScheme> HybridSigningKeypair<S> {
     /// Verification: use `verify_prehashed` with the same context string.
     pub fn sign_prehashed(&self, context: &str, message: &[u8]) -> Result<HybridSignature<S>> {
         let digest = blake3_kdf::derive_key(context, message);
-        let ed448_sig = self.ed448_secret.sign(&digest);
-        let mldsa_sig = S::sign(&self.mldsa_secret, &digest)?;
+        let ed448_sig = self.ed448_secret.sign(digest.as_slice());
+        let mldsa_sig = S::sign(&self.mldsa_secret, digest.as_slice())?;
         Ok(HybridSignature {
             ed448: ed448_sig,
             mldsa: mldsa_sig,
@@ -472,8 +472,11 @@ impl<S: MlDsaScheme> HybridSigningPublicKey<S> {
         signature: &HybridSignature<S>,
     ) -> Result<bool> {
         let digest = blake3_kdf::derive_key(context, message);
-        let ed448_ok = self.ed448.verify(&digest, &signature.ed448).is_ok();
-        let mldsa_ok = S::verify(&self.mldsa, &digest, &signature.mldsa).is_ok();
+        let ed448_ok = self
+            .ed448
+            .verify(digest.as_slice(), &signature.ed448)
+            .is_ok();
+        let mldsa_ok = S::verify(&self.mldsa, digest.as_slice(), &signature.mldsa).is_ok();
         // Bitwise AND — prevents short-circuit timing side-channel (spec §02)
         Ok(ed448_ok & mldsa_ok)
     }

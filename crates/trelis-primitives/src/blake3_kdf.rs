@@ -61,7 +61,7 @@
 //! assert_eq!(digest.len(), 32);
 //! ```
 
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 /// Output size for BLAKE3 operations (32 bytes = 256 bits).
 pub const OUTPUT_SIZE: usize = 32;
@@ -240,9 +240,13 @@ pub const WARRANT_AUTH_CONTEXT: &str = "trelis-warrant-auth-v1";
 ///
 /// The context string is processed through BLAKE3's built-in context handling,
 /// which provides proper domain separation without length-extension vulnerabilities.
+///
+/// The output is wrapped in `Zeroizing<>` so the secret-material bytes are
+/// zeroed on drop (ERGO-02 / MEM-03-NEW1). Most callers continue to compile
+/// unchanged because `Zeroizing<T>: Deref<Target = T>`.
 #[must_use]
-pub fn derive_key(context: &str, input: &[u8]) -> [u8; OUTPUT_SIZE] {
-    blake3::derive_key(context, input)
+pub fn derive_key(context: &str, input: &[u8]) -> Zeroizing<[u8; OUTPUT_SIZE]> {
+    Zeroizing::new(blake3::derive_key(context, input))
 }
 
 /// Computes a BLAKE3 hash of the input.
@@ -273,10 +277,10 @@ pub fn hash(input: &[u8]) -> [u8; OUTPUT_SIZE] {
 ///
 /// # Returns
 ///
-/// A 32-byte authentication tag.
+/// A 32-byte authentication tag, wrapped in `Zeroizing<>` (ERGO-02 / MEM-03-NEW1).
 #[must_use]
-pub fn keyed_hash(key: &[u8; OUTPUT_SIZE], input: &[u8]) -> [u8; OUTPUT_SIZE] {
-    *blake3::keyed_hash(key, input).as_bytes()
+pub fn keyed_hash(key: &[u8; OUTPUT_SIZE], input: &[u8]) -> Zeroizing<[u8; OUTPUT_SIZE]> {
+    Zeroizing::new(*blake3::keyed_hash(key, input).as_bytes())
 }
 
 /// Derives multiple keys from a single input using domain-separated derivation.
@@ -292,14 +296,15 @@ pub fn keyed_hash(key: &[u8; OUTPUT_SIZE], input: &[u8]) -> [u8; OUTPUT_SIZE] {
 ///
 /// # Returns
 ///
-/// A vector of derived keys, each 32 bytes.
+/// A vector of derived keys, each 32 bytes, each wrapped in `Zeroizing<>`
+/// so they zero on drop (ERGO-02 / MEM-03-NEW1).
 #[cfg(feature = "alloc")]
 #[must_use]
 pub fn derive_multiple_keys(
     context_prefix: &str,
     input: &[u8],
     count: usize,
-) -> alloc::vec::Vec<[u8; OUTPUT_SIZE]> {
+) -> alloc::vec::Vec<Zeroizing<[u8; OUTPUT_SIZE]>> {
     use alloc::format;
     use alloc::vec::Vec;
 
@@ -320,7 +325,7 @@ impl DerivedKey {
     /// Derives a new key with domain separation.
     #[must_use]
     pub fn derive(context: &str, input: &[u8]) -> Self {
-        Self(derive_key(context, input))
+        Self(*derive_key(context, input))
     }
 
     /// Returns the key bytes.
@@ -329,10 +334,11 @@ impl DerivedKey {
         &self.0
     }
 
-    /// Consumes self and returns the key bytes.
+    /// Consumes self and returns the key bytes, wrapped in `Zeroizing<>`
+    /// so the consumed material is zeroed on caller drop (ERGO-02 / MEM-03-NEW1).
     #[must_use]
-    pub fn into_bytes(self) -> [u8; OUTPUT_SIZE] {
-        self.0
+    pub fn into_bytes(self) -> Zeroizing<[u8; OUTPUT_SIZE]> {
+        Zeroizing::new(self.0)
     }
 }
 
@@ -586,7 +592,7 @@ mod proptests {
             let context = "wrapper-test";
             let key = DerivedKey::derive(context, &input);
             let raw = derive_key(context, &input);
-            prop_assert_eq!(*key.as_bytes(), raw);
+            prop_assert_eq!(*key.as_bytes(), *raw);
         }
 
         /// Property: DerivedKey into_bytes returns same bytes as as_bytes.
@@ -598,7 +604,7 @@ mod proptests {
             let key = DerivedKey::derive(context, &input);
             let expected = *key.as_bytes();
             let actual = key.into_bytes();
-            prop_assert_eq!(actual, expected);
+            prop_assert_eq!(*actual, expected);
         }
 
         /// Property: hash of different inputs produces different outputs.
