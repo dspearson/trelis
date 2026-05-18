@@ -21,6 +21,33 @@
 //! - **Identity binding**: KDF includes H(I_a) || H(I_b) to prevent UKS attacks
 //! - **Bundle commitment**: KDF includes H(bundle) to bind to specific OTK
 //! - **Hybrid security**: Both X448 and sntrup761 must be broken to compromise
+//!
+//! # Two PreKeyBundle Types — Which to Use
+//!
+//! There is also a `HybridPreKeyBundle` in the `trelis-hybrid` crate. Both
+//! types are first-class and remain supported; neither is deprecated. They
+//! differ in shape and intended use:
+//!
+//! | Type                                            | Crate                | OTK shape                                  | Metadata                       | Total bytes |
+//! |-------------------------------------------------|----------------------|--------------------------------------------|--------------------------------|-------------|
+//! | `trelis_hybrid::HybridPreKeyBundle`             | `trelis-hybrid`      | `HybridOneTimeKey` (wraps KEM + 8B id)     | none                           | 4,445       |
+//! | [`PreKeyBundle`] (and [`SignedPreKeyBundle`])   | `trelis-x3dh-pq` (this crate) | Bare `HybridKemPublicKey` + separate `otk_key_id: u64` | `timestamp`, `expiration` | 4,461 unsigned / 7,884 signed |
+//!
+//! **For the X3DH-PQ handshake at the protocol tier, use the types in this
+//! crate** ([`PreKeyBundle`] and [`SignedPreKeyBundle`]). They carry the
+//! timestamp/expiration the server needs to age out stale bundles, and the
+//! signed variant carries the 3,423-byte `HybridSignature` over the bundle
+//! body for replay protection (using the `trelis-prekey-bundle-v1` BLAKE3
+//! domain separator).
+//!
+//! Reach for `trelis_hybrid::HybridPreKeyBundle` only when you need a
+//! self-contained cryptographic value with the typed `HybridOneTimeKey`
+//! wrapper and do NOT need the X3DH-PQ-flavour metadata.
+//!
+//! The two types are deliberately not convertible at the type level — Rust's
+//! type checker prevents passing one where the other is expected, so a
+//! caller cannot accidentally submit a `HybridPreKeyBundle` to an API
+//! expecting a `SignedPreKeyBundle` (or vice versa).
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![forbid(unsafe_code)]

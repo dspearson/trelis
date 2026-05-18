@@ -116,6 +116,28 @@ impl PreKeyBundle {
 ///
 /// The signature authenticates all bundle contents, preventing
 /// a malicious server from substituting bundles.
+///
+/// # Type-Level Separation From `HybridPreKeyBundle`
+///
+/// `SignedPreKeyBundle` and `trelis_hybrid::HybridPreKeyBundle` are
+/// **deliberately not interchangeable**. Passing one where the other is
+/// expected fails to compile. The two types target different layers (see
+/// the "Two PreKeyBundle Types" section of the crate-level docs).
+///
+/// The compile-fail check below documents this property — Rust's type
+/// checker rejects the substitution at build time, so a caller cannot
+/// accidentally publish a `HybridPreKeyBundle` where the X3DH-PQ
+/// handshake expects a `SignedPreKeyBundle`:
+///
+/// ```compile_fail
+/// use trelis_x3dh_pq::bundle::SignedPreKeyBundle;
+/// use trelis_hybrid::HybridPreKeyBundle;
+/// fn expects_signed(_: &SignedPreKeyBundle) {}
+/// fn caller(hybrid: &HybridPreKeyBundle) {
+///     // Wrong type: HybridPreKeyBundle ≠ SignedPreKeyBundle
+///     expects_signed(hybrid);
+/// }
+/// ```
 #[derive(Clone)]
 pub struct SignedPreKeyBundle {
     /// The unsigned bundle data.

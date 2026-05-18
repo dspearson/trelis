@@ -19,6 +19,36 @@
 //!
 //! This crate supports `no_std` environments with the `alloc` feature.
 //! The `std` feature is required for sntrup761 operations due to C FFI.
+//!
+//! # Two PreKeyBundle Types — Which to Use
+//!
+//! The Trelis workspace contains **two distinct pre-key bundle types**, in
+//! separate crates, with different intended uses. Both are first-class APIs
+//! and both will remain supported — neither is deprecated.
+//!
+//! | Type                                            | Crate                | OTK shape                                  | Metadata                       | Total bytes |
+//! |-------------------------------------------------|----------------------|--------------------------------------------|--------------------------------|-------------|
+//! | [`HybridPreKeyBundle`]                          | `trelis-hybrid`      | [`HybridOneTimeKey`] (wraps KEM + 8B id)   | none                           | 4,445       |
+//! | `trelis_x3dh_pq::PreKeyBundle` (and `trelis_x3dh_pq::SignedPreKeyBundle`) | `trelis-x3dh-pq`     | Bare [`HybridKemPublicKey`] + separate `otk_key_id: u64` | `timestamp`, `expiration` | 4,461 unsigned / 7,884 signed |
+//!
+//! **When to use [`HybridPreKeyBundle`] (this crate)**: as a self-contained
+//! cryptographic value that bundles an identity public key plus a one-time
+//! KEM key. It is a building block for callers that want the typed
+//! `HybridOneTimeKey` wrapper but do NOT need the X3DH-PQ-flavour metadata
+//! (timestamp, expiration, or canonical wire serialisation for publication
+//! to a server).
+//!
+//! **When to use `trelis_x3dh_pq::PreKeyBundle` / `SignedPreKeyBundle`**:
+//! as the protocol-level object published to a server for the X3DH-PQ
+//! handshake. It carries the timestamp + expiration the server needs to
+//! age out stale bundles, and the signed variant carries the 3,423-byte
+//! `HybridSignature` over the bundle body for replay protection (using
+//! the `trelis-prekey-bundle-v1` BLAKE3-derive_key domain separator).
+//!
+//! The two types are deliberately not convertible at the type level — Rust's
+//! type checker prevents passing one where the other is expected. Reach for
+//! [`HybridPreKeyBundle`] only when you have a specific reason; for any
+//! protocol-tier work, prefer the `trelis-x3dh-pq` types.
 
 #![no_std]
 #![forbid(unsafe_code)]
