@@ -81,10 +81,12 @@ use alloc::vec::Vec;
 
 #[cfg(feature = "alloc")]
 use trelis_error::{CryptoError, Result};
+#[cfg(feature = "alloc")]
 use trelis_hybrid::HybridSignature;
 #[cfg(feature = "alloc")]
 use trelis_hybrid::{HybridSigningKeypair, HybridSigningPublicKey, signature::PUBLIC_KEY_SIZE};
 
+#[cfg(feature = "alloc")]
 use crate::DeviceId;
 
 /// Context string for device approval signatures.
