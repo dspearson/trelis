@@ -739,4 +739,45 @@ mod tests {
         assert!(CryptoError::SignatureVerificationFailed.is_security_error());
         assert!(!CryptoError::RateLimitExceeded.is_security_error());
     }
+
+    /// The three nonce-related variants introduced by the multi-device approval
+    /// flow are constructed by caller-side nonce stores rather than by library
+    /// code. The library guarantees the variants stay available, route through
+    /// the Security category, and carry a stable, side-channel-safe Display
+    /// string.
+    #[test]
+    fn test_approval_nonce_variant_surface_stable() {
+        for v in [
+            CryptoError::NonceExpired,
+            CryptoError::NonceReplayed,
+            CryptoError::NonceMismatch,
+        ] {
+            assert_eq!(
+                v.category(),
+                ErrorCategory::Security,
+                "{:?} must route through the Security category",
+                v
+            );
+            assert!(v.is_security_error(), "{:?} must report as security", v);
+            assert!(!v.is_fatal(), "{:?} must not be fatal", v);
+            // Display string is non-empty and does not leak the literal
+            // variant name (which is rustdoc, not user-facing).
+            let s = v.to_string();
+            assert!(!s.is_empty(), "{:?} Display must be non-empty", v);
+        }
+
+        // Specific Display strings — pin to catch accidental wording changes.
+        assert_eq!(
+            CryptoError::NonceExpired.to_string(),
+            "approval nonce window has elapsed"
+        );
+        assert_eq!(
+            CryptoError::NonceReplayed.to_string(),
+            "approval nonce already consumed"
+        );
+        assert_eq!(
+            CryptoError::NonceMismatch.to_string(),
+            "approval nonce does not match issued value"
+        );
+    }
 }

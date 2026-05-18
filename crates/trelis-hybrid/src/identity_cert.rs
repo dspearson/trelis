@@ -411,6 +411,7 @@ pub const CERTIFICATE_WIRE_SIZE: usize =
 mod tests {
     use super::*;
     use crate::HybridIdentityKeypair;
+    use alloc::vec;
 
     fn fresh_identity_kp() -> HybridIdentityKeypair {
         HybridIdentityKeypair::generate().unwrap()
@@ -575,5 +576,109 @@ mod tests {
             SafetyNumber::new(alice_identity.public_key(), other_identity.public_key());
 
         assert!(certified.verify().is_err());
+    }
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_identity_certificate_from_bytes_wrong_length() {
+        // Too short, too long, empty: all must reject with MalformedMessage.
+        let too_short = vec![0u8; CERTIFICATE_WIRE_SIZE - 1];
+        let too_long = vec![0u8; CERTIFICATE_WIRE_SIZE + 1];
+
+        assert!(matches!(
+            IdentityCertificate::from_bytes(&too_short),
+            Err(CryptoError::MalformedMessage)
+        ));
+        assert!(matches!(
+            IdentityCertificate::from_bytes(&too_long),
+            Err(CryptoError::MalformedMessage)
+        ));
+        assert!(matches!(
+            IdentityCertificate::from_bytes(&[]),
+            Err(CryptoError::MalformedMessage)
+        ));
+    }
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_identity_certificate_from_bytes_corrupt_body() {
+        // Right length, but the bytes don't decode as valid public keys.
+        // The Ed448 verifying-key parser rejects most random patterns;
+        // an all-zeros buffer of the right length must fail sub-component
+        // decoding rather than produce a malformed cert.
+        let all_zeros = vec![0u8; CERTIFICATE_WIRE_SIZE];
+        assert!(matches!(
+            IdentityCertificate::from_bytes(&all_zeros),
+            Err(CryptoError::MalformedMessage)
+        ));
+    }
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_certified_safety_number_from_bytes_wrong_length() {
+        // One-sided wire size is HEADER + cert + signature.
+        // Two-sided is HEADER + 2 * (cert + signature).
+        const HEADER: usize = 32 + 1;
+        const ONE_SIDED: usize = HEADER + CERTIFICATE_WIRE_SIZE + 3_423;
+        const TWO_SIDED: usize = HEADER + 2 * (CERTIFICATE_WIRE_SIZE + 3_423);
+
+        // A length that is neither variant must be rejected.
+        let between = vec![0u8; ONE_SIDED + 1];
+        assert!(matches!(
+            CertifiedSafetyNumber::from_bytes(&between),
+            Err(CryptoError::MalformedMessage)
+        ));
+
+        let too_long = vec![0u8; TWO_SIDED + 1];
+        assert!(matches!(
+            CertifiedSafetyNumber::from_bytes(&too_long),
+            Err(CryptoError::MalformedMessage)
+        ));
+
+        assert!(matches!(
+            CertifiedSafetyNumber::from_bytes(&[]),
+            Err(CryptoError::MalformedMessage)
+        ));
+    }
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_certified_safety_number_from_bytes_unrecognised_presence_byte() {
+        // Build a buffer that has the right one-sided length but a
+        // presence byte that is neither 0x00 nor 0x01.
+        const HEADER: usize = 32 + 1;
+        const ONE_SIDED: usize = HEADER + CERTIFICATE_WIRE_SIZE + 3_423;
+
+        let mut buf = vec![0u8; ONE_SIDED];
+        buf[32] = 0x02; // invalid presence byte
+        assert!(matches!(
+            CertifiedSafetyNumber::from_bytes(&buf),
+            Err(CryptoError::MalformedMessage)
+        ));
+
+        // 0xFF also invalid.
+        buf[32] = 0xFF;
+        assert!(matches!(
+            CertifiedSafetyNumber::from_bytes(&buf),
+            Err(CryptoError::MalformedMessage)
+        ));
+    }
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_certified_safety_number_from_bytes_length_mismatches_presence() {
+        // presence = 0x00 (one-sided) but the buffer is two-sided length:
+        // even if every sub-component decoded, the structural check at the
+        // dispatcher must reject because the trailing bytes are unexpected.
+        const HEADER: usize = 32 + 1;
+        const TWO_SIDED: usize = HEADER + 2 * (CERTIFICATE_WIRE_SIZE + 3_423);
+        let mut buf = vec![0u8; TWO_SIDED];
+        buf[32] = 0x00; // claim one-sided, but provide two-sided bytes
+        // The outer length switch happens before any presence-byte read,
+        // so this is rejected immediately as MalformedMessage.
+        assert!(matches!(
+            CertifiedSafetyNumber::from_bytes(&buf),
+            Err(CryptoError::MalformedMessage)
+        ));
     }
 }
