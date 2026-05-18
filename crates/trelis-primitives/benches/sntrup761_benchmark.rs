@@ -5,7 +5,15 @@
 //! This benchmark requires both `std` and `wasm` features enabled to compare
 //! the C FFI (pqcrypto-ntruprime) and pure Rust (ntrulp) implementations.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
+// Internal benchmarks; pedantic warnings have no value here and are silenced
+// wholesale. Phase 10 disposition (b) — `10-PEDANTIC-DRAFT.md`.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::pedantic,
+    missing_docs
+)]
 
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 

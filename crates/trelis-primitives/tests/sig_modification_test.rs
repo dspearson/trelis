@@ -2,7 +2,13 @@
 //!
 //! Run with: cargo test -p trelis-primitives --test sig_modification_test -- --nocapture
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+// Test code; Phase 10 disposition (b).
+#![allow(
+    clippy::pedantic,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic
+)]
 
 use trelis_primitives::ed448::{Ed448Signature, Ed448SigningKey};
 use trelis_primitives::ed448b::{Ed448BSignature, Ed448BSigningKey};

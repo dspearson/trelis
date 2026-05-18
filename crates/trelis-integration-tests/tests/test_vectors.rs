@@ -1,6 +1,9 @@
 // Many fields in these structs exist for documentation in the JSON files
 // but aren't used in actual test verification.
+// Test code; pedantic warnings have no value here and are silenced wholesale.
+// Phase 10 disposition (b) — `10-PEDANTIC-DRAFT.md`.
 #![allow(
+    clippy::pedantic,
     dead_code,
     clippy::unwrap_used,
     clippy::expect_used,

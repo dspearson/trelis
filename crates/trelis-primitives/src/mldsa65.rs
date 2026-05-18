@@ -462,7 +462,7 @@ impl fips204::RngCore for CsprngAdapter {
         // The RNG was validated during construction, so failure here indicates
         // a serious system issue (RNG became unavailable mid-operation).
         self.try_fill_bytes(dest)
-            .expect("CSPRNG failed unexpectedly after successful validation")
+            .expect("CSPRNG failed unexpectedly after successful validation");
     }
 
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> core::result::Result<(), fips204::RngError> {

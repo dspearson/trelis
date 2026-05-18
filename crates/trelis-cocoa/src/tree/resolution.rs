@@ -205,9 +205,8 @@ where
     F: Fn(&NodeIndex) -> Vec<NodeIndex>,
 {
     // Get the sibling (co-parent)
-    let sibling = match path_node.sibling() {
-        Some(s) => s,
-        None => return Resolution::empty(), // Root has no sibling
+    let Some(sibling) = path_node.sibling() else {
+        return Resolution::empty(); // Root has no sibling
     };
 
     // Compute resolution of sibling subtree

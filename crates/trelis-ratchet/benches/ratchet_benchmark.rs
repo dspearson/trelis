@@ -4,7 +4,8 @@
 
 // Benchmarks use .expect() for setup code; panics are acceptable in bench harness.
 // criterion_group! macro expands to a function that cannot carry doc comments.
-#![allow(clippy::expect_used, missing_docs)]
+// Pedantic warnings have no value here; Phase 10 disposition (b).
+#![allow(clippy::expect_used, clippy::pedantic, missing_docs)]
 
 use criterion::{BatchSize, BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 

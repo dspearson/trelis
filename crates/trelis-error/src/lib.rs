@@ -6,6 +6,14 @@
 #![no_std]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
+// Pedantic-lint policy:
+// - `doc_markdown` — deferred to Phase 12 (DOCS-02).
+// - `too_many_lines` on `CryptoError::fmt` is intentional: the Display
+//   match is exhaustive over CryptoError variants. Splitting would lose
+//   the single-place enum-coverage assertion that Phase 13 TEST-04 relies
+//   on.
+// See Phase 10 disposition in `10-PEDANTIC-DRAFT.md`.
+#![allow(clippy::doc_markdown, clippy::too_many_lines)]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;

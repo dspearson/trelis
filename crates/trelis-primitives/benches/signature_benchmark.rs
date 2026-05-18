@@ -4,7 +4,15 @@
 //!
 //! This benchmark requires both `mldsa-blake3` and `ed448-blake3` features.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
+// Internal benchmarks; pedantic warnings have no value here and are silenced
+// wholesale. Phase 10 disposition (b) — `10-PEDANTIC-DRAFT.md`.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::pedantic,
+    missing_docs
+)]
 
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 

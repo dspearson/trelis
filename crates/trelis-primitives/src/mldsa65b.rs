@@ -317,9 +317,8 @@ impl MlDsa65BVerifyingKey {
 
         // Decode signature (can fail for invalid signatures)
         let sig_enc: EncodedSignature<MlDsa65> = signature.bytes.into();
-        let sig = match Signature::<MlDsa65>::decode(&sig_enc) {
-            Some(sig) => sig,
-            None => return Err(CryptoError::SignatureVerificationFailed),
+        let Some(sig) = Signature::<MlDsa65>::decode(&sig_enc) else {
+            return Err(CryptoError::SignatureVerificationFailed);
         };
 
         if pk.verify_with_context(message, context, &sig) {
@@ -343,9 +342,8 @@ impl MlDsa65BVerifyingKey {
 
         // Decode signature (can fail for invalid signatures)
         let sig_enc: EncodedSignature<MlDsa65> = signature.bytes.into();
-        let sig = match Signature::<MlDsa65>::decode(&sig_enc) {
-            Some(sig) => sig,
-            None => return false,
+        let Some(sig) = Signature::<MlDsa65>::decode(&sig_enc) else {
+            return false;
         };
 
         pk.verify_internal(&[message], &sig)

@@ -1,3 +1,6 @@
+// Test corpus cross-validates against PQClean canonical vectors and mirrors
+// the source's representation. Pedantic warnings are silenced wholesale.
+// Phase 10 disposition (b) — `10-PEDANTIC-DRAFT.md`.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -8,7 +11,8 @@
     clippy::useless_asref,
     clippy::clone_on_copy,
     clippy::cast_possible_truncation,
-    clippy::unnecessary_cast
+    clippy::unnecessary_cast,
+    clippy::pedantic
 )]
 //! Cross-validation tests for sntrup761 implementations.
 //!

@@ -170,7 +170,7 @@ pub fn build_path_updates(
             // Compute h2 (predecessor binding)
             // Predecessor keys are the public keys from earlier levels in this same commit
             let pred_refs: Vec<&HybridKemPublicKey> = predecessor_keys.iter().collect();
-            let resolution_key_refs: Vec<&HybridKemPublicKey> = keys.to_vec();
+            let resolution_key_refs: Vec<&HybridKemPublicKey> = keys.clone();
             let h2 = h4_parent_hash_h2(&public_key, &pred_refs, &prev_h2, &resolution_key_refs);
 
             (h1, h2)
@@ -291,7 +291,7 @@ pub fn build_path_updates_with_seeds(
             // Compute h2 (predecessor binding)
             // Predecessor keys are the public keys from earlier levels in this same commit
             let pred_refs: Vec<&HybridKemPublicKey> = predecessor_keys.iter().collect();
-            let resolution_key_refs: Vec<&HybridKemPublicKey> = keys.to_vec();
+            let resolution_key_refs: Vec<&HybridKemPublicKey> = keys.clone();
             let h2 = h4_parent_hash_h2(&public_key, &pred_refs, &prev_h2, &resolution_key_refs);
 
             (h1, h2)

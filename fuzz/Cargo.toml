@@ -7,6 +7,13 @@ edition = "2021"
 [package.metadata]
 cargo-fuzz = true
 
+# `ntrulp` is a dep-graph alignment pin (see comment on its dep line below). It
+# does not appear directly in fuzz target source code; it forces the fuzz crate's
+# resolution to pick the same ntrulp major as the workspace `trelis-primitives`
+# crate, which avoids dual-major rand_core trait-resolution failures.
+[package.metadata.cargo-machete]
+ignored = ["ntrulp"]
+
 [workspace]
 
 [dependencies]

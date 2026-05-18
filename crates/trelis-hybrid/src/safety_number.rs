@@ -2,6 +2,12 @@
 //!
 //! Safety numbers provide a way for users to verify they are communicating
 //! with the intended party, detecting man-in-the-middle attacks.
+
+// `(carry as u8)` truncation is provably safe — `carry` is the
+// `value % 10` residue, always in [0, 9].
+// Single-char names (`c`, `s`) in the base64-URL helpers are local
+// idiomatic and not part of the public API.
+#![allow(clippy::cast_possible_truncation, clippy::many_single_char_names)]
 //!
 //! # Security Requirements
 //!
@@ -202,7 +208,7 @@ impl SafetyNumber {
         for _ in 0..num_digits {
             // Divide by 10, collect remainder as digit
             let mut carry: u16 = 0;
-            for byte in data.iter_mut() {
+            for byte in &mut data {
                 let value = carry * 256 + *byte;
                 *byte = value / 10;
                 carry = value % 10;

@@ -96,7 +96,7 @@ impl CocoaSession {
     ///
     /// The joining member starts at epoch 0. To join at a specific epoch,
     /// call `advance_epoch()` after joining to synchronise with the group.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)] // GroupSession join state requires every argument; builder pattern deferred to Phase 11 (ERGO-05)
     pub fn join_group(
         group_id: GroupId,
         our_user_id: UserId,
@@ -394,7 +394,7 @@ impl EncryptedMessage {
         // larger than u32::MAX would silently truncate. Surface the bug
         // explicitly rather than producing an unparseable encoding.
         debug_assert!(
-            self.ciphertext.len() <= u32::MAX as usize,
+            u32::try_from(self.ciphertext.len()).is_ok(),
             "EncryptedMessage::to_bytes: ciphertext length exceeds u32 wire-format limit"
         );
         let mut bytes = Vec::with_capacity(16 + 4 + self.ciphertext.len());

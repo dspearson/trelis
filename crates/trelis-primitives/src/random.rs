@@ -134,17 +134,17 @@ impl rand_core::RngCore for OsRng {
     // The RngCore v0.6 trait's next_u32/next_u64/fill_bytes are infallible by
     // contract; on the rare CSPRNG failure we have no choice but to panic.
     // The fallible variant is exposed via `try_fill_bytes`.
-    #[allow(clippy::expect_used)]
+    #[allow(clippy::expect_used)] // RngCore v0.6 trait requires infallible signature; panic on CSPRNG failure
     fn next_u32(&mut self) -> u32 {
         generate_u32().expect("RNG failure")
     }
 
-    #[allow(clippy::expect_used)]
+    #[allow(clippy::expect_used)] // RngCore v0.6 trait requires infallible signature; panic on CSPRNG failure
     fn next_u64(&mut self) -> u64 {
         generate_u64().expect("RNG failure")
     }
 
-    #[allow(clippy::expect_used)]
+    #[allow(clippy::expect_used)] // RngCore v0.6 trait requires infallible signature; panic on CSPRNG failure
     fn fill_bytes(&mut self, dest: &mut [u8]) {
         fill_bytes(dest).expect("RNG failure");
     }
@@ -170,17 +170,17 @@ impl rand_core_v10::TryRng for OsRng {
     // Infallible error type by design — we wrap the v0.6 RngCore semantics
     // and panic on the rare CSPRNG failure since `Error = Infallible` permits
     // no failure reporting.
-    #[allow(clippy::expect_used)]
+    #[allow(clippy::expect_used)] // TryRng::Error = Infallible cannot report CSPRNG failure; panic instead
     fn try_next_u32(&mut self) -> core::result::Result<u32, Self::Error> {
         Ok(generate_u32().expect("RNG failure"))
     }
 
-    #[allow(clippy::expect_used)]
+    #[allow(clippy::expect_used)] // TryRng::Error = Infallible cannot report CSPRNG failure; panic instead
     fn try_next_u64(&mut self) -> core::result::Result<u64, Self::Error> {
         Ok(generate_u64().expect("RNG failure"))
     }
 
-    #[allow(clippy::expect_used)]
+    #[allow(clippy::expect_used)] // TryRng::Error = Infallible cannot report CSPRNG failure; panic instead
     fn try_fill_bytes(&mut self, dst: &mut [u8]) -> core::result::Result<(), Self::Error> {
         fill_bytes(dst).expect("RNG failure");
         Ok(())

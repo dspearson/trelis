@@ -2,7 +2,14 @@
 //!
 //! Run with: `cargo bench -p trelis-hybrid`
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
+// Pedantic warnings have no value on bench code; Phase 10 disposition (b).
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::pedantic,
+    missing_docs
+)]
 
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 

@@ -2,7 +2,14 @@
 //!
 //! Tests the complete X3DH-PQ → KEM Ratchet → Message Exchange flow.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::needless_borrow)]
+// Test code; pedantic warnings have no value here and are silenced wholesale.
+// Phase 10 disposition (b) — `10-PEDANTIC-DRAFT.md`.
+#![allow(
+    clippy::pedantic,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::needless_borrow
+)]
 
 use trelis_error::Result;
 use trelis_hybrid::{HybridIdentityKeypair, HybridKemKeypair, HybridSigningKeypair};

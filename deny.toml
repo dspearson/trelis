@@ -1,5 +1,6 @@
 # cargo-deny policy for the Trelis workspace
 # Generated during Phase 1 supply-chain audit (2026-05-13)
+# Refreshed during Phase 10 lint/dep hygiene pass (2026-05-18, CLEAN-02)
 # https://embarkstudios.github.io/cargo-deny/
 # Schema: cargo-deny 0.18.x (post-PR-611 format)
 
@@ -34,18 +35,33 @@ allow = [
     # — no crate in the current dep tree carries these licences.
 ]
 
-exceptions = [
-    # No ntrulp exception needed since 0.2.5 — the upstream `Cargo.toml` still
-    # omits the `license` field (still reports "unknown" from cargo-deny), but
-    # the warning is now a `no-license-field` rather than a missing-allowance,
-    # so an explicit exception block matched zero crates and was pruned
-    # (SUPPLY-02-NEW1). Tracked as an upstream-ntrulp issue.
-]
+# Known residual warning (acknowledged 2026-05-18, CLEAN-02):
+#
+#   warning[no-license-field]: license expression was not specified in
+#   manifest for crate 'ntrulp = 0.2.5'
+#
+# `ntrulp 0.2.5` ships an ISC `LICENSE` file (verified against the cached
+# registry copy at ~/.cargo/registry/.../ntrulp-0.2.5/LICENSE) but its
+# `Cargo.toml` uses `license-file = "LICENSE"` instead of the SPDX-compliant
+# `license = "ISC"` field. cargo-deny emits a `no-license-field` warning for
+# crates that lack the explicit field, even when the `LICENSE` file content
+# is unambiguous. The warning is informational (it does not block the
+# `licenses ok` summary) and is preserved as a TODO for upstream ntrulp:
+# upstream-pin a PR to add `license = "ISC"` to ntrulp's manifest. The
+# `[[licenses.clarify]]` mechanism could silence this locally but requires
+# pinning a precise content hash, which couples our CI to upstream LICENSE
+# file mtimes; the warning is left visible instead.
+#
+# `cargo deny check` exits 0; the `licenses` sub-check reports `ok`.
 
 [bans]
-# 9 duplicate version pairs exist — all are ecosystem-standard RC vs. stable splits,
-# not duplicate crypto implementations. Warn rather than deny.
-multiple-versions = "warn"
+# 9 duplicate version pairs exist — all are ecosystem-standard RC vs. stable
+# splits (e.g., block-buffer 0.10/0.11, digest 0.10/0.11, sha3 0.10/0.11). They
+# are not duplicate crypto implementations — they're driven by upstream crates
+# moving to RC versions on independent schedules. Audited 2026-05-18 (CLEAN-02)
+# and accepted; flip to "warn" or "deny" if a future audit wants to surface
+# these again.
+multiple-versions = "allow"
 wildcards = "allow"
 
 [sources]

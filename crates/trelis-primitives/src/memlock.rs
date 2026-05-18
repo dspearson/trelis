@@ -87,6 +87,29 @@
 //
 // The rest of the crate uses #![forbid(unsafe_code)] which this module overrides.
 #![allow(unsafe_code)]
+// Pedantic-lint policy: memlock is an FFI wrapper around mlock(2) / VirtualLock.
+// Pedantic warnings here are dominated by FFI-shape calls (cast_lossless on
+// length-as-c-size_t, pointer-shape conversions to `*const c_void`, paired
+// lock/unlock identifiers, must_use on side-effectful FFI helpers) where
+// mechanical rewrites do not improve clarity. # Errors documentation is
+// deferred to Phase 12 (DOCS-02). See Phase 10 disposition in
+// `10-PEDANTIC-DRAFT.md`.
+#![allow(
+    clippy::borrow_as_ptr,
+    clippy::cast_lossless,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::doc_markdown,
+    clippy::items_after_statements,
+    clippy::manual_let_else,
+    clippy::missing_errors_doc,
+    clippy::missing_fields_in_debug,
+    clippy::must_use_candidate,
+    clippy::ptr_as_ptr,
+    clippy::similar_names,
+    clippy::single_match_else,
+    clippy::uninlined_format_args
+)]
 
 extern crate std;
 

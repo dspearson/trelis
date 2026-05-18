@@ -93,6 +93,7 @@ impl<K: ArraySize> Ntt for Vector<K> {
     }
 }
 
+// `NttInverse` lives inside the `ntt` module by design; the repetition is intentional and matches FIPS 204 Algorithm 42 NTT^{-1} naming.
 #[allow(clippy::module_name_repetitions)]
 pub trait NttInverse {
     type Output;

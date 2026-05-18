@@ -167,7 +167,7 @@ pub struct TreeNode {
 #[cfg(feature = "alloc")]
 impl TreeNode {
     /// Creates a new populated tree node.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)] // TreeNode fields are tightly coupled; builder pattern deferred to Phase 11 (ERGO-05)
     pub fn new_populated(
         index: NodeIndex,
         public_key: HybridKemPublicKey,

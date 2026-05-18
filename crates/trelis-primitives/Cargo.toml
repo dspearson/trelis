@@ -107,3 +107,12 @@ harness = false
 # memlock FFI carry file-level `#![allow(unsafe_code)]` with justification.
 [lints]
 workspace = true
+
+# `getrandom_v04` is optional and activated only by the `wasm` feature via the
+# `dep:getrandom_v04` syntax (see [features].wasm above). The dep is not used
+# directly in source; it exists to activate the `wasm_js` backend on the
+# transitive getrandom 0.4.x crate pulled in by ntrulp 0.2.5 -> rand 0.10.1.
+# Without it, wasm32-unknown-unknown trips a compile_error in getrandom's
+# backends.rs.
+[package.metadata.cargo-machete]
+ignored = ["getrandom_v04"]

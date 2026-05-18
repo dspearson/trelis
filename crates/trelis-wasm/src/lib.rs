@@ -16,8 +16,33 @@
 //!
 //! All keys are exportable as byte arrays for JavaScript storage (IndexedDB, etc.).
 
-#![allow(clippy::needless_pass_by_value)]
-#![allow(clippy::unwrap_used)] // WASM bindings commonly use unwrap after explicit checks
+// Pedantic-lint policy: trelis-wasm is the wasm-bindgen wrapper surface to
+// JavaScript. Lints here are dominated by:
+//  - `missing_errors_doc` / `missing_panics_doc` / `doc_markdown` on the
+//    wrapper docstrings — deferred to Phase 12 (DOCS-02).
+//  - `must_use_candidate` on getter wrappers — deferred to Phase 11
+//    (ERGO-01); see PEDANTIC-DEFER-TO-PHASE-11 markers in this file.
+//  - `cast_possible_truncation` / `cast_precision_loss` (u64/u8 → f64 in the
+//    wasm-bindgen → JS Number bridge) — the bridge contract emits JS Number
+//    which is f64; truncation is an API contract, not a bug.
+//  - `uninlined_format_args` on `format!("{:?}", e)` for JsValue error
+//    bridging — allowed wholesale to match the existing wrapper style.
+// See Phase 10 disposition in `10-PEDANTIC-DRAFT.md`.
+#![allow(
+    clippy::cast_lossless,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::doc_markdown,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::must_use_candidate,
+    clippy::needless_pass_by_value,
+    clippy::similar_names,
+    clippy::uninlined_format_args,
+    clippy::unwrap_used,
+    // WASM bindings commonly use unwrap after explicit checks
+)]
 
 use wasm_bindgen::prelude::*;
 
@@ -153,6 +178,7 @@ pub fn derive_key(context: &str, input: &[u8]) -> Vec<u8> {
 ///
 /// # Returns
 /// 32-byte hash
+// PEDANTIC-DEFER-TO-PHASE-11: missing #[must_use] on wasm-bindgen surface (ERGO-01).
 #[wasm_bindgen]
 pub fn blake3_hash(data: &[u8]) -> Vec<u8> {
     trelis_primitives::hash(data).to_vec()
@@ -1388,7 +1414,7 @@ fn serialize_ratchet_state(state: &trelis_ratchet::KemRatchet) -> Vec<u8> {
 
     buf.extend_from_slice(&state.our_keypair().to_bytes()[..]);
     buf.extend_from_slice(state.root_key());
-    buf.push(if has_their_pk { 1 } else { 0 });
+    buf.push(u8::from(has_their_pk));
     if let Some(pk) = their_pk {
         buf.extend_from_slice(&pk.to_bytes());
     }

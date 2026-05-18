@@ -23,6 +23,29 @@
 #![no_std]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
+// Pedantic-lint policy:
+// - `doc_markdown` / `missing_errors_doc` — deferred to Phase 12 (DOCS-02).
+// - `must_use_candidate` — deferred to Phase 11 (ERGO-01).
+// - `cast_lossless` (u8→u32) — hybrid combiner / safety-number digit
+//   conversion mixes 8-bit indices into 32-bit accumulators; mechanical
+//   `From` rewrite hurts readability.
+// - `unreadable_literal` — recovery code uses BLAKE3 test-vector literals
+//   (T-10-06) and KDF context-string constants.
+// - `similar_names` — safety-number protocol names follow Signal-style
+//   conventions; renames affect the public API surface.
+// See Phase 10 disposition in `10-PEDANTIC-DRAFT.md`.
+#![allow(
+    clippy::cast_lossless,
+    clippy::doc_markdown,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::must_use_candidate,
+    clippy::similar_names,
+    clippy::unreadable_literal
+)]
+// Test modules: silence the full pedantic set (uninlined_format_args on
+// `format!("{:?}", x)` is dominant; not worth churning the corpus).
+#![cfg_attr(test, allow(clippy::pedantic))]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;

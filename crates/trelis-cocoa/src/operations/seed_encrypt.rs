@@ -249,6 +249,10 @@ pub const SEED_AAD_SIZE: usize = 28;
 /// | 2 | 4 | Tree depth (u32 LE) |
 /// | 6 | 4 | Tree position (u32 LE) |
 /// | 10 | 18 | Domain separator "cocoa-seed-encrypt" |
+// PEDANTIC-DEFER-TO-PHASE-11: trivially_copy_pass_by_ref on `&NodeIndex`
+// propagates to pub `encrypt_seed`/`decrypt_seed` signatures; the conversion
+// is a Phase 11 ERGO-04 naming/consistency pass.
+#[allow(clippy::trivially_copy_pass_by_ref)]
 fn build_seed_aad(tree_position: &NodeIndex) -> [u8; SEED_AAD_SIZE] {
     let mut aad = [0u8; SEED_AAD_SIZE];
 

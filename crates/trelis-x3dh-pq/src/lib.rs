@@ -25,6 +25,17 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
+// Pedantic-lint policy:
+// - `doc_markdown` / `missing_errors_doc` — deferred to Phase 12 (DOCS-02).
+// - `struct_field_names` — protocol field names follow Signal X3DH naming
+//   conventions; renames affect the public API surface (Phase 11 ERGO-04).
+// See Phase 10 disposition in `10-PEDANTIC-DRAFT.md`.
+#![allow(
+    clippy::doc_markdown,
+    clippy::missing_errors_doc,
+    clippy::struct_field_names
+)]
+#![cfg_attr(test, allow(clippy::pedantic))]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;

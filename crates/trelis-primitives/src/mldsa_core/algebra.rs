@@ -29,9 +29,9 @@ impl Field for BaseField {
     const QL: Self::Long = 8_380_417;
     const QLL: Self::LongLong = 8_380_417;
 
-    #[allow(clippy::as_conversions)]
+    #[allow(clippy::as_conversions)] // FIPS 204 §2.3 Barrett-reduction constant: ilog2 returns u32, cast to usize is safe (Q is small)
     const BARRETT_SHIFT: usize = 2 * (Self::Q.ilog2() + 1) as usize;
-    #[allow(clippy::integer_division_remainder_used)]
+    #[allow(clippy::integer_division_remainder_used)] // FIPS 204 §2.3 Barrett-reduction constant: const division by non-zero compile-time literal QLL
     const BARRETT_MULTIPLIER: Self::LongLong = (1 << Self::BARRETT_SHIFT) / Self::QLL;
 
     fn small_reduce(x: Self::Int) -> Self::Int {
@@ -81,9 +81,9 @@ impl<M> BarrettReduce for M
 where
     M: Unsigned,
 {
-    #[allow(clippy::as_conversions)]
+    #[allow(clippy::as_conversions)] // FIPS 204 §2.3 Barrett-reduction: ilog2 returns u32, cast to usize is safe (M is bounded by typenum)
     const SHIFT: usize = 2 * (M::U64.ilog2() + 1) as usize;
-    #[allow(clippy::integer_division_remainder_used)]
+    #[allow(clippy::integer_division_remainder_used)] // FIPS 204 §2.3 Barrett-reduction: const division by non-zero typenum-derived M::U64
     const MULTIPLIER: u64 = (1 << Self::SHIFT) / M::U64;
 }
 

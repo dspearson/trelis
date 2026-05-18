@@ -4,6 +4,12 @@
 //! including the sender's new public key and the hybrid encapsulation.
 //! The entire header is authenticated as Associated Data (AAD).
 
+// Wire format encodes lengths as `u32`; the values cast (HEADER_SIZE,
+// HYBRID_KEM_PK_SIZE, HYBRID_ENCAP_SIZE) are compile-time constants well
+// under u32::MAX, and `ciphertext.len()` is bounded by upstream message
+// framing (rejected if oversize before reaching this site).
+#![allow(clippy::cast_possible_truncation)]
+
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
@@ -204,7 +210,7 @@ impl RatchetMessage {
         // The wire format encodes ciphertext length as u32. A ciphertext
         // larger than u32::MAX would silently truncate the length prefix.
         debug_assert!(
-            self.ciphertext.len() <= u32::MAX as usize,
+            u32::try_from(self.ciphertext.len()).is_ok(),
             "RatchetMessage::to_bytes: ciphertext length exceeds u32 wire-format limit"
         );
         let header_bytes = self.header.to_bytes();

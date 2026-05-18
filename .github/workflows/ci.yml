@@ -53,6 +53,24 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-features --all-targets -- -D warnings
 
+  clippy-pedantic:
+    name: Clippy (pedantic)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.92"
+          components: clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Clippy (pedantic)
+        run: cargo clippy --workspace --all-features --all-targets -- -D clippy::pedantic
+
   fmt:
     name: Formatting
     runs-on: ubuntu-latest
@@ -130,6 +148,26 @@ jobs:
 
       - name: Run cargo deny
         run: cargo deny check
+
+  machete:
+    name: Unused Dependencies (cargo machete)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.92"
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-machete
+        run: cargo install cargo-machete --locked
+
+      - name: Run cargo machete
+        run: cargo machete
 
   feature-powerset:
     name: Feature Powerset (cargo hack)

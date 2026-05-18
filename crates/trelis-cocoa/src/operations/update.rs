@@ -279,8 +279,9 @@ fn compute_sibling_labels(session: &CocoaSession, path: &[NodeIndex]) -> Vec<[u8
                 .tree()
                 .get(&sibling)
                 .and_then(|node| node.state.public_key())
-                .map(|pk| h3_tree_label(sibling.depth, sibling.position, &pk.to_bytes()))
-                .unwrap_or([0u8; 32]); // Blank sibling = zero label
+                .map_or([0u8; 32], |pk| {
+                    h3_tree_label(sibling.depth, sibling.position, &pk.to_bytes())
+                }); // Blank sibling = zero label
 
             sibling_labels.push(label);
         } else {

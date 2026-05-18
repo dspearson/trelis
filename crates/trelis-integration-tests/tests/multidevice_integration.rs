@@ -7,7 +7,14 @@
 //! - Cross-device message key sharing
 //! - Error handling for invalid operations
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::needless_borrow)]
+// Test code; pedantic warnings have no value here and are silenced wholesale.
+// Phase 10 disposition (b) — `10-PEDANTIC-DRAFT.md`.
+#![allow(
+    clippy::pedantic,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::needless_borrow
+)]
 
 use trelis_error::CryptoError;
 use trelis_hybrid::{HybridKemKeypair, HybridSigningKeypair};

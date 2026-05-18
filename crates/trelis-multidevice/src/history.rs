@@ -3,6 +3,15 @@
 //! When a new device is approved, historical message keys are sent
 //! as a special encrypted message type.
 
+// Pedantic-lint policy:
+// - `cast_possible_truncation` on `u64 as usize` when reading a key count
+//   from the wire is bounded by message size (deserialiser is short-circuited
+//   on oversize before the cast is observable to allocations).
+// - `cast_sign_loss` lints are confined to `#[cfg(test)] mod tests` (timestamp
+//   arithmetic on `i32`-derived loop indices); tests do not perform malicious
+//   inputs.
+#![allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 #[cfg(feature = "alloc")]

@@ -4,6 +4,19 @@
 //! sntrup761 is a lattice-based key encapsulation mechanism providing
 //! approximately 128-bit security against quantum attacks (NIST Level 3).
 //!
+//! # Pedantic-lint policy
+//!
+//! Source files in this module are ports of the canonical Streamlined NTRU
+//! Prime reference implementation (PQClean). The arithmetic casts (u16↔u32,
+//! i16↔i32, u8↔u32) are mandated by the algorithm's field representations;
+//! truncations are provably safe within the reduction loops; the
+//! representational choices mirror the reference for audit-against-spec
+//! traceability. Pedantic rewrites would diverge from PQClean and complicate
+//! future audits. Cross-validated against PQClean test vectors at
+//! `tests/sntrup761_cross_validation.rs`. See Phase 10 disposition in
+//! `10-PEDANTIC-DRAFT.md`.
+#![allow(clippy::pedantic)]
+//!
 //! # Key Sizes
 //!
 //! - Public key: 1,158 bytes

@@ -10,7 +10,13 @@
 //! To verify vectors:
 //!   cargo test -p trelis-primitives --test ed448b_vectors
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+// Test code; Phase 10 disposition (b).
+#![allow(
+    clippy::pedantic,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic
+)]
 
 use serde::{Deserialize, Serialize};
 use std::env;

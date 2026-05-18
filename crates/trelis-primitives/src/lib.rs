@@ -113,9 +113,25 @@
 // NOTE: unsafe_code is denied at workspace level (Cargo.toml)
 // Only memlock.rs overrides this with #![allow(unsafe_code)] for mlock FFI
 #![warn(missing_docs)]
+// Pedantic-lint policy (crate-root):
+// - `doc_markdown` / `missing_errors_doc` / `missing_panics_doc` —
+//   deferred to Phase 12 (DOCS-02).
+// - `must_use_candidate` — deferred to Phase 11 (ERGO-01).
+// - `similar_names` — Ed448/ML-DSA-65 variant code uses spec-named
+//   identifiers (`sk` / `pk`, `r` / `r_buf`); rename affects the
+//   public API surface and is a Phase 11 ERGO-04 concern.
+// See Phase 10 disposition in `10-PEDANTIC-DRAFT.md`.
+#![allow(
+    clippy::doc_markdown,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::must_use_candidate,
+    clippy::similar_names
+)]
 #![cfg_attr(
     test,
     allow(
+        clippy::pedantic,
         clippy::unwrap_used,
         clippy::expect_used,
         clippy::needless_borrow,

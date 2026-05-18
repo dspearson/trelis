@@ -30,3 +30,8 @@ rand_core.workspace = true
 
 [lints]
 workspace = true
+
+# `trelis-wire` is a workspace-internal dep flagged unused by `cargo machete`
+# but retained per T-10-10. Same rationale as `trelis-cocoa`.
+[package.metadata.cargo-machete]
+ignored = ["trelis-wire"]

@@ -13,6 +13,14 @@ publish = false
 opt-level = 3
 lto = "thin"
 
+# `ntrulp` is a dep-graph alignment pin (same rationale as fuzz/Cargo.toml).
+# `trelis-error` is workspace-internal and retained per T-10-10 (Phase 10
+# threat model); manual inspection of `ct-tests/src/bin/*.rs` shows no current
+# `use trelis_error`, but the type-system alignment with `Result` propagation
+# from the workspace is preserved.
+[package.metadata.cargo-machete]
+ignored = ["ntrulp", "trelis-error"]
+
 [dependencies]
 # Statistical timing harness
 dudect-bencher = "0.6"

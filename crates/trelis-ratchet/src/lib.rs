@@ -32,9 +32,24 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![forbid(unsafe_code)]
+// Pedantic-lint policy:
+// - `doc_markdown` / `missing_errors_doc` / `missing_panics_doc` —
+//   deferred to Phase 12 (DOCS-02).
+// - `must_use_candidate` — deferred to Phase 11 (ERGO-01).
+// - `unreadable_literal` — BLAKE3 context-string anchor values and version
+//   constants are intentionally kept in their wire-format form (T-10-06).
+// See Phase 10 disposition in `10-PEDANTIC-DRAFT.md`.
+#![allow(
+    clippy::doc_markdown,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::must_use_candidate,
+    clippy::unreadable_literal
+)]
 #![cfg_attr(
     test,
     allow(
+        clippy::pedantic,
         clippy::unwrap_used,
         clippy::expect_used,
         clippy::needless_borrow,

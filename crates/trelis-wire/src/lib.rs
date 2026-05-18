@@ -16,6 +16,22 @@
 #![no_std]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
+// Pedantic-lint policy:
+// - `unreadable_literal` — the entire purpose of this crate is to encode
+//   wire-format magic numbers (cipher-suite identifiers, version constants,
+//   tag bytes); rewriting these literals with `_` separators would break
+//   the spec-to-source mapping (T-10-06).
+// - `doc_markdown` / `missing_errors_doc` / `missing_panics_doc` —
+//   deferred to Phase 12 (DOCS-02).
+// See Phase 10 disposition in `10-PEDANTIC-DRAFT.md`.
+#![allow(
+    clippy::doc_markdown,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::unreadable_literal
+)]
+// Test modules: silence the full pedantic set.
+#![cfg_attr(test, allow(clippy::pedantic))]
 
 pub mod constants;
 pub mod decode;

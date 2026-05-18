@@ -3,7 +3,15 @@
 //! Run:
 //!   cargo bench -p trelis-primitives --bench ed448_variant_benchmark
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
+// Internal benchmarks; pedantic warnings have no value here and are silenced
+// wholesale. Phase 10 disposition (b) — `10-PEDANTIC-DRAFT.md`.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::pedantic,
+    missing_docs
+)]
 
 use criterion::{Criterion, criterion_group, criterion_main};
 

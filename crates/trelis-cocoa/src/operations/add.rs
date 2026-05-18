@@ -315,6 +315,11 @@ fn compute_add_resolution_sets_and_keys(
 }
 
 /// Checks if a node is in the sibling subtree of a path node.
+// PEDANTIC-DEFER-TO-PHASE-11: trivially_copy_pass_by_ref on `&NodeIndex`
+// arguments propagates up to several pub `encrypt_seed`/`decrypt_seed`
+// signatures in seed_encrypt.rs; the conversion is a Phase 11 ERGO-04
+// naming/consistency pass.
+#[allow(clippy::trivially_copy_pass_by_ref)]
 fn is_in_sibling_subtree(path_node: &NodeIndex, target: &NodeIndex) -> bool {
     // Get the sibling of the path node
     if let Some(sibling) = path_node.sibling() {
@@ -344,8 +349,9 @@ fn compute_sibling_labels(session: &CocoaSession, path: &[NodeIndex]) -> Vec<[u8
                 .tree()
                 .get(&sibling)
                 .and_then(|node| node.state.public_key())
-                .map(|pk| h3_tree_label(sibling.depth, sibling.position, &pk.to_bytes()))
-                .unwrap_or([0u8; 32]); // Blank sibling = zero label
+                .map_or([0u8; 32], |pk| {
+                    h3_tree_label(sibling.depth, sibling.position, &pk.to_bytes())
+                }); // Blank sibling = zero label
 
             sibling_labels.push(label);
         } else {

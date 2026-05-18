@@ -23,9 +23,9 @@ impl core::fmt::Display for DecoderError {
             Self::UnexpectedEof => write!(f, "unexpected end of input"),
             Self::InvalidHeader => write!(f, "invalid protocol header"),
             Self::UnsupportedProtocolVersion(v) => {
-                write!(f, "unsupported protocol version: {}", v)
+                write!(f, "unsupported protocol version: {v}")
             }
-            Self::UnsupportedCipherSuite(s) => write!(f, "unsupported cipher suite: {}", s),
+            Self::UnsupportedCipherSuite(s) => write!(f, "unsupported cipher suite: {s}"),
         }
     }
 }
