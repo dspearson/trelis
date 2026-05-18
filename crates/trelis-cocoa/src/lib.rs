@@ -54,16 +54,10 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![forbid(unsafe_code)]
-// Pedantic-lint policy: cocoa uses `u32` for tree indices to match the wire
-// format; the usize→u32 truncations are bounded by the wire-format-limited
-// tree depth (T-10-06). Doc lints (`doc_markdown`, `missing_errors_doc`,
-// `missing_panics_doc`) are deferred to Phase 12 (DOCS-02). `must_use_*`
-// was deferred to Phase 11 (ERGO-01); the allow has been lifted and every
-// flagged site annotated. `trivially_copy_pass_by_ref` on private helper
-// fns was also resolved by Phase 11 (`build_seed_aad`,
-// `is_in_sibling_subtree` take `NodeIndex` by value now). Group-id and
-// version literals match the wire format (T-10-06). See Phase 10
-// disposition in `10-PEDANTIC-DRAFT.md`.
+// cocoa uses `u32` for tree indices to match the wire format; the usize→u32
+// truncations are bounded by the wire-format-limited tree depth. Group-id
+// and version literals are intentionally kept in their wire-format form,
+// hence `unreadable_literal` is allowed.
 #![allow(
     clippy::cast_possible_truncation,
     clippy::doc_markdown,
@@ -87,13 +81,13 @@
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
-// DYN-01-MIRI-01 follow-on: every module in this crate ultimately imports
-// `HybridKemKeypair`, `HybridIdentityKeypair`, or `HybridKemPublicKey` from
-// `trelis-hybrid`, which are gated behind `std`/`wasm` because they wrap
-// CSPRNG-dependent constructors. Mirror that gate here so `cargo check
-// --no-default-features` succeeds (compiling to a near-empty library re-
-// exporting only `MAX_GROUP_SIZE` and similar constants) instead of failing
-// with cascading import errors.
+// Every module in this crate ultimately imports `HybridKemKeypair`,
+// `HybridIdentityKeypair`, or `HybridKemPublicKey` from `trelis-hybrid`,
+// which are gated behind `std`/`wasm` because they wrap CSPRNG-dependent
+// constructors. Mirror that gate here so `cargo check --no-default-features`
+// succeeds (compiling to a near-empty library re-exporting only
+// `MAX_GROUP_SIZE` and similar constants) instead of failing with
+// cascading import errors.
 #[cfg(any(feature = "std", feature = "wasm"))]
 pub mod epoch;
 #[cfg(any(feature = "std", feature = "wasm"))]

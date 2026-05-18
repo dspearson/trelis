@@ -391,7 +391,7 @@ mod tests {
         // Member's identity key - the bundle is created with this, and the member
         // keeps the keypair to decrypt the welcome
         let member_identity = HybridIdentityKeypair::generate().unwrap();
-        // HybridKemKeypair is no longer Clone (MEM-01); reconstruct an owned copy
+        // HybridKemKeypair is no longer Clone; reconstruct an owned copy
         // from the identity's KEM keypair bytes for process_welcome (which consumes it).
         let member_kem =
             HybridKemKeypair::from_bytes(&member_identity.kem().to_bytes()[..]).unwrap();
@@ -443,7 +443,7 @@ mod tests {
 
         // Try to process with a different KEM keypair (attacker scenario)
         let wrong_identity = HybridIdentityKeypair::generate().unwrap();
-        // HybridKemKeypair is no longer Clone (MEM-01); reconstruct an owned copy.
+        // HybridKemKeypair is no longer Clone; reconstruct an owned copy.
         let wrong_kem = HybridKemKeypair::from_bytes(&wrong_identity.kem().to_bytes()[..]).unwrap();
 
         // This should fail because the wrong key can't decrypt

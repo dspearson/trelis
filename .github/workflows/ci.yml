@@ -201,12 +201,12 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      # DYN-03-NEW1: ensure the fuzz harnesses still compile against the
-      # workspace's current ntrulp / rand_core.
+      # Ensure the fuzz harnesses still compile against the workspace's
+      # current ntrulp / rand_core.
       - name: cargo check (fuzz crate)
         run: cargo check --manifest-path fuzz/Cargo.toml
 
-      # CT-01-NEW1: ensure the dudect harnesses still compile.
+      # Ensure the dudect harnesses still compile.
       - name: cargo build (ct-tests --release)
         run: cargo build --manifest-path ct-tests/Cargo.toml --release
 

@@ -204,7 +204,7 @@ impl rand_core_v10::TryCryptoRng for OsRng {}
 /// a deterministic PRNG, not a DRBG drawing from an approved entropy source
 /// (NIST SP 800-133). Implementing `CryptoRng` would let callers pass it to any
 /// API expecting cryptographic randomness and silently receive deterministic
-/// output (finding API-01). Internal deterministic use only requires `RngCore`.
+/// output. Internal deterministic use only requires `RngCore`.
 ///
 /// # Example
 ///
@@ -274,7 +274,8 @@ impl rand_core::RngCore for SeededRng {
 // Mirror the `rand_core 0.6` impl on `rand_core 0.10`'s `TryRng` (which auto-
 // implements `Rng` for callers needing the new-style trait, e.g. ntrulp 0.2.5).
 // `SeededRng` deliberately does NOT implement `TryCryptoRng` / `CryptoRng`,
-// for the same reason it does not implement v0.6 `CryptoRng` (finding API-01).
+// for the same reason it does not implement v0.6 `CryptoRng`: it is a
+// deterministic PRNG, not a CSPRNG.
 impl rand_core_v10::TryRng for SeededRng {
     type Error = rand_core_v10::Infallible;
 
@@ -297,8 +298,8 @@ impl rand_core_v10::TryRng for SeededRng {
 }
 
 // NOTE: `SeededRng` intentionally does NOT implement `rand_core::CryptoRng`.
-// It is a deterministic PRNG; advertising it as a CSPRNG is a misuse hazard
-// (finding API-01). Internal deterministic key derivation only needs `RngCore`.
+// It is a deterministic PRNG; advertising it as a CSPRNG is a misuse hazard.
+// Internal deterministic key derivation only needs `RngCore`.
 
 #[cfg(test)]
 mod tests {

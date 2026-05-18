@@ -54,12 +54,12 @@ pub const SHARED_SECRET_SIZE: usize = 56;
 
 /// BLAKE3 `derive_key` context for deterministic X448 keygen from a seed.
 ///
-/// API-04-L2: promoted from an inline literal in `generate_from_seed`.
+/// Promoted from an inline literal in `generate_from_seed`.
 pub const X448_KEYGEN_CONTEXT: &str = "trelis-x448-keygen";
 
 /// BLAKE3 XOF `new_derive_key` context for the 32→56-byte X448 seed expansion.
 ///
-/// API-04-L2: promoted from an inline literal in `generate_from_seed`.
+/// Promoted from an inline literal in `generate_from_seed`.
 pub const X448_EXPAND_CONTEXT: &str = "trelis-x448-expand";
 
 /// X448 secret key.

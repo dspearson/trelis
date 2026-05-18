@@ -15,7 +15,7 @@ use crate::key_schedule::{
 /// Secrets derived for each epoch.
 #[derive(Clone, Zeroize, ZeroizeOnDrop)]
 pub struct EpochSecrets {
-    /// Raw epoch secret — retained for server-side epoch history capture (HIST-01).
+    /// Raw epoch secret — retained for server-side epoch history capture.
     epoch_secret: [u8; 32],
     /// Application secret for message encryption.
     app_secret: [u8; 32],
@@ -37,8 +37,8 @@ impl EpochSecrets {
         }
     }
 
-    /// Returns the raw epoch secret. Used by server-side epoch history capture
-    /// (HIST-01). Must be read BEFORE any epoch advance — ZeroizeOnDrop clears
+    /// Returns the raw epoch secret. Used by server-side epoch history
+    /// capture. Must be read BEFORE any epoch advance — ZeroizeOnDrop clears
     /// this value when EpochSecrets is dropped.
     #[must_use]
     pub fn epoch_secret(&self) -> &[u8; 32] {
@@ -353,8 +353,8 @@ mod tests {
     }
 
     /// Per-sender chains: same epoch, same counter, different leaf positions
-    /// must derive disjoint keys and nonces. Regression guard against the v0.4
-    /// cross-sender nonce-reuse risk (audit-notes-impl-gaps §4.2 / COCOA-01).
+    /// must derive disjoint keys and nonces. Regression guard against the
+    /// v0.4 cross-sender nonce-reuse risk.
     #[test]
     fn test_message_key_per_sender_distinct() {
         let epoch_secret = [0x42u8; 32];

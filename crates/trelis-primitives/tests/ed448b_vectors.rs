@@ -10,7 +10,7 @@
 //! To verify vectors:
 //!   cargo test -p trelis-primitives --test ed448b_vectors
 
-// Test code; Phase 10 disposition (b).
+// Test code; pedantic lints silenced wholesale.
 #![allow(
     clippy::pedantic,
     clippy::unwrap_used,

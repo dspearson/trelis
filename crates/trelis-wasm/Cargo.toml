@@ -12,7 +12,7 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = ["console_error_panic_hook"]
-# Console error panic hook for better WASM debugging (enabled by default — see WASM-03a)
+# Console error panic hook for better WASM debugging (enabled by default).
 console_error_panic_hook = ["dep:console_error_panic_hook"]
 # ML-DSA BLAKE3 variant support
 mldsa-blake3 = ["trelis-primitives/mldsa-blake3", "trelis-hybrid/mldsa-blake3"]

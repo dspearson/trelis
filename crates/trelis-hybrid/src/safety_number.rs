@@ -46,8 +46,8 @@ use crate::identity::HybridIdentityPublicKey;
 use crate::signature::HybridSigningPublicKey;
 
 /// Context strings re-exported from the central BLAKE3 derive-key registry
-/// in `trelis_primitives::blake3_kdf` (PROTO-07-NEW1). The downstream-visible
-/// names are preserved.
+/// in `trelis_primitives::blake3_kdf`. The downstream-visible names are
+/// preserved.
 pub use trelis_primitives::{
     SAFETY_NUMBER_CONTEXT, SAFETY_NUMBER_DEVICE_SET_CONTEXT, SAFETY_NUMBER_SYNC_CONTEXT,
 };

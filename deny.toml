@@ -1,20 +1,18 @@
-# cargo-deny policy for the Trelis workspace
-# Generated during Phase 1 supply-chain audit (2026-05-13)
-# Refreshed during Phase 10 lint/dep hygiene pass (2026-05-18, CLEAN-02)
+# cargo-deny policy for the Trelis workspace.
 # https://embarkstudios.github.io/cargo-deny/
 # Schema: cargo-deny 0.18.x (post-PR-611 format)
 
 [advisories]
 # Deny known vulnerabilities (severity = vulnerability in advisory-db).
-# Unsound and yanked advisories are documented in FINDINGS.md — Phase 1 is a
-# baseline documentation run, not a CI gate.
+# Unsound and yanked advisories are documented inline below; this is a
+# baseline documentation run, not a strict CI gate.
 ignore = [
     # RUSTSEC-2026-0012: Unsound ARMv8 asm backend in keccak 0.1.5.
-    # Severity: Low (latent on x86-64 targets). Filed in FINDINGS.md.
-    { id = "RUSTSEC-2026-0012", reason = "Unsound ARMv8 asm; latent on x86-64 — filed as Low in FINDINGS.md" },
+    # Severity: Low (latent on x86-64 targets).
+    { id = "RUSTSEC-2026-0012", reason = "Unsound ARMv8 asm; latent on x86-64 — assessed Low" },
     # RUSTSEC-2026-0097: rand unsound with custom logger.
     # Severity: Informational (requires custom logger; unlikely in this library).
-    { id = "RUSTSEC-2026-0097", reason = "Requires custom logger to trigger; Informational in FINDINGS.md" },
+    { id = "RUSTSEC-2026-0097", reason = "Requires custom logger to trigger; assessed Informational" },
     # keccak 0.1.5 yanked (superseded by 0.2.0-rc.0).
     # Severity: Low (ecosystem churn, not a security vulnerability).
     "keccak@0.1.5",
@@ -31,11 +29,11 @@ allow = [
     "BSD-2-Clause",
     "BSD-3-Clause",
     "Unicode-3.0",
-    # Pruned 2026-05-15 (SUPPLY-02-NEW1): "Unicode-DFS-2016", "OpenSSL", "Zlib"
-    # — no crate in the current dep tree carries these licences.
+    # Pruned 2026-05-15: "Unicode-DFS-2016", "OpenSSL", "Zlib" — no crate in
+    # the current dep tree carries these licences.
 ]
 
-# Known residual warning (acknowledged 2026-05-18, CLEAN-02):
+# Known residual warning:
 #
 #   warning[no-license-field]: license expression was not specified in
 #   manifest for crate 'ntrulp = 0.2.5'
@@ -58,9 +56,8 @@ allow = [
 # 9 duplicate version pairs exist — all are ecosystem-standard RC vs. stable
 # splits (e.g., block-buffer 0.10/0.11, digest 0.10/0.11, sha3 0.10/0.11). They
 # are not duplicate crypto implementations — they're driven by upstream crates
-# moving to RC versions on independent schedules. Audited 2026-05-18 (CLEAN-02)
-# and accepted; flip to "warn" or "deny" if a future audit wants to surface
-# these again.
+# moving to RC versions on independent schedules. Accepted; flip to "warn"
+# or "deny" if a future audit wants to surface these again.
 multiple-versions = "allow"
 wildcards = "allow"
 

@@ -2,9 +2,10 @@
 //!
 //! Run with: `cargo bench -p trelis-ratchet`
 
-// Benchmarks use .expect() for setup code; panics are acceptable in bench harness.
-// criterion_group! macro expands to a function that cannot carry doc comments.
-// Pedantic warnings have no value here; Phase 10 disposition (b).
+// Benchmarks use .expect() for setup code; panics are acceptable in bench
+// harness. The criterion_group! macro expands to a function that cannot
+// carry doc comments, hence the broad missing_docs allow. Pedantic
+// warnings have no value on bench code.
 #![allow(clippy::expect_used, clippy::pedantic, missing_docs)]
 
 use criterion::{BatchSize, BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
@@ -135,9 +136,9 @@ fn bench_rotate_keypair(c: &mut Criterion) {
         KemRatchet::init_initiator(&session_key, their_keypair.public_key().clone(), 1000)
             .expect("init failed");
 
-    // HybridKemKeypair is no longer Clone (MEM-01). iter_batched generates a fresh
-    // keypair in the setup phase, which Criterion excludes from the measured time —
-    // keeping keygen out of the benchmark without cloning.
+    // HybridKemKeypair is no longer Clone. iter_batched generates a fresh
+    // keypair in the setup phase, which Criterion excludes from the
+    // measured time — keeping keygen out of the benchmark without cloning.
     c.bench_function("rotate_keypair", |b| {
         b.iter_batched(
             || HybridKemKeypair::generate().expect("keygen failed"),
@@ -165,7 +166,7 @@ fn bench_init_ratchet(c: &mut Criterion) {
         })
     });
 
-    // HybridKemKeypair is no longer Clone (MEM-01); generate the consumed keypair
+    // HybridKemKeypair is no longer Clone; generate the consumed keypair
     // in iter_batched's setup phase so keygen stays out of the measured time.
     group.bench_function("responder", |b| {
         b.iter_batched(

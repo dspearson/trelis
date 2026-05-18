@@ -5,7 +5,7 @@
 //! This benchmark requires both `mldsa-blake3` and `ed448-blake3` features.
 
 // Internal benchmarks; pedantic warnings have no value here and are silenced
-// wholesale. Phase 10 disposition (b) — `10-PEDANTIC-DRAFT.md`.
+// wholesale.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,

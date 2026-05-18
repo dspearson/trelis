@@ -13,8 +13,7 @@
 //! representational choices mirror the reference for audit-against-spec
 //! traceability. Pedantic rewrites would diverge from PQClean and complicate
 //! future audits. Cross-validated against PQClean test vectors at
-//! `tests/sntrup761_cross_validation.rs`. See Phase 10 disposition in
-//! `10-PEDANTIC-DRAFT.md`.
+//! `tests/sntrup761_cross_validation.rs`.
 #![allow(clippy::pedantic)]
 //!
 //! # Key Sizes

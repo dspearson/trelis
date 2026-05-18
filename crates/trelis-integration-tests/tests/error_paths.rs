@@ -4,7 +4,6 @@
 //! ensuring the library fails safely and securely.
 
 // Test code; pedantic warnings have no value here and are silenced wholesale.
-// Phase 10 disposition (b) — `10-PEDANTIC-DRAFT.md`.
 #![allow(
     clippy::pedantic,
     clippy::unwrap_used,

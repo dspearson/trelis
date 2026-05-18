@@ -2,7 +2,7 @@
 //!
 //! Run with: cargo test -p trelis-primitives --test sig_modification_test -- --nocapture
 
-// Test code; Phase 10 disposition (b).
+// Test code; pedantic lints silenced wholesale.
 #![allow(
     clippy::pedantic,
     clippy::unwrap_used,

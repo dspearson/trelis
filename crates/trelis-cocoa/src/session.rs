@@ -97,7 +97,8 @@ impl CocoaSession {
     /// The joining member starts at epoch 0. To join at a specific epoch,
     /// call `advance_epoch()` after joining to synchronise with the group.
     #[allow(clippy::too_many_arguments)]
-    // GroupSession join state requires every argument; builder pattern is deliberately scoped to PrekeyBundle (see 11-BUILDERS-RATIONALE.md)
+    // GroupSession join state requires every argument; a builder pattern is
+    // deliberately scoped to PrekeyBundle and not used here.
     #[must_use]
     pub fn join_group(
         group_id: GroupId,
@@ -186,8 +187,8 @@ impl CocoaSession {
         self.epoch.init_secret()
     }
 
-    /// Returns the current epoch secret. Used by server-side epoch history capture
-    /// (HIST-01/HIST-03). Must be read BEFORE any epoch advance — the secret is
+    /// Returns the current epoch secret. Used by server-side epoch history
+    /// capture. Must be read BEFORE any epoch advance — the secret is
     /// zeroized when EpochSecrets is dropped during the advance.
     #[must_use]
     pub fn current_epoch_secret(&self) -> &[u8; 32] {
@@ -227,10 +228,10 @@ impl CocoaSession {
     /// - Each message uses a unique (key, nonce) pair derived from the sender's
     ///   leaf position **and** their local counter, so two members of the same
     ///   group at the same `(epoch, counter)` derive disjoint keys (per-sender
-    ///   chains; COCOA-01).
+    ///   chains).
     /// - AAD binds ciphertext to `group_id`, `epoch`, `sender_leaf_position`,
-    ///   and `counter` (COCOA-02). A man-in-the-middle that flips the sender
-    ///   field on the wire causes AEAD verification to fail.
+    ///   and `counter`. A man-in-the-middle that flips the sender field on
+    ///   the wire causes AEAD verification to fail.
     /// - Forward secrecy: past messages cannot be decrypted after epoch advance.
     ///
     /// # Errors
@@ -290,12 +291,12 @@ impl CocoaSession {
             });
         }
 
-        // Get per-sender message key for this counter (COCOA-01)
+        // Get per-sender message key for this counter.
         let message_key = self
             .epoch
             .message_key_for_counter(message.sender_leaf_position, message.counter);
 
-        // Construct AAD: group_id || epoch || sender_leaf_position || counter (COCOA-02)
+        // Construct AAD: group_id || epoch || sender_leaf_position || counter
         let mut aad = Vec::with_capacity(52);
         aad.extend_from_slice(&self.group_id);
         aad.extend_from_slice(&message.epoch.to_le_bytes());
@@ -339,11 +340,11 @@ impl CocoaSession {
         let secrets = EpochSecrets::derive(epoch_secret);
 
         // Derive per-sender message key using the leaf position + counter
-        // from the message (COCOA-01)
+        // from the message.
         let message_key = secrets.derive_message_key(message.sender_leaf_position, message.counter);
 
         // Construct AAD: group_id || epoch || sender_leaf_position || counter
-        // (same scheme as decrypt(), COCOA-02)
+        // (same scheme as decrypt()).
         let mut aad = Vec::with_capacity(52);
         aad.extend_from_slice(&self.group_id);
         aad.extend_from_slice(&message.epoch.to_le_bytes());
@@ -398,8 +399,8 @@ impl Drop for CocoaSession {
 /// `epoch_le_u64 (8) || sender_leaf_position_le_u32 (4) || counter_le_u64 (8) ||
 /// ciphertext_len_le_u32 (4) || ciphertext (variable)`
 ///
-/// `sender_leaf_position` was added in v0.5.0 to fix the cross-sender nonce-reuse
-/// risk that existed in v0.4 (see audit-notes-impl-gaps §4.2 / COCOA-01).
+/// `sender_leaf_position` was added in v0.5.0 to fix the cross-sender
+/// nonce-reuse risk that existed in v0.4.
 #[cfg(feature = "alloc")]
 #[derive(Debug, Clone)]
 pub struct EncryptedMessage {
@@ -724,8 +725,8 @@ mod tests {
         assert_eq!(member2.epoch_number(), 1);
     }
 
-    /// Regression for the cross-sender nonce-reuse risk that existed in v0.4
-    /// (audit-notes-impl-gaps §4.2, COCOA-01). Two members of the same group
+    /// Regression for the cross-sender nonce-reuse risk that existed in
+    /// v0.4. Two members of the same group
     /// at the same epoch both call encrypt() once each, so both derive at
     /// their own local counter = 0. Their ciphertexts MUST NOT share the
     /// `(key, nonce)` pair, which they would have done before per-sender
@@ -794,7 +795,7 @@ mod tests {
         assert_ne!(
             ct_from_0.ciphertext, ct_from_1.ciphertext,
             "v0.4 regression: two members at same (epoch, counter) must \
-             produce distinct ciphertexts (per-sender chains, COCOA-01)"
+             produce distinct ciphertexts (per-sender chains)"
         );
 
         // Cross-decrypt: each member can read the other's message because the
@@ -806,8 +807,8 @@ mod tests {
         assert_eq!(plain_at_0, plaintext);
     }
 
-    /// COCOA-02 regression: the sender leaf position is bound into the per-
-    /// message AAD. If a man-in-the-middle flips that field on the wire (to
+    /// Sender-tamper regression: the sender leaf position is bound into the
+    /// per-message AAD. If a man-in-the-middle flips that field on the wire (to
     /// e.g. impersonate a different member), AEAD verification MUST fail —
     /// both because the receiver derives a different per-sender key for the
     /// tampered leaf position, and because the AAD includes the (now-mismatched)

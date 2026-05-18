@@ -11,7 +11,7 @@ use zeroize::{Zeroize, Zeroizing};
 use crate::bundle::SignedPreKeyBundle;
 
 /// Context string for X3DH-PQ session key derivation. Re-exported from
-/// `trelis_primitives::blake3_kdf` registry (PROTO-07-NEW1).
+/// the `trelis_primitives::blake3_kdf` registry.
 pub use trelis_primitives::SESSION_CONTEXT;
 
 /// Size of a BLAKE3 hash output.
@@ -103,7 +103,7 @@ impl Transcript {
     ///
     /// The output contains DH and PQ shared-secret bytes, so it is wrapped
     /// in `Zeroizing<>` to ensure the intermediate KDF input is zeroized on
-    /// drop (ERGO-02 / MEM-03-NEW1).
+    /// drop.
     #[must_use]
     pub fn to_bytes(&self) -> Zeroizing<[u8; TRANSCRIPT_SIZE]> {
         let mut output = Zeroizing::new([0u8; TRANSCRIPT_SIZE]);
@@ -136,8 +136,7 @@ impl Transcript {
     /// Derives the shared secret using BLAKE3 derive_key.
     ///
     /// This produces a 32-byte shared secret that is then used to derive
-    /// the root key, send chain, and receive chain. Wrapped in `Zeroizing<>`
-    /// (ERGO-02 / MEM-03-NEW1).
+    /// the root key, send chain, and receive chain. Wrapped in `Zeroizing<>`.
     #[must_use]
     pub fn derive_shared_secret(&self) -> Zeroizing<[u8; HASH_SIZE]> {
         let transcript_bytes = self.to_bytes();

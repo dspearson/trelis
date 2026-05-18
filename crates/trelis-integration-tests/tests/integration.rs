@@ -3,7 +3,6 @@
 //! Tests the complete X3DH-PQ → KEM Ratchet → Message Exchange flow.
 
 // Test code; pedantic warnings have no value here and are silenced wholesale.
-// Phase 10 disposition (b) — `10-PEDANTIC-DRAFT.md`.
 #![allow(
     clippy::pedantic,
     clippy::unwrap_used,

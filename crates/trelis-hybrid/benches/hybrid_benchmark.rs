@@ -2,7 +2,7 @@
 //!
 //! Run with: `cargo bench -p trelis-hybrid`
 
-// Pedantic warnings have no value on bench code; Phase 10 disposition (b).
+// Pedantic warnings have no value on bench code.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,

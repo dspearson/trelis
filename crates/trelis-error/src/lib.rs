@@ -24,7 +24,7 @@
 //! # Threat model fit
 //!
 //! Error variants are designed for the **co-located-process timing
-//! adversary** model (see `FINDINGS-v1.1.md` Phase 2). The relevant choices:
+//! adversary** model. The relevant choices:
 //!
 //! - Decryption failures collapse to either
 //!   [`CryptoError::DecryptionFailed`] (oracle-safe; for attacker-facing
@@ -66,17 +66,16 @@
 //!   change.
 //! - Several variants are reserved for code paths that exist in the
 //!   protocol but are not yet exercised at HEAD — they are documented as
-//!   "Reserved for …" and Phase 13 TEST-04 will close the coverage gap.
+//!   "Reserved for …" and remain in the surface for downstream pattern
+//!   matching.
 
 #![no_std]
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
-// Pedantic-lint policy:
-// - `too_many_lines` on `CryptoError::fmt` is intentional: the Display
-//   match is exhaustive over CryptoError variants. Splitting would lose
-//   the single-place enum-coverage assertion that Phase 13 TEST-04 relies
-//   on.
-// See Phase 10 disposition in `10-PEDANTIC-DRAFT.md`.
+// `too_many_lines` on `CryptoError::fmt` is intentional: the Display match
+// is exhaustive over all `CryptoError` variants in one place, which is the
+// single-place enum-coverage check a test relies on. Splitting it would
+// silently drop that property.
 #![allow(clippy::too_many_lines)]
 
 #[cfg(feature = "alloc")]
@@ -120,11 +119,10 @@ pub enum CryptoError {
     // ─── Signature Errors ───────────────────────────────────────────────────
     /// Signature verification failed.
     ///
-    /// This error is intentionally vague to prevent timing attacks.
-    /// It does not distinguish between Ed448 and ML-DSA-65 failures,
-    /// and (after Phase 11's CLEAN-06 merge) it covers hybrid-signature
-    /// failures where either or both component algorithms failed —
-    /// callers receive the same external signal regardless.
+    /// This error is intentionally vague to prevent timing attacks. It does
+    /// not distinguish between Ed448 and ML-DSA-65 failures, and it covers
+    /// hybrid-signature failures where either or both component algorithms
+    /// failed — callers receive the same external signal regardless.
     SignatureVerificationFailed,
 
     /// Invalid signature format or length.
@@ -386,11 +384,11 @@ pub enum CryptoError {
     // ─── Session Errors ─────────────────────────────────────────────────────
     /// No active session — either before initialisation or after teardown.
     ///
-    /// Phase 11 CLEAN-06 merged the previously-separate `SessionNotInitialised`
-    /// variant into this one: no in-tree match site distinguished the two,
-    /// and the merge keeps the surface smaller. Callers respond to this
-    /// variant by establishing (or re-establishing) a session — typically
-    /// via the X3DH-PQ initiator/responder flow.
+    /// Callers respond to this variant by establishing (or re-establishing)
+    /// a session — typically via the X3DH-PQ initiator/responder flow.
+    /// (A previously-separate `SessionNotInitialised` variant has been
+    /// merged into this one to keep the surface smaller, since no in-tree
+    /// match site distinguished the two.)
     NoActiveSession,
 
     /// Session has been marked as compromised.
@@ -419,7 +417,7 @@ pub enum CryptoError {
     /// Unsupported state serialisation version.
     UnsupportedStateVersion,
 
-    // ─── Multi-Device Approval / Nonce Errors (Phase 16) ────────────────────
+    // ─── Multi-Device Approval / Nonce Errors ───────────────────────────────
     /// Server-issued nonce window has elapsed.
     ///
     /// Returned by `DeviceApprovalCertificate::verify` when the elapsed time

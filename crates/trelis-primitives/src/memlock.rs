@@ -27,8 +27,8 @@
 //!
 //! # Status in the Trelis Workspace
 //!
-//! As of the v1.0 security audit, this infrastructure is **opt-in and not wired
-//! into any default code path** (finding MEM-04). Identity keypairs, session
+//! As of the v1.0 security audit, this infrastructure is **opt-in and not
+//! wired into any default code path**. Identity keypairs, session
 //! root keys, and KEM keypairs are stored in ordinary heap allocations. Every
 //! secret type still guarantees zeroize-on-drop, but **swap-file and core-dump
 //! exclusion are not provided by default** — they are a caller / platform
@@ -87,13 +87,11 @@
 //
 // The rest of the crate uses #![forbid(unsafe_code)] which this module overrides.
 #![allow(unsafe_code)]
-// Pedantic-lint policy: memlock is an FFI wrapper around mlock(2) / VirtualLock.
-// Pedantic warnings here are dominated by FFI-shape calls (cast_lossless on
+// memlock is an FFI wrapper around mlock(2) / VirtualLock. Pedantic
+// warnings here are dominated by FFI-shape calls (cast_lossless on
 // length-as-c-size_t, pointer-shape conversions to `*const c_void`, paired
 // lock/unlock identifiers, must_use on side-effectful FFI helpers) where
-// mechanical rewrites do not improve clarity. # Errors documentation is
-// deferred to Phase 12 (DOCS-02). See Phase 10 disposition in
-// `10-PEDANTIC-DRAFT.md`.
+// mechanical rewrites do not improve clarity.
 #![allow(
     clippy::borrow_as_ptr,
     clippy::cast_lossless,
@@ -1154,7 +1152,7 @@ impl<T: Zeroize> GuardedBox<T> {
     /// Returns `MemlockError::AllocationFailed` if allocation fails.
     /// Returns `MemlockError::ProtectFailed` if guard page protection fails.
     /// Returns `MemlockError::LockFailed` if `mlock(2)` fails — symmetric with
-    /// [`LockedBox::new`] (finding MEM-05). The value is zeroised and the
+    /// [`LockedBox::new`]. The value is zeroised and the
     /// allocation freed before the error is returned, so no partially-
     /// initialised `GuardedBox` is ever returned. Callers who want guard
     /// pages without mlock should use [`new_unlocked`](Self::new_unlocked).
@@ -1222,8 +1220,8 @@ impl<T: Zeroize> GuardedBox<T> {
         }
 
         // Lock the data region. Symmetric with `LockedBox::new`: failure is
-        // fatal (finding MEM-05). Callers who want guard pages without mlock
-        // must call `new_unlocked` explicitly.
+        // fatal. Callers who want guard pages without mlock must call
+        // `new_unlocked` explicitly.
         let locked = if lock {
             match lock_memory(data_ptr, data_size) {
                 Ok(()) => true,
@@ -1861,8 +1859,8 @@ mod tests {
                 println!("GuardedBox::new failed (mprotect): errno={}", os_error);
             }
             Err(MemlockError::LockFailed { os_error }) => {
-                // GuardedBox::new now fails on mlock failure (finding MEM-05);
-                // expected without CAP_IPC_LOCK or sufficient RLIMIT_MEMLOCK.
+                // GuardedBox::new now fails on mlock failure; expected without
+                // CAP_IPC_LOCK or sufficient RLIMIT_MEMLOCK.
                 println!("GuardedBox::new failed (mlock): errno={}", os_error);
             }
             Err(e) => panic!("Unexpected error: {:?}", e),

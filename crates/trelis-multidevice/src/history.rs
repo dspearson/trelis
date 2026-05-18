@@ -115,8 +115,7 @@ impl HistoryKeyShareMessage {
     /// (`DeviceApprovalCertificate` binds the device fingerprint;
     /// `DeviceRevocation` binds the device id). Without this binding the
     /// signature only attests to (thread_id, key_count, shared_at) and a
-    /// compromised sender could swap in different keys post-signing
-    /// (PROTO-09-NEW1).
+    /// compromised sender could swap in different keys post-signing.
     #[cfg(feature = "alloc")]
     fn signing_data(thread_id: &ThreadId, keys: &[RetainedKey], shared_at: u64) -> Vec<u8> {
         // Hash the concatenated key serialisations under a distinct context.
@@ -373,9 +372,10 @@ mod tests {
         assert_eq!(summary.shared_at, 5000);
     }
 
-    // Regression test for MEM-02-HIGH: HistoryKeyShareMessage must implement ZeroizeOnDrop so
-    // that retained message keys (Vec<RetainedKey>) are zeroized at drop. Without this, Vec
-    // reallocation leaves secret bytes in freed heap memory until the allocator reuses the region.
+    // Regression test: HistoryKeyShareMessage must implement ZeroizeOnDrop so
+    // that retained message keys (Vec<RetainedKey>) are zeroized at drop.
+    // Without this, Vec reallocation leaves secret bytes in freed heap
+    // memory until the allocator reuses the region.
     #[test]
     #[cfg(feature = "alloc")]
     fn history_key_share_message_zeroize_on_drop() {
@@ -383,8 +383,8 @@ mod tests {
         assert_impl::<HistoryKeyShareMessage>();
     }
 
-    // Regression test for PROTO-09-NEW1: the signature MUST bind to the key
-    // bytes, not just the count. A message signed for keys K1 with the metadata
+    // Regression test: the signature MUST bind to the key bytes, not just
+    // the count. A message signed for keys K1 with the metadata
     // (thread_id, count, shared_at) must NOT verify for a different keys K2
     // with the same metadata.
     #[cfg(feature = "alloc")]

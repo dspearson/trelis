@@ -130,8 +130,8 @@ impl core::fmt::Debug for HybridSharedSecret {
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
-    // DYN-01-MIRI-01: `format!` requires alloc; gated so the rest of the test
-    // module still compiles under `--no-default-features` for MIRI.
+    // `format!` requires alloc; gated so the rest of the test module still
+    // compiles under `--no-default-features` for MIRI.
     #[cfg(feature = "alloc")]
     use alloc::format;
 
@@ -225,8 +225,8 @@ mod tests {
     }
 }
 
-// DYN-01-MIRI-01: proptest uses alloc internally, so gate the proptests module
-// behind `alloc` to allow `cargo {check,miri test} --no-default-features` to
+// proptest uses alloc internally, so gate the proptests module behind
+// `alloc` to allow `cargo {check,miri test} --no-default-features` to
 // reach the rest of the crate.
 #[cfg(all(test, feature = "alloc"))]
 mod proptests {

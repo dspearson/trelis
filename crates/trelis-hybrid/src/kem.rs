@@ -65,12 +65,12 @@ pub const SECRET_KEY_SIZE: usize = X448_SK_SIZE + SNTRUP_SK_SIZE;
 
 /// BLAKE3 `derive_key` context for the X448 seed in deterministic hybrid keygen.
 ///
-/// API-04-L3: promoted from an inline literal in `generate_from_seed`.
+/// Promoted from an inline literal in `generate_from_seed`.
 pub const HYBRID_KEM_X448_SEED_CONTEXT: &str = "trelis-hybrid-x448";
 
 /// BLAKE3 `derive_key` context for the sntrup761 seed in deterministic hybrid keygen.
 ///
-/// API-04-L3: promoted from an inline literal in `generate_from_seed`.
+/// Promoted from an inline literal in `generate_from_seed`.
 pub const HYBRID_KEM_SNTRUP_SEED_CONTEXT: &str = "trelis-hybrid-sntrup761";
 
 /// Hybrid KEM keypair (X448 + sntrup761).
@@ -79,9 +79,9 @@ pub const HYBRID_KEM_SNTRUP_SEED_CONTEXT: &str = "trelis-hybrid-sntrup761";
 /// The combined shared secret provides security as long as either
 /// algorithm remains secure.
 // No `Clone`: cloning a keypair duplicates secret key material into a second
-// allocation whose lifetime the original's drop cannot protect (finding MEM-01,
-// FIPS 140-3 §4.7). Callers must use references; reconstruct via `from_bytes`
-// only when an owned copy is genuinely required.
+// allocation whose lifetime the original's drop cannot protect (cf.
+// FIPS 140-3 §4.7). Callers must use references; reconstruct via
+// `from_bytes` only when an owned copy is genuinely required.
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct HybridKemKeypair {
     #[zeroize(skip)]
@@ -279,8 +279,8 @@ impl HybridKemKeypair {
     /// privileges allow), and zeroisation on drop.
     ///
     /// Memory locking is opt-in: it requires the `mlock` feature and is not
-    /// wired into any default code path (finding MEM-04). Callers with a
-    /// high-value-secret threat model should call this at session establishment
+    /// wired into any default code path. Callers with a high-value-secret
+    /// threat model should call this at session establishment
     /// for long-lived KEM keypairs; otherwise the library still guarantees
     /// zeroize-on-drop but not swap / core-dump exclusion.
     ///

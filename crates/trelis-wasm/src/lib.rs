@@ -16,18 +16,12 @@
 //!
 //! All keys are exportable as byte arrays for JavaScript storage (IndexedDB, etc.).
 
-// Pedantic-lint policy: trelis-wasm is the wasm-bindgen wrapper surface to
-// JavaScript. Lints here are dominated by:
-//  - `missing_errors_doc` / `missing_panics_doc` / `doc_markdown` on the
-//    wrapper docstrings — deferred to Phase 12 (DOCS-02).
-//  - `must_use_candidate` was deferred to Phase 11 (ERGO-01); the allow
-//    has been lifted and every flagged wrapper-getter annotated.
-//  - `cast_possible_truncation` / `cast_precision_loss` (u64/u8 → f64 in the
-//    wasm-bindgen → JS Number bridge) — the bridge contract emits JS Number
-//    which is f64; truncation is an API contract, not a bug.
-//  - `uninlined_format_args` on `format!("{:?}", e)` for JsValue error
-//    bridging — allowed wholesale to match the existing wrapper style.
-// See Phase 10 disposition in `10-PEDANTIC-DRAFT.md`.
+// trelis-wasm is the wasm-bindgen wrapper surface to JavaScript. The
+// `cast_possible_truncation` / `cast_precision_loss` (u64/u8 → f64) allows
+// reflect the wasm-bindgen → JS Number bridge: JS Number is f64, so the
+// truncation is an API contract, not a bug. The `uninlined_format_args`
+// allow covers the wholesale `format!("{:?}", e)` pattern used for
+// JsValue error bridging.
 #![allow(
     clippy::cast_lossless,
     clippy::cast_possible_truncation,
@@ -61,9 +55,9 @@ type HybridSignature = trelis_hybrid::HybridSignature<trelis_primitives::mldsa::
 /// Deliberately distinct from `trelis_primitives::SESSION_CONTEXT`
 /// (`"trelis-session-v1"`): that context derives an X3DH-PQ *pairwise* session
 /// secret from a 296-byte transcript, whereas this reconstructs a CoCoA *group*
-/// `init_secret` from a 32-byte transcript hash. Different protocols, different
-/// operations — sharing a context string would be a domain-separation
-/// violation, not an interoperability fix. See FINDINGS.md API-04-H1.
+/// `init_secret` from a 32-byte transcript hash. Different protocols,
+/// different operations — sharing a context string would be a
+/// domain-separation violation, not an interoperability fix.
 const COCOA_WASM_LEGACY_SESSION_CONTEXT: &str = "trelis-cocoa-wasm-session-v1";
 
 /// Initialise the WASM module with better panic handling (optional).
@@ -1447,7 +1441,7 @@ fn deserialize_ratchet_state(bytes: &[u8]) -> trelis_error::Result<trelis_ratche
 
     // The entry guard above only covers the minimum (no their_public_key) layout.
     // Now that has_their_pk is known, validate the full required length before any
-    // further offset-based indexing (WASM-03b: prevents a trap on crafted short input).
+    // further offset-based indexing — this prevents a trap on a crafted short input.
     let required = offset
         + if has_their_pk { 1214 } else { 0 }
         + 8  // send_count
@@ -3612,9 +3606,10 @@ mod native_tests {
         assert_eq!(state.status(), restored.status());
     }
 
-    // Regression test for WASM-03b: deserialize_ratchet_state must reject a buffer that satisfies
-    // the minimum-length entry guard but is too short for the has_their_pk=true layout it claims,
-    // returning an error rather than trapping on out-of-bounds indexing.
+    // Regression test: deserialize_ratchet_state must reject a buffer that
+    // satisfies the minimum-length entry guard but is too short for the
+    // has_their_pk=true layout it claims, returning an error rather than
+    // trapping on out-of-bounds indexing.
     #[test]
     fn ratchet_state_truncated_with_their_pk_flag_is_rejected() {
         use super::*;
@@ -3661,17 +3656,18 @@ mod native_tests {
         assert_eq!(session.member_count(), restored.member_count());
     }
 
-    // Regression test for API-04-H1 (reclassified Informational): the CoCoA WASM legacy-session
-    // context string is intentionally DISTINCT from the X3DH-PQ SESSION_CONTEXT. They derive
-    // different values (CoCoA group init_secret vs X3DH pairwise session secret) from different
-    // inputs; sharing a context would be a domain-separation violation, not an interop fix. This
-    // guards against a well-meaning future change that makes them equal. See FINDINGS.md API-04-H1.
+    // Regression test: the CoCoA WASM legacy-session context string is
+    // intentionally DISTINCT from the X3DH-PQ SESSION_CONTEXT. They derive
+    // different values (CoCoA group init_secret vs X3DH pairwise session
+    // secret) from different inputs; sharing a context would be a
+    // domain-separation violation, not an interop fix. This guards against
+    // a well-meaning future change that makes them equal.
     #[test]
     fn wasm_cocoa_session_context_is_domain_separated_from_x3dh() {
         assert_ne!(
             super::COCOA_WASM_LEGACY_SESSION_CONTEXT,
             trelis_primitives::SESSION_CONTEXT,
-            "CoCoA WASM legacy-session context must stay domain-separated from the X3DH-PQ session context (API-04-H1)"
+            "CoCoA WASM legacy-session context must stay domain-separated from the X3DH-PQ session context"
         );
     }
 }

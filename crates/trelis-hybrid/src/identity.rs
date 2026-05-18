@@ -62,9 +62,9 @@ pub const SECRET_KEY_SIZE: usize = SIGNING_SK_SIZE + KEM_SK_SIZE;
 /// The keypairs are heap-allocated to avoid stack overflow on platforms
 /// with limited stack size (e.g., Windows default 1MB).
 // No `Clone`: cloning a keypair duplicates secret key material into a second
-// allocation whose lifetime the original's drop cannot protect (finding MEM-01,
-// FIPS 140-3 §4.7). Callers must use references; reconstruct via `from_bytes`
-// only when an owned copy is genuinely required.
+// allocation whose lifetime the original's drop cannot protect (cf.
+// FIPS 140-3 §4.7). Callers must use references; reconstruct via
+// `from_bytes` only when an owned copy is genuinely required.
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct HybridIdentityKeypair {
     #[zeroize(skip)]

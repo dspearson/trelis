@@ -36,29 +36,23 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![forbid(unsafe_code)]
-// Pedantic-lint policy:
-// - `doc_markdown` / `missing_panics_doc` / `missing_errors_doc` —
-//   deferred to Phase 12 (DOCS-02).
-// - `must_use_candidate` was deferred to Phase 11 (ERGO-01); the allow
-//   has been lifted and every flagged site annotated.
-// See Phase 10 disposition in `10-PEDANTIC-DRAFT.md`.
 #![allow(
     clippy::doc_markdown,
     clippy::missing_errors_doc,
     clippy::missing_panics_doc
 )]
-// Test modules: silence the full pedantic set (uninlined_format_args on
-// `format!("{:?}", x)` is dominant; not worth churning the corpus).
+// Tests silence the full pedantic set (uninlined_format_args on
+// `format!("{:?}", x)` dominates the noise; not worth churning the corpus).
 #![cfg_attr(test, allow(clippy::pedantic))]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
 mod approval;
-// DYN-01-MIRI-01 follow-on: `device_key_wrap` uses `HybridKemKeypair`,
-// `HybridEncapsulation`, `HybridKemPublicKey` from `trelis-hybrid`, which
-// are gated behind `std`/`wasm`. Mirror that gate; without it the crate
-// fails to compile under `--no-default-features`.
+// `device_key_wrap` uses `HybridKemKeypair`, `HybridEncapsulation`,
+// `HybridKemPublicKey` from `trelis-hybrid`, which are gated behind
+// `std`/`wasm`. Mirror that gate; without it the crate fails to compile
+// under `--no-default-features`.
 #[cfg(any(feature = "std", feature = "wasm"))]
 mod device_key_wrap;
 mod history;

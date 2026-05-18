@@ -168,7 +168,8 @@ pub struct TreeNode {
 impl TreeNode {
     /// Creates a new populated tree node.
     #[allow(clippy::too_many_arguments)]
-    // TreeNode fields are tightly coupled; builder pattern is deliberately scoped to PrekeyBundle (see 11-BUILDERS-RATIONALE.md)
+    // TreeNode fields are tightly coupled; a builder pattern is deliberately
+    // scoped to PrekeyBundle and not used here.
     #[must_use]
     pub fn new_populated(
         index: NodeIndex,

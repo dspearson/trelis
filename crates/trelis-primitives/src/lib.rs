@@ -67,9 +67,8 @@
 //!
 //! ## Verification
 //!
-//! Source-level CT is reviewed in `FINDINGS-v1.1.md` Phase 7. Empirical CT is
-//! measured by the dudect harnesses in `ct-tests/`; results are captured in
-//! `audit-artifacts-v1.1/phase-7/`.
+//! Empirical constant-time behaviour is measured by the dudect harnesses in
+//! `ct-tests/`.
 //!
 //! # no_std Support
 //!
@@ -113,15 +112,9 @@
 // NOTE: unsafe_code is denied at workspace level (Cargo.toml)
 // Only memlock.rs overrides this with #![allow(unsafe_code)] for mlock FFI
 #![warn(missing_docs)]
-// Pedantic-lint policy (crate-root):
-// - `doc_markdown` / `missing_errors_doc` / `missing_panics_doc` —
-//   deferred to Phase 12 (DOCS-02).
-// - `must_use_candidate` was deferred to Phase 11 (ERGO-01); the allow
-//   has been lifted and every flagged site annotated.
-// - `similar_names` — Ed448/ML-DSA-65 variant code uses spec-named
-//   identifiers (`sk` / `pk`, `r` / `r_buf`); rename affects the
-//   public API surface and is a Phase 11 ERGO-04 concern.
-// See Phase 10 disposition in `10-PEDANTIC-DRAFT.md`.
+// `similar_names` is allowed at the crate root because the Ed448 and
+// ML-DSA-65 variant code uses spec-named identifiers (`sk` / `pk`,
+// `r` / `r_buf`); renaming would affect the public API surface.
 #![allow(
     clippy::doc_markdown,
     clippy::missing_errors_doc,

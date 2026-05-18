@@ -13,13 +13,12 @@
 
 // Allow non-snake_case for mathematical notation matching FIPS 204 (e.g., M, Mp)
 #![allow(non_snake_case)]
-// Pedantic-lint policy: mldsa_core implements FIPS 204 ML-DSA-65 against the
-// reference algorithms (RejNTTPoly, BitPack/BitUnpack, NTT/NTT^{-1}). Cast
-// lints surface on every coefficient reduction mandated by FIPS 204 §§2.3,
-// 3.3, 8. Constants are compile-time and verified against the spec; pedantic
-// rewrites would obscure the §-reference correspondence and risk breaking the
-// in-source `// AUDIT: ...` comments that anchor security review. See Phase
-// 10 disposition in `10-PEDANTIC-DRAFT.md`.
+// mldsa_core implements FIPS 204 ML-DSA-65 against the reference algorithms
+// (RejNTTPoly, BitPack/BitUnpack, NTT/NTT^{-1}). Cast lints surface on every
+// coefficient reduction mandated by FIPS 204 §§2.3, 3.3, 8. Constants are
+// compile-time and verified against the spec; pedantic rewrites would
+// obscure the §-reference correspondence and risk breaking the in-source
+// `// AUDIT: ...` comments that anchor security review.
 #![allow(clippy::pedantic)]
 
 extern crate alloc;

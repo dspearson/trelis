@@ -16,7 +16,7 @@ pub const KDF_MESSAGE: &str = "trelis-pq-ratchet-message-v1";
 
 /// Context string for the initial root key derivation (`derive_initial_root_key`).
 ///
-/// API-04-L1: promoted from an inline literal so it appears in the central
+/// Promoted from an inline literal so it appears in the central
 /// `derive_key` context registry alongside `KDF_ROOT`/`KDF_MESSAGE`.
 pub const KDF_INIT: &str = "trelis-ratchet-init-v1";
 
@@ -151,15 +151,15 @@ pub fn kdf_rk(root_key: &[u8; 32], shared_secret: &[u8]) -> KdfOutput {
 /// # Returns
 ///
 /// The initial 32-byte root key, wrapped in `Zeroizing<>` because the
-/// root key is secret material (ERGO-02 / MEM-03-NEW1).
+/// root key is secret material.
 #[must_use]
 pub fn derive_initial_root_key(session_key: &[u8; 32]) -> Zeroizing<[u8; 32]> {
     Zeroizing::new(blake3::derive_key(KDF_INIT, session_key))
 }
 
-// DYN-01-MIRI-01: most tests exercise the alloc-only `kdf_rk` helper, so the
-// module is gated on `alloc` to unblock `cargo check --no-default-features
-// --tests`. The constant/size checks are trivial and are still covered by
+// Most tests exercise the alloc-only `kdf_rk` helper, so the module is
+// gated on `alloc` to unblock `cargo check --no-default-features --tests`.
+// The constant/size checks are trivial and are still covered by
 // `--all-features` and the default feature build.
 #[cfg(all(test, feature = "alloc"))]
 mod tests {

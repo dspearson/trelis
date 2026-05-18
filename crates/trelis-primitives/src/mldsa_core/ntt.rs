@@ -15,7 +15,7 @@ use super::algebra::{BaseField, Elem, NttPolynomial, NttVector, Polynomial, Vect
 //
 // The values computed here match those provided in Appendix B of FIPS 204.
 //
-// API-03: the three allow-attributes below are scoped to this single const initialiser
+// The three allow-attributes below are scoped to this single const initialiser
 // (`ZETA_POW_BITREV`), not file-level. Justification:
 // - `cast_possible_truncation` / `as_conversions`: the `(curr as u32)` cast on line 31 and
 //   the `(x as u8).reverse_bits() as usize` chain inside `bitrev8` are mandated by the

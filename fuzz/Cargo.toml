@@ -65,7 +65,7 @@ test = false
 doc = false
 
 # Seed-corpus generator — run once to populate fuzz/corpus/<harness>/ with a
-# small set of valid + edge-case inputs. DYN-03-NEW2 follow-up.
+# small set of valid + edge-case inputs.
 [[bin]]
 name = "seed_corpus"
 path = "src/bin/seed_corpus.rs"

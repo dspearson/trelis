@@ -3,7 +3,7 @@
 //! These tests use BLAKE3 variant test vectors from:
 //! tests/vectors/blake3_sig-ver.json
 
-// Test code; Phase 10 disposition (b).
+// Test code; pedantic lints silenced wholesale.
 #![allow(
     clippy::pedantic,
     clippy::unwrap_used,

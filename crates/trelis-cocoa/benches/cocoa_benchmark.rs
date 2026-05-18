@@ -3,7 +3,7 @@
 //! Run with: `cargo bench -p trelis-cocoa`
 
 // Internal benchmarks; pedantic warnings have no value here and are silenced
-// wholesale. Phase 10 disposition (b) — `10-PEDANTIC-DRAFT.md`.
+// wholesale.
 #![allow(clippy::pedantic, missing_docs)]
 
 use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};

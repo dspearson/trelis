@@ -265,7 +265,7 @@ impl KemRatchet {
         // physically present until that slot is reused by a later push_back.
         // The eviction here is the last write to that slot from the
         // ratchet's perspective, so we make the zeroisation explicit on the
-        // moved value to document the intent (MEM-05-NEW1).
+        // moved value to document the intent.
         if self.previous_keypairs.len() >= MAX_PREVIOUS_KEYPAIRS {
             if let Some((_, mut evicted)) = self.previous_keypairs.pop_front() {
                 evicted.zeroize();
@@ -445,7 +445,7 @@ mod tests {
 
     #[test]
     fn rotate_keypair_zeroises_evicted_slot_no_stale_bytes() {
-        // CLOSE-01 / MEM-05-NEW1 regression test.
+        // Regression test for the explicit-zeroise-on-eviction invariant.
         //
         // Rationale: `VecDeque::pop_front` MOVES the element out of the ring
         // buffer slot. The explicit `evicted.zeroize()` call in
@@ -543,7 +543,7 @@ mod tests {
                     "stale evicted-sentinel secret-key bytes found in a still-reachable \
                      keypair after rotate_keypair eviction \
                      — the `evicted.zeroize()` mitigation at state.rs:~268 may have \
-                     been removed (regression against MEM-05-NEW1 / CLOSE-01)"
+                     been removed"
                 );
             }
         }

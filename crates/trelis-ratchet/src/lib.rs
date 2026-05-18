@@ -32,14 +32,8 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![forbid(unsafe_code)]
-// Pedantic-lint policy:
-// - `doc_markdown` / `missing_errors_doc` / `missing_panics_doc` —
-//   deferred to Phase 12 (DOCS-02).
-// - `must_use_candidate` was deferred to Phase 11 (ERGO-01); the allow
-//   has been lifted and every flagged site annotated.
-// - `unreadable_literal` — BLAKE3 context-string anchor values and version
-//   constants are intentionally kept in their wire-format form (T-10-06).
-// See Phase 10 disposition in `10-PEDANTIC-DRAFT.md`.
+// `unreadable_literal` is allowed because BLAKE3 context-string anchors
+// and version constants are kept verbatim in their wire-format form.
 #![allow(
     clippy::doc_markdown,
     clippy::missing_errors_doc,
@@ -60,15 +54,13 @@
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
-// DYN-01-MIRI-01: header/state/receive/send/(parts of kdf,nonce) use
-// `HybridKemKeypair` and related types from `trelis-hybrid`, which are gated
-// behind `std`/`wasm` because they wrap SNTRUP761 (whose generation requires
-// the system CSPRNG). Mirror that gate here so `cargo check
-// --no-default-features` succeeds on this crate (compiling to a near-empty
-// library) instead of failing with cascading import errors. With this gate
-// in place MIRI can complete a `--no-default-features` workspace run; full
-// MIRI coverage of this crate must be invoked with `--features std` (the
-// default).
+// header/state/receive/send/(parts of kdf,nonce) use `HybridKemKeypair` and
+// related types from `trelis-hybrid`, which are gated behind `std`/`wasm`
+// because they wrap SNTRUP761 (whose generation requires the system
+// CSPRNG). Mirror that gate here so `cargo check --no-default-features`
+// succeeds on this crate (compiling to a near-empty library) instead of
+// failing with cascading import errors. Full MIRI coverage of this crate
+// must be invoked with `--features std` (the default).
 #[cfg(any(feature = "std", feature = "wasm"))]
 pub mod header;
 pub mod kdf;

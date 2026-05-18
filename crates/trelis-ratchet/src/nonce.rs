@@ -11,9 +11,8 @@ use zeroize::Zeroize;
 use trelis_primitives::random::generate_bytes;
 
 /// Context string for hedged nonce derivation. Re-exported from
-/// `trelis_primitives::blake3_kdf::RATCHET_NONCE_CONTEXT` registry
-/// (PROTO-07-NEW1); aliased to `NONCE_CONTEXT` to preserve the
-/// downstream-visible name.
+/// `trelis_primitives::blake3_kdf::RATCHET_NONCE_CONTEXT` registry and
+/// aliased to `NONCE_CONTEXT` to preserve the downstream-visible name.
 pub use trelis_primitives::RATCHET_NONCE_CONTEXT as NONCE_CONTEXT;
 
 /// Size of XChaCha20 nonce (192 bits = 24 bytes).

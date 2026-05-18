@@ -52,11 +52,8 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
-// Pedantic-lint policy:
-// - `doc_markdown` / `missing_errors_doc` — deferred to Phase 12 (DOCS-02).
-// - `struct_field_names` — protocol field names follow Signal X3DH naming
-//   conventions; renames affect the public API surface (Phase 11 ERGO-04).
-// See Phase 10 disposition in `10-PEDANTIC-DRAFT.md`.
+// `struct_field_names` is allowed because the protocol field names follow
+// Signal X3DH naming conventions; renames affect the public API surface.
 #![allow(
     clippy::doc_markdown,
     clippy::missing_errors_doc,
@@ -70,7 +67,7 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
-// DYN-01-MIRI-01: the X3DH-PQ session protocol uses `HybridKemKeypair`,
+// The X3DH-PQ session protocol uses `HybridKemKeypair`,
 // `HybridIdentityKeypair`, and `HybridKemPublicKey` from `trelis-hybrid`,
 // which are gated behind `std`/`wasm` because they need the system CSPRNG.
 // Mirror that gate so `cargo check --no-default-features` succeeds on this

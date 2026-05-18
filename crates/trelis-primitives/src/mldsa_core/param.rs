@@ -110,10 +110,10 @@ pub trait ParameterSet {
     const TAU: usize;
 
     /// Beta = Tau * Eta
-    // FIPS 204 parameter table: TAU is at most 60 (ML-DSA-87) and Eta is at most
-    // 4; their u32 product is well within u32 range. The `as u32` cast and the
-    // truncation lint are suppressed because the value is constrained by the
-    // spec, not by the cast's edge cases (API-03-NEW1).
+    // FIPS 204 parameter table: TAU is at most 60 (ML-DSA-87) and Eta is at
+    // most 4; their u32 product is well within u32 range. The `as u32` cast
+    // and the truncation lint are suppressed because the value is constrained
+    // by the spec, not by the cast's edge cases.
     #[allow(clippy::as_conversions)]
     #[allow(clippy::cast_possible_truncation)]
     const BETA: u32 = (Self::TAU as u32) * Self::Eta::U32;

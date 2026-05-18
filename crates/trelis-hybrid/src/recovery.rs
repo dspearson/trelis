@@ -78,7 +78,7 @@ use trelis_primitives::{
 use crate::signature::{HybridSignature, HybridSigningKeypair, HybridSigningPublicKey};
 
 // Context strings imported from the central BLAKE3 derive-key registry
-// (`trelis_primitives::blake3_kdf`) per PROTO-07-NEW1.
+// in `trelis_primitives::blake3_kdf`.
 use trelis_primitives::{COMPROMISE_NOTICE_CONTEXT, RECOVERY_KEY_ATTEST_CONTEXT};
 
 /// Size of a key fingerprint (BLAKE3 hash of public key).
@@ -461,11 +461,11 @@ pub fn derive_recovery_keypair<S: MlDsaScheme>(
 /// the recovery key was registered by the identity-key holder — not by an
 /// attacker who controls the publication channel.
 ///
-/// Per the v1.3 audit-notes-impl-gaps §21.1 disposition: the library
-/// treats the recovery key as a plain `HybridSigningPublicKey<S>` (the
-/// same type returned by [`derive_recovery_keypair`]). The spec previously
-/// described a `HybridRecoveryPublicKey` newtype; that text is brought in
-/// line with the implementation in Phase 21 spec-tidy.
+/// The library treats the recovery key as a plain
+/// `HybridSigningPublicKey<S>` — the same type returned by
+/// [`derive_recovery_keypair`]. (Earlier spec text described a separate
+/// `HybridRecoveryPublicKey` newtype; that text was reconciled with the
+/// implementation.)
 ///
 /// # Wire format
 ///

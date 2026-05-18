@@ -247,12 +247,12 @@ impl Sntrup761PublicKey {
             });
         }
 
-        // Reject all-zero public keys: an all-zero polynomial is not a valid sntrup761
-        // public key. The C FFI backend (`pqcrypto-ntruprime`) does not validate this
-        // either, so the guard is added here for parity with the pure-Rust backend
-        // (PROTO-03-SNTRUP-ALLZERO) and to keep behaviour byte-for-byte symmetric
-        // across the two backends. Re-using `DecapsulationFailed`: no `InvalidPublicKey`
-        // variant exists.
+        // Reject all-zero public keys: an all-zero polynomial is not a valid
+        // sntrup761 public key. The C FFI backend (`pqcrypto-ntruprime`) does
+        // not validate this either, so the guard is added here for parity
+        // with the pure-Rust backend and to keep behaviour byte-for-byte
+        // symmetric across the two backends. Re-using `DecapsulationFailed`:
+        // no `InvalidPublicKey` variant exists.
         if bytes.iter().all(|&b| b == 0) {
             return Err(CryptoError::DecapsulationFailed);
         }
@@ -562,8 +562,8 @@ mod tests {
 
     #[test]
     fn test_all_zero_public_key_rejected() {
-        // PROTO-03-SNTRUP-ALLZERO hardening (FFI backend parity): all-zero key
-        // must be rejected at construction time, mirroring the pure-Rust backend.
+        // FFI backend parity: all-zero key must be rejected at construction
+        // time, mirroring the pure-Rust backend.
         let zero_key = [0u8; PUBLIC_KEY_SIZE];
         let result = Sntrup761PublicKey::from_bytes(&zero_key);
         assert!(result.is_err(), "all-zero public key must be rejected");

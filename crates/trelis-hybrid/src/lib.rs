@@ -53,18 +53,13 @@
 #![no_std]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
-// Pedantic-lint policy:
-// - `doc_markdown` / `missing_errors_doc` — deferred to Phase 12 (DOCS-02).
-// - `must_use_candidate` was deferred to Phase 11 (ERGO-01); the allow
-//   has been lifted and every flagged site annotated.
-// - `cast_lossless` (u8→u32) — hybrid combiner / safety-number digit
-//   conversion mixes 8-bit indices into 32-bit accumulators; mechanical
-//   `From` rewrite hurts readability.
-// - `unreadable_literal` — recovery code uses BLAKE3 test-vector literals
-//   (T-10-06) and KDF context-string constants.
-// - `similar_names` — safety-number protocol names follow Signal-style
-//   conventions; renames affect the public API surface.
-// See Phase 10 disposition in `10-PEDANTIC-DRAFT.md`.
+// `cast_lossless` (u8→u32) is allowed because the hybrid combiner and
+// safety-number digit conversion mix 8-bit indices into 32-bit
+// accumulators and the mechanical `From` rewrite hurts readability.
+// `unreadable_literal` is allowed because recovery-code BLAKE3 test
+// vectors and KDF context-string constants are kept verbatim.
+// `similar_names` is allowed because the safety-number protocol names
+// follow Signal-style conventions; renames affect the public API.
 #![allow(
     clippy::cast_lossless,
     clippy::doc_markdown,
@@ -73,8 +68,8 @@
     clippy::similar_names,
     clippy::unreadable_literal
 )]
-// Test modules: silence the full pedantic set (uninlined_format_args on
-// `format!("{:?}", x)` is dominant; not worth churning the corpus).
+// Tests silence the full pedantic set (uninlined_format_args on
+// `format!("{:?}", x)` dominates; not worth churning the corpus).
 #![cfg_attr(test, allow(clippy::pedantic))]
 
 #[cfg(feature = "alloc")]

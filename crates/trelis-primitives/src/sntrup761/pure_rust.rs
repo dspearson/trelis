@@ -450,12 +450,13 @@ impl Sntrup761PublicKey {
             });
         }
 
-        // Reject all-zero public keys: an all-zero polynomial is not a valid sntrup761
-        // public key. While implicit rejection limits practical impact (encapsulation
-        // against a zero key produces a pseudorandom output bound to rho), explicit
-        // rejection is the fail-loudly behaviour consistent with X448's all-zero DH
-        // output guard (x448.rs:177). Hardening per PROTO-03-SNTRUP-ALLZERO audit finding.
-        // Re-using DecapsulationFailed: no InvalidPublicKey variant exists; see PROTO-03-SNTRUP-ALLZERO.
+        // Reject all-zero public keys: an all-zero polynomial is not a valid
+        // sntrup761 public key. While implicit rejection limits practical
+        // impact (encapsulation against a zero key produces a pseudorandom
+        // output bound to rho), explicit rejection is the fail-loudly
+        // behaviour consistent with X448's all-zero DH output guard
+        // (x448.rs:177). Re-using DecapsulationFailed: no InvalidPublicKey
+        // variant exists.
         if bytes.iter().all(|&b| b == 0) {
             return Err(CryptoError::DecapsulationFailed);
         }
@@ -933,8 +934,8 @@ mod tests {
 
     #[test]
     fn test_all_zero_public_key_rejected() {
-        // PROTO-03-SNTRUP-ALLZERO hardening: all-zero key must be rejected at
-        // construction time, consistent with X448's all-zero DH output guard (x448.rs:177).
+        // All-zero key must be rejected at construction time, consistent
+        // with X448's all-zero DH output guard (x448.rs:177).
         let zero_key = [0u8; PUBLIC_KEY_SIZE];
         let result = Sntrup761PublicKey::from_bytes(&zero_key);
         assert!(result.is_err(), "all-zero public key must be rejected");

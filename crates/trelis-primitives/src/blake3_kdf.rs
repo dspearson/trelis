@@ -298,7 +298,7 @@ pub const WARRANT_AUTH_CONTEXT: &str = "trelis-warrant-auth-v1";
 /// which provides proper domain separation without length-extension vulnerabilities.
 ///
 /// The output is wrapped in `Zeroizing<>` so the secret-material bytes are
-/// zeroed on drop (ERGO-02 / MEM-03-NEW1). Most callers continue to compile
+/// zeroed on drop. Most callers continue to compile
 /// unchanged because `Zeroizing<T>: Deref<Target = T>`.
 #[must_use]
 pub fn derive_key(context: &str, input: &[u8]) -> Zeroizing<[u8; OUTPUT_SIZE]> {
@@ -333,7 +333,7 @@ pub fn hash(input: &[u8]) -> [u8; OUTPUT_SIZE] {
 ///
 /// # Returns
 ///
-/// A 32-byte authentication tag, wrapped in `Zeroizing<>` (ERGO-02 / MEM-03-NEW1).
+/// A 32-byte authentication tag, wrapped in `Zeroizing<>`.
 #[must_use]
 pub fn keyed_hash(key: &[u8; OUTPUT_SIZE], input: &[u8]) -> Zeroizing<[u8; OUTPUT_SIZE]> {
     Zeroizing::new(*blake3::keyed_hash(key, input).as_bytes())
@@ -353,7 +353,7 @@ pub fn keyed_hash(key: &[u8; OUTPUT_SIZE], input: &[u8]) -> Zeroizing<[u8; OUTPU
 /// # Returns
 ///
 /// A vector of derived keys, each 32 bytes, each wrapped in `Zeroizing<>`
-/// so they zero on drop (ERGO-02 / MEM-03-NEW1).
+/// so they zero on drop.
 #[cfg(feature = "alloc")]
 #[must_use]
 pub fn derive_multiple_keys(
@@ -391,7 +391,7 @@ impl DerivedKey {
     }
 
     /// Consumes self and returns the key bytes, wrapped in `Zeroizing<>`
-    /// so the consumed material is zeroed on caller drop (ERGO-02 / MEM-03-NEW1).
+    /// so the consumed material is zeroed on caller drop.
     #[must_use]
     pub fn into_bytes(self) -> Zeroizing<[u8; OUTPUT_SIZE]> {
         Zeroizing::new(self.0)

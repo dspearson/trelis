@@ -67,7 +67,7 @@ pub const USER_ID_CONTEXT: &str = "cocoa-sa-user-id-v1";
 /// H1: Seed chain advancement (leaf → root).
 ///
 /// Each call advances the seed one level up the tree. Output is wrapped in
-/// `Zeroizing<>` because the seed is secret material (ERGO-02 / MEM-03-NEW1).
+/// `Zeroizing<>` because the seed is secret material.
 #[must_use]
 pub fn derive_h1_seed(delta: &[u8; 32]) -> Zeroizing<[u8; 32]> {
     Zeroizing::new(blake3::derive_key(H1_CONTEXT, delta))
@@ -92,9 +92,6 @@ pub fn derive_h1_seed(delta: &[u8; 32]) -> Zeroizing<[u8; 32]> {
 /// gate). If a new key type is needed, add a new `h2_keygen_<new_type>`
 /// public wrapper whose `key_type` is a const string literal registered
 /// in the central `H2_CONTEXT_*` constants block above.
-///
-/// Closes audit finding API-04-NEW1 (Phase 11 ERGO-03 disposition:
-/// already private; finding moot).
 #[cfg(all(test, feature = "alloc"))]
 #[must_use]
 fn h2_keygen_seed(seed: &[u8; 32], key_type: &str) -> [u8; 32] {
@@ -106,7 +103,7 @@ fn h2_keygen_seed(seed: &[u8; 32], key_type: &str) -> [u8; 32] {
 /// H2: Deterministic X448 keypair seed generation.
 ///
 /// Convenience function for X448 key derivation. Output is wrapped in
-/// `Zeroizing<>` because the seed is secret material (ERGO-02 / MEM-03-NEW1).
+/// `Zeroizing<>` because the seed is secret material.
 #[must_use]
 pub fn h2_keygen_x448(seed: &[u8; 32]) -> Zeroizing<[u8; 32]> {
     Zeroizing::new(blake3::derive_key(H2_CONTEXT_X448, seed))
@@ -115,7 +112,7 @@ pub fn h2_keygen_x448(seed: &[u8; 32]) -> Zeroizing<[u8; 32]> {
 /// H2: Deterministic sntrup761 keypair seed generation.
 ///
 /// Convenience function for sntrup761 key derivation. Output is wrapped in
-/// `Zeroizing<>` because the seed is secret material (ERGO-02 / MEM-03-NEW1).
+/// `Zeroizing<>` because the seed is secret material.
 #[must_use]
 pub fn h2_keygen_sntrup(seed: &[u8; 32]) -> Zeroizing<[u8; 32]> {
     Zeroizing::new(blake3::derive_key(H2_CONTEXT_SNTRUP, seed))
@@ -226,7 +223,7 @@ pub fn h4_parent_hash_h2(
 ///
 /// Derives epoch secret from previous init secret, root seed, and transcript.
 /// Output is wrapped in `Zeroizing<>` because the epoch secret is the seed
-/// for every other epoch derivation (ERGO-02 / MEM-03-NEW1).
+/// for every other epoch derivation.
 #[must_use]
 pub fn h5_epoch_secret(
     init_secret_prev: &[u8; 32],
@@ -240,19 +237,19 @@ pub fn h5_epoch_secret(
     Zeroizing::new(*hasher.finalize().as_bytes())
 }
 
-/// Derives app secret from epoch secret. Output wrapped in `Zeroizing<>` (ERGO-02).
+/// Derives app secret from epoch secret. Output wrapped in `Zeroizing<>`.
 #[must_use]
 pub fn derive_app_secret(epoch_secret: &[u8; 32]) -> Zeroizing<[u8; 32]> {
     Zeroizing::new(blake3::derive_key(APP_SECRET_CONTEXT, epoch_secret))
 }
 
-/// Derives confirmation key from epoch secret. Output wrapped in `Zeroizing<>` (ERGO-02).
+/// Derives confirmation key from epoch secret. Output wrapped in `Zeroizing<>`.
 #[must_use]
 pub fn derive_conf_key(epoch_secret: &[u8; 32]) -> Zeroizing<[u8; 32]> {
     Zeroizing::new(blake3::derive_key(CONF_KEY_CONTEXT, epoch_secret))
 }
 
-/// Derives init secret for next epoch from epoch secret. Output wrapped in `Zeroizing<>` (ERGO-02).
+/// Derives init secret for next epoch from epoch secret. Output wrapped in `Zeroizing<>`.
 #[must_use]
 pub fn derive_init_secret(epoch_secret: &[u8; 32]) -> Zeroizing<[u8; 32]> {
     Zeroizing::new(blake3::derive_key(INIT_SECRET_CONTEXT, epoch_secret))
@@ -260,12 +257,12 @@ pub fn derive_init_secret(epoch_secret: &[u8; 32]) -> Zeroizing<[u8; 32]> {
 
 /// Derives a per-sender message key from `app_secret`, the sender's tree leaf
 /// position, and the sender's local message counter. Output wrapped in
-/// `Zeroizing<>` (ERGO-02).
+/// `Zeroizing<>`.
 ///
 /// Binding `sender_leaf_position` into the derivation guarantees that two
 /// distinct senders at the same `(epoch, counter)` derive disjoint keys —
-/// fixing the cross-sender nonce-reuse risk that existed in v0.4 (see
-/// audit-notes-impl-gaps §4.2). The KDF input layout is
+/// fixing the cross-sender nonce-reuse risk that existed in v0.4. The KDF
+/// input layout is
 /// `app_secret || sender_leaf_position_le_u32 || counter_le_u64`.
 #[must_use]
 pub fn derive_message_key(
@@ -284,7 +281,7 @@ pub fn derive_message_key(
 /// position, and the sender's local message counter. Output wrapped in
 /// `Zeroizing<>` for defence-in-depth — though AEAD nonces are conceptually
 /// public, leaking them across sessions has been shown to enable key recovery
-/// in several AEADs (ERGO-02).
+/// in several AEADs.
 ///
 /// `sender_leaf_position` is bound into the nonce derivation alongside the key
 /// (see `derive_message_key`) so that any future refactor that accidentally
@@ -310,7 +307,7 @@ pub fn derive_message_nonce(
 /// Advances a seed through the chain (for path updates).
 ///
 /// Given a leaf seed, advances it up the tree by applying H1 repeatedly.
-/// Output wrapped in `Zeroizing<>` (ERGO-02).
+/// Output wrapped in `Zeroizing<>`.
 #[must_use]
 pub fn advance_seed_chain(leaf_seed: &[u8; 32], levels: u32) -> Zeroizing<[u8; 32]> {
     let mut current = *leaf_seed;
@@ -366,18 +363,17 @@ mod tests {
 
     #[test]
     fn test_h2_keygen_public_wrappers_are_the_only_entry_points() {
-        // Visibility-confirming check for ERGO-03 / API-04-NEW1: the only
-        // legitimate public entry points are the const-context wrappers
-        // h2_keygen_x448 and h2_keygen_sntrup. The dynamic-context helper
-        // h2_keygen_seed is private and test-only (see its doc-comment).
+        // Visibility-confirming check: the only legitimate public entry
+        // points are the const-context wrappers h2_keygen_x448 and
+        // h2_keygen_sntrup. The dynamic-context helper h2_keygen_seed is
+        // private and test-only (see its doc-comment).
         //
         // If h2_keygen_seed is ever made public, downstream callers can
         // supply user-controlled context strings — a domain-separation
         // failure mode. This test does not enforce visibility at compile
         // time (Rust has no negative-visibility test), but it pins the
         // public API in source control: any reviewer adding `pub` to
-        // h2_keygen_seed must justify that change against this comment
-        // and against API-04-NEW1 in the audit register.
+        // h2_keygen_seed must justify that change against this comment.
         let seed = [0x42u8; 32];
         let x = h2_keygen_x448(&seed);
         let s = h2_keygen_sntrup(&seed);

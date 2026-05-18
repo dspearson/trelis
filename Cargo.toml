@@ -55,7 +55,7 @@ getrandom = { version = "0.2", default-features = false }
 # On wasm32-unknown-unknown its `backends.rs` emits a `compile_error!` unless the
 # `wasm_js` feature is enabled. Declared as a separate workspace dep so primitives'
 # `wasm` feature can activate `wasm_js` via cargo's feature unification across the
-# multiple-major scenario. See FINDINGS-v1.1.md WASM-01-NEW1.
+# multiple-major scenario.
 getrandom_v04 = { package = "getrandom", version = "0.4", default-features = false }
 libc = { version = "0.2", default-features = false }  # Memory locking (Unix mlock)
 windows-sys = { version = "0.59", features = ["Win32_System_Memory", "Win32_Foundation", "Win32_System_SystemInformation"] }  # Memory locking (Windows VirtualLock)

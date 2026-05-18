@@ -28,7 +28,7 @@ use trelis_error::Result;
 /// generated it. The public portion is uploaded to the server; the secret
 /// portion is kept locally until the OTK is used or expires.
 // No `Clone`: this wraps a `HybridKemKeypair` containing secret key material;
-// cloning would duplicate that secret into a second allocation (finding MEM-01).
+// cloning would duplicate that secret into a second allocation.
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct HybridOneTimeKeyPair {
     /// The underlying hybrid KEM keypair

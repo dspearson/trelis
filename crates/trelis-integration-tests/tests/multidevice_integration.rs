@@ -8,7 +8,6 @@
 //! - Error handling for invalid operations
 
 // Test code; pedantic warnings have no value here and are silenced wholesale.
-// Phase 10 disposition (b) — `10-PEDANTIC-DRAFT.md`.
 #![allow(
     clippy::pedantic,
     clippy::unwrap_used,
@@ -117,8 +116,8 @@ fn test_complete_device_onboarding_flow() {
     println!("✓ Complete device onboarding flow verified");
 }
 
-/// Phase 16: the cert is self-verifying (`approving_device_pk` is embedded),
-/// so the v0.5 "wrong key" test no longer applies. The equivalent assurance is
+/// The cert is self-verifying (`approving_device_pk` is embedded), so the
+/// v0.5 "wrong key" test no longer applies. The equivalent assurance is
 /// that a tampered embedded pk causes the signature to no longer verify.
 #[cfg_attr(miri, ignore)]
 #[test]

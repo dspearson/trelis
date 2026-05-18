@@ -35,8 +35,8 @@ use crate::ThreadId;
 /// Context string for AEAD encryption in DeviceKeyWrap.
 ///
 /// Re-exported from the central BLAKE3-derive-key context registry in
-/// `trelis_primitives::blake3_kdf` to avoid parallel duplicate declarations
-/// (PROTO-07-NEW1). The downstream-visible name `WRAP_CONTEXT` is preserved.
+/// `trelis_primitives::blake3_kdf` to avoid parallel duplicate declarations.
+/// The downstream-visible name `WRAP_CONTEXT` is preserved.
 pub use trelis_primitives::BUNDLE_WRAP_CONTEXT as WRAP_CONTEXT;
 
 /// Size of recipient key ID in bytes.

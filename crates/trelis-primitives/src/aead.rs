@@ -349,11 +349,10 @@ pub fn decrypt_in_place(
         .map_err(|_| CryptoError::AeadAuthenticationFailed)
 }
 
-// DYN-01-MIRI-01: gated on `alloc` because the tests below use the
-// allocating `encrypt`/`decrypt` helpers and `alloc::vec` macros.
-// Without this gate, `cargo {check,miri test} --no-default-features` fails
-// to compile the test module, preventing MIRI from reaching the rest of
-// this crate.
+// Gated on `alloc` because the tests below use the allocating
+// `encrypt`/`decrypt` helpers and `alloc::vec` macros. Without this gate,
+// `cargo {check,miri test} --no-default-features` fails to compile the
+// test module, preventing MIRI from reaching the rest of this crate.
 #[cfg(all(test, feature = "alloc"))]
 mod tests {
     extern crate alloc;

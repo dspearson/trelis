@@ -6,7 +6,7 @@
 //! the C FFI (pqcrypto-ntruprime) and pure Rust (ntrulp) implementations.
 
 // Internal benchmarks; pedantic warnings have no value here and are silenced
-// wholesale. Phase 10 disposition (b) — `10-PEDANTIC-DRAFT.md`.
+// wholesale.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,

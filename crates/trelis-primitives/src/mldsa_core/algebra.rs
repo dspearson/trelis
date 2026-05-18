@@ -5,7 +5,7 @@
 // `integer_division_remainder_used`, `cast_possible_truncation`) are
 // suppressed on the affected items so the code remains a direct
 // transliteration of the spec; the suppressions are not blanket — each
-// is scoped to the item it annotates (API-03-NEW1).
+// is scoped to the item it annotates.
 
 pub use super::module_lattice::algebra::Field;
 pub use super::module_lattice::util::Truncate;
