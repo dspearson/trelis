@@ -1,19 +1,83 @@
 //! Error types for the Trelis cryptographic library.
 //!
-//! This crate provides a comprehensive error type covering all failure modes
-//! in the Trelis hybrid post-quantum protocol.
+//! # Purpose
+//!
+//! This crate provides [`CryptoError`], the comprehensive error type used
+//! across every crate of the Trelis hybrid post-quantum protocol library,
+//! along with [`Result<T>`] (the crate-wide result alias) and
+//! [`ErrorCategory`] (the classification surface used for handling
+//! decisions).
+//!
+//! # Scope
+//!
+//! - One enumerated error type covering every failure mode in the protocol
+//!   stack: key handling, signatures, AEAD encryption, KEM, protocol logic,
+//!   wire-format parsing, bundle validation, device wraps, RNG, tree/group
+//!   operations, rate limiting, sessions, and serialisation.
+//! - One [`ErrorCategory`] enum (Fatal / Transient / Protocol / Security)
+//!   for caller-facing classification.
+//! - `Display` impls deliberately scrubbed of sensitive information.
+//!
+//! Out of scope: caller-specific error wrapping, anyhow / eyre integration,
+//! backtrace capture (this crate is `no_std`).
+//!
+//! # Threat model fit
+//!
+//! Error variants are designed for the **co-located-process timing
+//! adversary** model (see `FINDINGS-v1.1.md` Phase 2). The relevant choices:
+//!
+//! - Decryption failures collapse to either
+//!   [`CryptoError::DecryptionFailed`] (oracle-safe; for attacker-facing
+//!   paths) or [`CryptoError::AeadAuthenticationFailed`] (narrower; for
+//!   internal symmetric-only paths where oracle safety is not a concern).
+//! - Signature failures collapse to [`CryptoError::SignatureVerificationFailed`]
+//!   regardless of whether Ed448 or ML-DSA-65 failed — distinguishing would
+//!   leak protocol-internal state.
+//! - Variants carry only public diagnostic data (lengths, counters, version
+//!   bytes). No variant carries secret bytes or key material.
+//!
+//! # Public-API entry points
+//!
+//! - [`CryptoError`] — the error enum itself.
+//! - [`Result<T>`] — the `core::result::Result<T, CryptoError>` alias used
+//!   throughout the workspace.
+//! - [`ErrorCategory`] and [`CryptoError::category`] / [`CryptoError::is_fatal`] /
+//!   [`CryptoError::is_security_error`] — classification helpers for callers
+//!   building retry / rejection policy.
+//!
+//! # Feature flags
+//!
+//! - `alloc` — Enables `extern crate alloc`. The crate is `no_std`; `alloc`
+//!   is required only by callers that already use it.
+//! - `std` — Enables `extern crate std` and implements [`std::error::Error`]
+//!   for [`CryptoError`] so the type integrates with `std`-based error
+//!   pipelines.
+//!
+//! Default features: none. The base build is `no_std` with no allocator.
+//!
+//! # Security caveats
+//!
+//! - `Display` strings are stable, public, and side-channel-safe. They do
+//!   not differ based on which internal branch produced the error, so
+//!   logging the `Display` output of a `CryptoError` is safe even on
+//!   attacker-facing paths.
+//! - The enum is `#[non_exhaustive]`. Downstream callers MUST NOT pattern-
+//!   match without a wildcard arm; adding a variant is not a breaking
+//!   change.
+//! - Several variants are reserved for code paths that exist in the
+//!   protocol but are not yet exercised at HEAD — they are documented as
+//!   "Reserved for …" and Phase 13 TEST-04 will close the coverage gap.
 
 #![no_std]
 #![forbid(unsafe_code)]
-#![warn(missing_docs)]
+#![deny(missing_docs)]
 // Pedantic-lint policy:
-// - `doc_markdown` — deferred to Phase 12 (DOCS-02).
 // - `too_many_lines` on `CryptoError::fmt` is intentional: the Display
 //   match is exhaustive over CryptoError variants. Splitting would lose
 //   the single-place enum-coverage assertion that Phase 13 TEST-04 relies
 //   on.
 // See Phase 10 disposition in `10-PEDANTIC-DRAFT.md`.
-#![allow(clippy::doc_markdown, clippy::too_many_lines)]
+#![allow(clippy::too_many_lines)]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -144,7 +208,7 @@ pub enum CryptoError {
     /// rejects the message (Security category).
     MessageCounterTooOld,
 
-    /// Message counter is too far ahead (exceeds MAX_SKIP).
+    /// Message counter is too far ahead (exceeds `MAX_SKIP`).
     ///
     /// Reserved for sync-loss detection. Caller logs the gap and either
     /// re-establishes the session or drops the message.
@@ -164,7 +228,7 @@ pub enum CryptoError {
         limit: usize,
     },
 
-    /// Skipped key has expired (exceeded MAX_AGE).
+    /// Skipped key has expired (exceeded `MAX_AGE`).
     ///
     /// Reserved for skipped-keys age-based expiry. Caller logs and rejects
     /// the message — the original key is no longer reachable.
