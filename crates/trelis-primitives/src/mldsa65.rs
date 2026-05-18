@@ -858,4 +858,25 @@ mod tests {
                 .is_err()
         );
     }
+
+    /// `DeterministicRng` carries the hedge-entropy seed and the per-block
+    /// PRNG state in-struct, so both fields must be wiped by `Zeroize`.
+    /// `ZeroizeOnDrop` is implemented in terms of `Zeroize::zeroize()`, so
+    /// this test exercises the wipe directly rather than reading bytes
+    /// after drop (which would be undefined behaviour).
+    #[test]
+    fn test_deterministic_rng_zeroize_wipes_state() {
+        let seed = [0xAAu8; 32];
+        let mut rng = DeterministicRng::new(&seed);
+        // Advance the counter so we know both fields hold non-zero values
+        // before the wipe.
+        let _ = rng.next_block();
+        assert_ne!(rng.state, [0u8; 32], "state must be non-zero before wipe");
+        assert_ne!(rng.counter, 0, "counter must be non-zero before wipe");
+
+        rng.zeroize();
+
+        assert_eq!(rng.state, [0u8; 32], "state must be wiped");
+        assert_eq!(rng.counter, 0, "counter must be wiped");
+    }
 }

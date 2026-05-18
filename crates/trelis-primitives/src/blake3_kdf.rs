@@ -538,6 +538,59 @@ mod tests {
         let key = derive_key("context", &large_input);
         assert_eq!(key.len(), 32);
     }
+
+    #[test]
+    fn test_derive_device_seed_deterministic() {
+        let hardware_entropy = b"hardware-attested-bytes-from-enclave";
+        let s1 = derive_device_seed(hardware_entropy);
+        let s2 = derive_device_seed(hardware_entropy);
+        assert_eq!(
+            *s1, *s2,
+            "same hardware_entropy must produce identical seed"
+        );
+        assert_eq!(s1.len(), OUTPUT_SIZE);
+    }
+
+    #[test]
+    fn test_derive_device_seed_input_sensitive() {
+        let s_a = derive_device_seed(b"input-a");
+        let s_b = derive_device_seed(b"input-b");
+        assert_ne!(
+            *s_a, *s_b,
+            "distinct hardware_entropy must produce distinct seeds"
+        );
+    }
+
+    #[test]
+    fn test_derive_device_seed_context_domain_separated() {
+        // derive_device_seed MUST be domain-separated from raw derive_key.
+        // A caller who naively re-used the same input bytes against a generic
+        // derive_key call with a different context must not collide.
+        let input = b"shared-input";
+        let device_seed = derive_device_seed(input);
+        let raw = derive_key("trelis-some-other-context-v1", input);
+        assert_ne!(
+            *device_seed, *raw,
+            "device_seed must not collide with raw derive_key under another context"
+        );
+    }
+
+    #[test]
+    fn test_derive_device_seed_accepts_variable_length() {
+        // The function takes any-length input; BLAKE3 hashes it through.
+        // Empty, short, long must all produce 32-byte outputs and not panic.
+        let empty = derive_device_seed(b"");
+        let short = derive_device_seed(b"x");
+        let long = derive_device_seed(&[0xAAu8; 4096]);
+        assert_eq!(empty.len(), OUTPUT_SIZE);
+        assert_eq!(short.len(), OUTPUT_SIZE);
+        assert_eq!(long.len(), OUTPUT_SIZE);
+        // All three should be distinct (BLAKE3 collision probability is
+        // negligible for these inputs).
+        assert_ne!(*empty, *short);
+        assert_ne!(*empty, *long);
+        assert_ne!(*short, *long);
+    }
 }
 
 #[cfg(test)]
