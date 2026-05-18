@@ -25,7 +25,8 @@
 #![warn(missing_docs)]
 // Pedantic-lint policy:
 // - `doc_markdown` / `missing_errors_doc` — deferred to Phase 12 (DOCS-02).
-// - `must_use_candidate` — deferred to Phase 11 (ERGO-01).
+// - `must_use_candidate` was deferred to Phase 11 (ERGO-01); the allow
+//   has been lifted and every flagged site annotated.
 // - `cast_lossless` (u8→u32) — hybrid combiner / safety-number digit
 //   conversion mixes 8-bit indices into 32-bit accumulators; mechanical
 //   `From` rewrite hurts readability.
@@ -39,7 +40,6 @@
     clippy::doc_markdown,
     clippy::missing_errors_doc,
     clippy::missing_panics_doc,
-    clippy::must_use_candidate,
     clippy::similar_names,
     clippy::unreadable_literal
 )]

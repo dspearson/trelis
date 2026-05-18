@@ -97,6 +97,7 @@ const KDF_MAX_STACK_INPUT: usize = 256;
 ///
 /// A tuple of (new_root_key, message_key), both 32 bytes.
 #[cfg(feature = "alloc")]
+#[must_use]
 pub fn kdf_rk(root_key: &[u8; 32], shared_secret: &[u8]) -> KdfOutput {
     let total_len = root_key.len() + shared_secret.len();
 
@@ -150,6 +151,7 @@ pub fn kdf_rk(root_key: &[u8; 32], shared_secret: &[u8]) -> KdfOutput {
 /// # Returns
 ///
 /// The initial 32-byte root key.
+#[must_use]
 pub fn derive_initial_root_key(session_key: &[u8; 32]) -> [u8; 32] {
     blake3::derive_key(KDF_INIT, session_key)
 }

@@ -159,6 +159,7 @@ impl DeviceRevocation {
 
     /// Serialises the revocation certificate to bytes.
     #[cfg(feature = "alloc")]
+    #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
         let sig_bytes = self.signature.to_bytes();
         let total_size = Self::FIXED_SIZE + sig_bytes.len();

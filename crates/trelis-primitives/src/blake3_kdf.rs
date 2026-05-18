@@ -294,6 +294,7 @@ pub fn keyed_hash(key: &[u8; OUTPUT_SIZE], input: &[u8]) -> [u8; OUTPUT_SIZE] {
 ///
 /// A vector of derived keys, each 32 bytes.
 #[cfg(feature = "alloc")]
+#[must_use]
 pub fn derive_multiple_keys(
     context_prefix: &str,
     input: &[u8],

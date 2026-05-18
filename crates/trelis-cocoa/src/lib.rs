@@ -58,17 +58,18 @@
 // format; the usize→u32 truncations are bounded by the wire-format-limited
 // tree depth (T-10-06). Doc lints (`doc_markdown`, `missing_errors_doc`,
 // `missing_panics_doc`) are deferred to Phase 12 (DOCS-02). `must_use_*`
-// findings are deferred to Phase 11 (ERGO-01); see PEDANTIC-DEFER-TO-PHASE-11
-// markers in epoch.rs / session.rs. `trivially_copy_pass_by_ref` on pub fns
-// is also Phase 11 (ERGO-04). Group-id and version literals match the wire
-// format (T-10-06). See Phase 10 disposition in `10-PEDANTIC-DRAFT.md`.
+// was deferred to Phase 11 (ERGO-01); the allow has been lifted and every
+// flagged site annotated. `trivially_copy_pass_by_ref` on private helper
+// fns was also resolved by Phase 11 (`build_seed_aad`,
+// `is_in_sibling_subtree` take `NodeIndex` by value now). Group-id and
+// version literals match the wire format (T-10-06). See Phase 10
+// disposition in `10-PEDANTIC-DRAFT.md`.
 #![allow(
     clippy::cast_possible_truncation,
     clippy::doc_markdown,
     clippy::many_single_char_names,
     clippy::missing_errors_doc,
     clippy::missing_panics_doc,
-    clippy::must_use_candidate,
     clippy::similar_names,
     clippy::unreadable_literal
 )]

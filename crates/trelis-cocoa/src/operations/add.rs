@@ -301,7 +301,7 @@ fn compute_add_resolution_sets_and_keys(
 
         // Add the new member if they're in the sibling subtree
         // The new member always needs the path secrets
-        if is_in_sibling_subtree(path_node, &new_member_leaf) {
+        if is_in_sibling_subtree(*path_node, new_member_leaf) {
             nodes.push(new_member_leaf);
             // Use the new member's OTK KEM public key for encryption
             keys.push(new_member_bundle.one_time_key().kem.clone());
@@ -315,16 +315,11 @@ fn compute_add_resolution_sets_and_keys(
 }
 
 /// Checks if a node is in the sibling subtree of a path node.
-// PEDANTIC-DEFER-TO-PHASE-11: trivially_copy_pass_by_ref on `&NodeIndex`
-// arguments propagates up to several pub `encrypt_seed`/`decrypt_seed`
-// signatures in seed_encrypt.rs; the conversion is a Phase 11 ERGO-04
-// naming/consistency pass.
-#[allow(clippy::trivially_copy_pass_by_ref)]
-fn is_in_sibling_subtree(path_node: &NodeIndex, target: &NodeIndex) -> bool {
+fn is_in_sibling_subtree(path_node: NodeIndex, target: NodeIndex) -> bool {
     // Get the sibling of the path node
     if let Some(sibling) = path_node.sibling() {
         // Check if target is a descendant of sibling
-        target.is_descendant_of(&sibling) || *target == sibling
+        target.is_descendant_of(&sibling) || target == sibling
     } else {
         // Root has no sibling
         false

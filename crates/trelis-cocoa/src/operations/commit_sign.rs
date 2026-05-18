@@ -270,6 +270,7 @@ pub fn sign_commit(
 /// # Errors
 ///
 /// Returns `SignatureVerificationFailed` if the signature is invalid.
+#[must_use = "the verify outcome must be checked"]
 pub fn verify_commit_signature(
     identity_public: &HybridIdentityPublicKey,
     content: &CommitContent,
@@ -438,6 +439,7 @@ pub fn sign_extended_commit(
 
 /// Verifies an extended commit signature.
 #[cfg(feature = "alloc")]
+#[must_use = "the verify outcome must be checked"]
 pub fn verify_extended_commit_signature(
     identity_public: &HybridIdentityPublicKey,
     content: &ExtendedCommitContent,

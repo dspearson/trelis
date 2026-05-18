@@ -23,6 +23,7 @@ pub type KeyId = u64;
 /// Derives a key ID from a hybrid public key.
 ///
 /// Uses incremental hashing to avoid creating a 1,214-byte temporary buffer.
+#[must_use]
 pub fn derive_key_id(public_key: &HybridKemPublicKey) -> KeyId {
     // Use incremental hashing to avoid 1,214-byte stack allocation
     let mut hasher = blake3::Hasher::new();
@@ -133,6 +134,7 @@ impl KemRatchet {
     /// * `session_key` - 32-byte shared secret from X3DH-PQ
     /// * `our_keypair` - Our hybrid keypair (from the consumed OTK or new)
     /// * `current_time` - Current Unix timestamp
+    #[must_use]
     pub fn init_responder(
         session_key: &[u8; 32],
         our_keypair: HybridKemKeypair,
@@ -243,6 +245,7 @@ impl KemRatchet {
     }
 
     /// Finds a keypair by key ID (current or previous).
+    #[must_use]
     pub fn find_keypair(&self, key_id: KeyId) -> Option<&HybridKemKeypair> {
         if key_id == self.our_key_id {
             return Some(&self.our_keypair);

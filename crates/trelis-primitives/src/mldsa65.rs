@@ -312,6 +312,7 @@ impl MlDsa65VerifyingKey {
     ///
     /// Returns `SignatureVerificationFailed` if the signature is invalid,
     /// or `InvalidContextLength` if the context exceeds 255 bytes.
+    #[must_use = "the verify outcome must be checked"]
     pub fn verify_with_context(
         &self,
         message: &[u8],

@@ -39,13 +39,13 @@
 // Pedantic-lint policy:
 // - `doc_markdown` / `missing_panics_doc` / `missing_errors_doc` —
 //   deferred to Phase 12 (DOCS-02).
-// - `must_use_candidate` — deferred to Phase 11 (ERGO-01).
+// - `must_use_candidate` was deferred to Phase 11 (ERGO-01); the allow
+//   has been lifted and every flagged site annotated.
 // See Phase 10 disposition in `10-PEDANTIC-DRAFT.md`.
 #![allow(
     clippy::doc_markdown,
     clippy::missing_errors_doc,
-    clippy::missing_panics_doc,
-    clippy::must_use_candidate
+    clippy::missing_panics_doc
 )]
 // Test modules: silence the full pedantic set (uninlined_format_args on
 // `format!("{:?}", x)` is dominant; not worth churning the corpus).

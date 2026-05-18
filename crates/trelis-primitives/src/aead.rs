@@ -327,6 +327,7 @@ pub fn encrypt_in_place(
 /// # Errors
 ///
 /// Returns `AeadAuthenticationFailed` if the tag is invalid.
+#[must_use = "the decrypt outcome must be checked"]
 pub fn decrypt_in_place(
     key: &AeadKey,
     nonce: &Nonce,

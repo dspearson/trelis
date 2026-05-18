@@ -116,7 +116,8 @@
 // Pedantic-lint policy (crate-root):
 // - `doc_markdown` / `missing_errors_doc` / `missing_panics_doc` —
 //   deferred to Phase 12 (DOCS-02).
-// - `must_use_candidate` — deferred to Phase 11 (ERGO-01).
+// - `must_use_candidate` was deferred to Phase 11 (ERGO-01); the allow
+//   has been lifted and every flagged site annotated.
 // - `similar_names` — Ed448/ML-DSA-65 variant code uses spec-named
 //   identifiers (`sk` / `pk`, `r` / `r_buf`); rename affects the
 //   public API surface and is a Phase 11 ERGO-04 concern.
@@ -125,7 +126,6 @@
     clippy::doc_markdown,
     clippy::missing_errors_doc,
     clippy::missing_panics_doc,
-    clippy::must_use_candidate,
     clippy::similar_names
 )]
 #![cfg_attr(

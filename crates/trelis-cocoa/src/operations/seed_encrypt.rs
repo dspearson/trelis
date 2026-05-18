@@ -119,7 +119,7 @@ pub fn encrypt_seed_to_recipient(
     let nonce = Nonce::from_bytes(SEED_ENCRYPTION_NONCE);
 
     // Build AAD: tree_position || "cocoa-seed-encrypt"
-    let aad = build_seed_aad(tree_position);
+    let aad = build_seed_aad(*tree_position);
 
     // Encrypt the seed
     let ciphertext_vec = aead::encrypt(&aead_key, &nonce, seed, &aad)?;
@@ -153,6 +153,7 @@ pub fn encrypt_seed_to_recipient(
 /// # Errors
 ///
 /// Returns an error if decapsulation or AEAD decryption fails.
+#[must_use = "the decrypted seed must be checked or used"]
 pub fn decrypt_seed(
     encrypted: &EncryptedNodeSeed,
     our_keypair: &HybridKemKeypair,
@@ -166,7 +167,7 @@ pub fn decrypt_seed(
     let nonce = Nonce::from_bytes(SEED_ENCRYPTION_NONCE);
 
     // Build AAD (must match encryption)
-    let aad = build_seed_aad(tree_position);
+    let aad = build_seed_aad(*tree_position);
 
     // Decrypt the seed
     let plaintext = aead::decrypt(&aead_key, &nonce, &encrypted.ciphertext, &aad)?;
@@ -249,11 +250,7 @@ pub const SEED_AAD_SIZE: usize = 28;
 /// | 2 | 4 | Tree depth (u32 LE) |
 /// | 6 | 4 | Tree position (u32 LE) |
 /// | 10 | 18 | Domain separator "cocoa-seed-encrypt" |
-// PEDANTIC-DEFER-TO-PHASE-11: trivially_copy_pass_by_ref on `&NodeIndex`
-// propagates to pub `encrypt_seed`/`decrypt_seed` signatures; the conversion
-// is a Phase 11 ERGO-04 naming/consistency pass.
-#[allow(clippy::trivially_copy_pass_by_ref)]
-fn build_seed_aad(tree_position: &NodeIndex) -> [u8; SEED_AAD_SIZE] {
+fn build_seed_aad(tree_position: NodeIndex) -> [u8; SEED_AAD_SIZE] {
     let mut aad = [0u8; SEED_AAD_SIZE];
 
     // Protocol version (2 bytes)
@@ -404,7 +401,7 @@ mod tests {
     #[test]
     fn test_build_seed_aad() {
         let position = NodeIndex::new(2, 3);
-        let aad = build_seed_aad(&position);
+        let aad = build_seed_aad(position);
 
         // Check total size
         assert_eq!(aad.len(), SEED_AAD_SIZE);

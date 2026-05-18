@@ -427,6 +427,7 @@ impl<S: MlDsaScheme> HybridSigningPublicKey<S> {
     ///
     /// Returns `SignatureVerificationFailed` if either signature is invalid,
     /// or `InvalidContextLength` if the context exceeds 255 bytes.
+    #[must_use = "the verify outcome must be checked"]
     pub fn verify_with_context(
         &self,
         message: &[u8],
@@ -463,6 +464,7 @@ impl<S: MlDsaScheme> HybridSigningPublicKey<S> {
     ///
     /// Returns `Ok(true)` if both signatures verify successfully,
     /// `Ok(false)` if either fails, or an error if verification encounters a fatal error.
+    #[must_use = "the verify outcome must be checked"]
     pub fn verify_prehashed(
         &self,
         context: &str,

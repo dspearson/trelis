@@ -152,6 +152,7 @@ impl HistoryKeyShareMessage {
     /// - shared_at: 8 bytes (u64 LE)
     /// - signature: variable (HybridSignature)
     #[cfg(feature = "alloc")]
+    #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
         let sig_bytes = self.signature.to_bytes();
         let key_data_size = self.keys.len() * RetainedKey::SERIALISED_SIZE;

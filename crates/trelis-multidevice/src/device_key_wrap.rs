@@ -277,6 +277,7 @@ impl DeviceKeyWrap {
 
     /// Serialises the wrap to bytes.
     #[cfg(feature = "alloc")]
+    #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(DEVICE_KEY_WRAP_SIZE);
 

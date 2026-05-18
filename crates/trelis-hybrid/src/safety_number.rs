@@ -243,6 +243,7 @@ impl SafetyNumber {
     ///
     /// Returns `None` if the string is invalid or has wrong version.
     #[cfg(feature = "alloc")]
+    #[must_use]
     pub fn from_qr_string(s: &str) -> Option<Self> {
         let data = base64_url_decode(s)?;
 

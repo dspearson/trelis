@@ -210,6 +210,7 @@ pub trait WelcomeInfoSerialise {
 ///
 /// The decrypted plaintext bytes.
 #[cfg(all(feature = "alloc", any(feature = "std", feature = "wasm")))]
+#[must_use = "the decrypted plaintext must be checked or used"]
 pub fn decrypt_welcome_info(
     encrypted_info: &[u8],
     encapsulation_bytes: &[u8],

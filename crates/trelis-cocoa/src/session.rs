@@ -96,7 +96,9 @@ impl CocoaSession {
     ///
     /// The joining member starts at epoch 0. To join at a specific epoch,
     /// call `advance_epoch()` after joining to synchronise with the group.
-    #[allow(clippy::too_many_arguments)] // GroupSession join state requires every argument; builder pattern deferred to Phase 11 (ERGO-05)
+    #[allow(clippy::too_many_arguments)]
+    // GroupSession join state requires every argument; builder pattern is deliberately scoped to PrekeyBundle (see 11-BUILDERS-RATIONALE.md)
+    #[must_use]
     pub fn join_group(
         group_id: GroupId,
         our_user_id: UserId,
@@ -312,6 +314,7 @@ impl CocoaSession {
     /// # Errors
     ///
     /// - `DecryptionFailed` if AEAD verification fails (tampered or wrong key)
+    #[must_use = "the decrypted plaintext must be checked or used"]
     pub fn decrypt_with_epoch_secret(
         &self,
         epoch_secret: &[u8; 32],

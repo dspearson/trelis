@@ -229,6 +229,7 @@ impl SignedOneTimeKey {
     /// # Errors
     ///
     /// Returns `SignatureVerificationFailed` if the signature is invalid.
+    #[must_use = "the verify outcome must be checked"]
     pub fn verify(
         &self,
         signing_public_key: &crate::signature::HybridSigningPublicKey,

@@ -276,6 +276,7 @@ pub fn sign_internal<P: MlDsaParams, H: HashSuite>(
 // ============================================================================
 
 /// Verify with pre-computed μ (message representative).
+#[must_use = "the verify outcome must be checked"]
 pub fn verify_mu<P: MlDsaParams, H: HashSuite>(
     vk: &VerifyingKeyData<P>,
     mu: &B64,
@@ -304,6 +305,7 @@ pub fn verify_mu<P: MlDsaParams, H: HashSuite>(
 /// Verify a message (internal algorithm).
 ///
 /// Algorithm 8 ML-DSA.Verify_internal from FIPS 204.
+#[must_use = "the verify outcome must be checked"]
 pub fn verify_internal<P: MlDsaParams, H: HashSuite>(
     vk: &VerifyingKeyData<P>,
     Mp: &[&[&[u8]]],

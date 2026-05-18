@@ -150,6 +150,7 @@ impl DeviceApprovalCertificate {
 
     /// Serialises the certificate to bytes.
     #[cfg(feature = "alloc")]
+    #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
         let sig_bytes = self.signature.to_bytes();
         let total_size = 16 + 32 + 8 + sig_bytes.len();
@@ -230,6 +231,7 @@ impl core::fmt::Debug for DeviceApprovalCertificate {
 ///
 /// Uses BLAKE3 hash of the serialised hybrid signing public key.
 #[cfg(feature = "alloc")]
+#[must_use]
 pub fn device_fingerprint(public_key: &HybridSigningPublicKey) -> [u8; FINGERPRINT_SIZE] {
     let pk_bytes = public_key.to_bytes();
     blake3::hash(&pk_bytes).into()

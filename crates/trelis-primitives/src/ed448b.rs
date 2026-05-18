@@ -206,6 +206,7 @@ impl Ed448BSigningKey {
     /// # Returns
     ///
     /// The Ed448-B signature (114 bytes).
+    #[must_use]
     pub fn sign(&self, message: &[u8]) -> Ed448BSignature {
         self.expanded().sign(message)
     }
@@ -332,6 +333,7 @@ impl Ed448BVerifyingKey {
     ///
     /// Returns `InvalidContextLength` if the context exceeds 255 bytes,
     /// or `SignatureVerificationFailed` if the signature is invalid.
+    #[must_use = "the verify outcome must be checked"]
     pub fn verify_with_context(
         &self,
         message: &[u8],
