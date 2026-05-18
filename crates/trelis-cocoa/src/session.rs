@@ -907,4 +907,126 @@ mod tests {
         assert_eq!(session.tree().tree_depth(), 3);
         assert_eq!(session.tree().capacity(), 8);
     }
+
+    /// Extended multi-sender variant of `test_two_members_same_counter_distinct_keys`:
+    /// three concurrent senders at the same `(epoch, counter)` must produce
+    /// pairwise-distinct ciphertexts and each recipient must successfully
+    /// decrypt the other two via the wire-carried sender leaf position.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_three_members_same_counter_pairwise_distinct() {
+        let group_id = [0x42u8; 32];
+        let epoch_secret = [0xABu8; 32];
+        let transcript = [0x00u8; 32];
+
+        let mut member_0 = CocoaSession::create_group(
+            group_id,
+            [0x01u8; 32],
+            HybridKemKeypair::generate().unwrap(),
+            3,
+            &epoch_secret,
+        )
+        .unwrap();
+        let mut member_1 = CocoaSession::join_group(
+            group_id,
+            [0x02u8; 32],
+            HybridKemKeypair::generate().unwrap(),
+            1,
+            2,
+            3,
+            &epoch_secret,
+            transcript,
+        );
+        let mut member_2 = CocoaSession::join_group(
+            group_id,
+            [0x03u8; 32],
+            HybridKemKeypair::generate().unwrap(),
+            2,
+            2,
+            3,
+            &epoch_secret,
+            transcript,
+        );
+
+        let plaintext = b"identical plaintext from three members";
+        let ct_0 = member_0.encrypt(plaintext).unwrap();
+        let ct_1 = member_1.encrypt(plaintext).unwrap();
+        let ct_2 = member_2.encrypt(plaintext).unwrap();
+
+        // All three local counters start at 0; only the per-sender chain
+        // disambiguates the derived key.
+        assert_eq!(ct_0.counter, 0);
+        assert_eq!(ct_1.counter, 0);
+        assert_eq!(ct_2.counter, 0);
+
+        // Pairwise distinctness.
+        assert_ne!(ct_0.ciphertext, ct_1.ciphertext);
+        assert_ne!(ct_0.ciphertext, ct_2.ciphertext);
+        assert_ne!(ct_1.ciphertext, ct_2.ciphertext);
+
+        // Cross-decryption: each member can read every other member's message.
+        assert_eq!(member_1.decrypt(&ct_0).unwrap(), plaintext);
+        assert_eq!(member_2.decrypt(&ct_0).unwrap(), plaintext);
+        assert_eq!(member_0.decrypt(&ct_1).unwrap(), plaintext);
+        assert_eq!(member_2.decrypt(&ct_1).unwrap(), plaintext);
+        assert_eq!(member_0.decrypt(&ct_2).unwrap(), plaintext);
+        assert_eq!(member_1.decrypt(&ct_2).unwrap(), plaintext);
+    }
+
+    /// Per-sender chain advance: a single sender producing N messages at
+    /// counters 0..N MUST derive N distinct ciphertexts (different keys and
+    /// nonces at each step), and the receiver MUST be able to decrypt each
+    /// one in order without state confusion across the run.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_per_sender_chain_advances_across_many_messages() {
+        let group_id = [0x42u8; 32];
+        let epoch_secret = [0xABu8; 32];
+        let transcript = [0x00u8; 32];
+
+        let mut sender = CocoaSession::create_group(
+            group_id,
+            [0x01u8; 32],
+            HybridKemKeypair::generate().unwrap(),
+            2,
+            &epoch_secret,
+        )
+        .unwrap();
+        let receiver = CocoaSession::join_group(
+            group_id,
+            [0x02u8; 32],
+            HybridKemKeypair::generate().unwrap(),
+            1,
+            1,
+            2,
+            &epoch_secret,
+            transcript,
+        );
+
+        const N: u64 = 8;
+        let mut ciphertexts = Vec::with_capacity(N as usize);
+        for i in 0..N {
+            let plaintext = format!("message {i}");
+            let ct = sender.encrypt(plaintext.as_bytes()).unwrap();
+            assert_eq!(ct.counter, i, "sender local counter must advance by 1");
+            ciphertexts.push((plaintext, ct));
+        }
+
+        // All N ciphertext bodies must be pairwise distinct — same plaintext
+        // length but different per-step keys / nonces.
+        for i in 0..N as usize {
+            for j in i + 1..N as usize {
+                assert_ne!(
+                    ciphertexts[i].1.ciphertext, ciphertexts[j].1.ciphertext,
+                    "ciphertext at counter {i} must differ from counter {j}"
+                );
+            }
+        }
+
+        // Receiver decrypts each in sequence.
+        for (expected_plaintext, ct) in &ciphertexts {
+            let decrypted = receiver.decrypt(ct).unwrap();
+            assert_eq!(decrypted, expected_plaintext.as_bytes());
+        }
+    }
 }
