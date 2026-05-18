@@ -77,9 +77,9 @@ use trelis_primitives::{
 
 use crate::signature::{HybridSignature, HybridSigningKeypair, HybridSigningPublicKey};
 
-// Context string imported from the central BLAKE3 derive-key registry
-// (`trelis_primitives::blake3_kdf::COMPROMISE_NOTICE_CONTEXT`) per PROTO-07-NEW1.
-use trelis_primitives::COMPROMISE_NOTICE_CONTEXT;
+// Context strings imported from the central BLAKE3 derive-key registry
+// (`trelis_primitives::blake3_kdf`) per PROTO-07-NEW1.
+use trelis_primitives::{COMPROMISE_NOTICE_CONTEXT, RECOVERY_KEY_ATTEST_CONTEXT};
 
 /// Size of a key fingerprint (BLAKE3 hash of public key).
 pub const FINGERPRINT_SIZE: usize = 32;
@@ -453,6 +453,108 @@ pub fn derive_recovery_keypair<S: MlDsaScheme>(
     ))
 }
 
+/// Signed attestation binding a recovery public key to an identity public key.
+///
+/// At account creation, the user publishes their recovery key to the relying
+/// party alongside their identity. This attestation lets a verifier (the
+/// server, or anyone receiving the recovery key out-of-band) confirm that
+/// the recovery key was registered by the identity-key holder — not by an
+/// attacker who controls the publication channel.
+///
+/// Per the v1.3 audit-notes-impl-gaps §21.1 disposition: the library
+/// treats the recovery key as a plain `HybridSigningPublicKey<S>` (the
+/// same type returned by [`derive_recovery_keypair`]). The spec previously
+/// described a `HybridRecoveryPublicKey` newtype; that text is brought in
+/// line with the implementation in Phase 21 spec-tidy.
+///
+/// # Wire format
+///
+/// ```text
+/// +----------------------+-------+
+/// | identity_pk          | var   | HybridSigningPublicKey (Ed448 + ML-DSA)
+/// | recovery_pk          | var   | HybridSigningPublicKey (Ed448 + ML-DSA)
+/// | registered_at        | 8     | Unix timestamp (LE)
+/// | signature            | 3423  | HybridSignature
+/// +----------------------+-------+
+/// ```
+///
+/// # Domain separation
+///
+/// Signing data: `RECOVERY_KEY_ATTEST_CONTEXT || recovery_pk_bytes ||
+/// registered_at`. The context string `trelis-recovery-key-attest-v1`
+/// ensures the signature cannot be replayed as any other protocol
+/// signature.
+#[cfg(feature = "alloc")]
+#[derive(Clone)]
+pub struct RecoveryKeyAttestation<S: MlDsaScheme = DefaultMlDsaScheme> {
+    /// The identity key that registered the recovery key.
+    pub identity_pk: HybridSigningPublicKey<S>,
+    /// The recovery public key being attested to.
+    pub recovery_pk: HybridSigningPublicKey<S>,
+    /// Unix timestamp (seconds) when the recovery key was registered.
+    pub registered_at: u64,
+    /// Hybrid signature by `identity_pk` over the attestation body.
+    pub signature: HybridSignature<S>,
+}
+
+#[cfg(feature = "alloc")]
+impl<S: MlDsaScheme> RecoveryKeyAttestation<S> {
+    /// Creates a new attestation, signed by the identity keypair.
+    ///
+    /// # Errors
+    ///
+    /// Returns `SignatureError` if the identity keypair fails to sign.
+    pub fn create(
+        identity_keypair: &HybridSigningKeypair<S>,
+        recovery_pk: &HybridSigningPublicKey<S>,
+        registered_at: u64,
+    ) -> Result<Self> {
+        let sig_data = Self::signing_data(recovery_pk, registered_at);
+        let signature = identity_keypair.sign(&sig_data)?;
+        Ok(Self {
+            identity_pk: identity_keypair.public_key().clone(),
+            recovery_pk: recovery_pk.clone(),
+            registered_at,
+            signature,
+        })
+    }
+
+    /// Verifies that the attestation was signed by `identity_pk` over the
+    /// stated `recovery_pk` and `registered_at`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `SignatureVerificationFailed` if the signature does not verify.
+    #[must_use = "the verify outcome must be checked"]
+    pub fn verify(&self) -> Result<()> {
+        let sig_data = Self::signing_data(&self.recovery_pk, self.registered_at);
+        self.identity_pk.verify(&sig_data, &self.signature)
+    }
+
+    /// Returns the bytes that should be signed for this attestation.
+    fn signing_data(recovery_pk: &HybridSigningPublicKey<S>, registered_at: u64) -> Vec<u8> {
+        let recovery_bytes = recovery_pk.to_bytes();
+        let mut data =
+            Vec::with_capacity(RECOVERY_KEY_ATTEST_CONTEXT.len() + recovery_bytes.len() + 8);
+        data.extend_from_slice(RECOVERY_KEY_ATTEST_CONTEXT.as_bytes());
+        data.extend_from_slice(&recovery_bytes);
+        data.extend_from_slice(&registered_at.to_le_bytes());
+        data
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<S: MlDsaScheme> core::fmt::Debug for RecoveryKeyAttestation<S> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("RecoveryKeyAttestation")
+            .field("identity_pk", &"[hybrid signing pk]")
+            .field("recovery_pk", &"[hybrid signing pk]")
+            .field("registered_at", &self.registered_at)
+            .field("signature", &"[3423 bytes]")
+            .finish()
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::needless_borrow)]
 mod tests {
@@ -462,6 +564,7 @@ mod tests {
     // Type aliases for tests - use FIPS 204 (standard) for consistent testing
     type TestKeypair = HybridSigningKeypair<MlDsa65Fips204>;
     type TestNotice = CompromiseNotice<MlDsa65Fips204>;
+    type TestAttestation = RecoveryKeyAttestation<MlDsa65Fips204>;
 
     #[test]
     fn test_compromise_reason_roundtrip() {
@@ -666,5 +769,73 @@ mod tests {
         // Verify the notice
         assert!(notice.verify(&recovery_keypair.public_key()).is_ok());
         assert!(!notice.is_self_signed()); // Recovery key != compromised key
+    }
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_recovery_key_attestation_happy_path() {
+        let identity_keypair = TestKeypair::generate().unwrap();
+        let recovery_seed = [0x11u8; 32];
+        let recovery_keypair = derive_recovery_keypair::<MlDsa65Fips204>(&recovery_seed).unwrap();
+
+        let attestation = TestAttestation::create(
+            &identity_keypair,
+            recovery_keypair.public_key(),
+            1_704_067_200,
+        )
+        .unwrap();
+
+        assert!(attestation.verify().is_ok());
+        assert_eq!(
+            attestation.identity_pk.to_bytes(),
+            identity_keypair.public_key().to_bytes()
+        );
+        assert_eq!(
+            attestation.recovery_pk.to_bytes(),
+            recovery_keypair.public_key().to_bytes()
+        );
+        assert_eq!(attestation.registered_at, 1_704_067_200);
+    }
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_recovery_key_attestation_tamper_detection() {
+        let identity_keypair = TestKeypair::generate().unwrap();
+        let recovery_keypair = derive_recovery_keypair::<MlDsa65Fips204>(&[0x22u8; 32]).unwrap();
+
+        let mut attestation = TestAttestation::create(
+            &identity_keypair,
+            recovery_keypair.public_key(),
+            1_704_067_200,
+        )
+        .unwrap();
+
+        // Tamper with the timestamp — the original signature no longer
+        // covers the new value.
+        attestation.registered_at = 1_704_067_201;
+
+        assert!(attestation.verify().is_err());
+    }
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_recovery_key_attestation_wrong_identity_rejected() {
+        let identity_keypair = TestKeypair::generate().unwrap();
+        let other_identity = TestKeypair::generate().unwrap();
+        let recovery_keypair = derive_recovery_keypair::<MlDsa65Fips204>(&[0x33u8; 32]).unwrap();
+
+        let mut attestation = TestAttestation::create(
+            &identity_keypair,
+            recovery_keypair.public_key(),
+            1_704_067_200,
+        )
+        .unwrap();
+
+        // Replace the identity_pk with a different keypair's public key —
+        // verification must now fail because the signature was produced
+        // by the original identity, not this one.
+        attestation.identity_pk = other_identity.public_key().clone();
+
+        assert!(attestation.verify().is_err());
     }
 }

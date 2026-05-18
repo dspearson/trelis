@@ -249,6 +249,24 @@ pub const HISTORY_SYNC_CONTEXT: &str = "trelis-history-sync-v1";
 /// Used when synchronising safety number verifications across devices.
 pub const SAFETY_NUMBER_SYNC_CONTEXT: &str = "trelis-safety-number-sync-v1";
 
+/// Context for device-set-bound safety numbers.
+///
+/// Used by `SafetyNumber::new_with_device_set` to derive a safety number
+/// that incorporates each user's current device set. A distinct context
+/// from `SAFETY_NUMBER_CONTEXT` so device-set-bound safety numbers cannot
+/// be confused with identity-only ones — see spec §15.6.
+pub const SAFETY_NUMBER_DEVICE_SET_CONTEXT: &str = "trelis-safety-number-device-set-v1";
+
+/// Context for identity-certificate signatures.
+///
+/// Used by `IdentityCertificate` (spec §15.4) to bind an attester's
+/// hybrid signature to a subject identity public key plus issued/expires
+/// metadata. The library does not take a position on whether the issuer
+/// is a CA, a relying party, or the subject themselves — it only
+/// guarantees that the signature is over a domain-separated body that
+/// cannot be confused with any other signed structure in the protocol.
+pub const IDENTITY_CERT_CONTEXT: &str = "trelis-identity-cert-v1";
+
 // ============================================================================
 // Lawful Intercept Context (Spec Section 22)
 // ============================================================================

@@ -91,6 +91,8 @@ pub mod signature;
 #[cfg(any(feature = "std", feature = "wasm"))]
 pub mod identity;
 #[cfg(any(feature = "std", feature = "wasm"))]
+pub mod identity_cert;
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub mod one_time_key;
 #[cfg(any(feature = "std", feature = "wasm"))]
 pub mod prekey_bundle;
@@ -108,6 +110,11 @@ pub use signature::{HybridSignature, HybridSigningKeypair, HybridSigningPublicKe
 #[cfg(any(feature = "std", feature = "wasm"))]
 pub use identity::{HybridIdentityKeypair, HybridIdentityPublicKey};
 #[cfg(any(feature = "std", feature = "wasm"))]
+pub use identity_cert::{
+    CERTIFICATE_WIRE_SIZE, CERTIFIED_SAFETY_NUMBER_CONTEXT, CertifiedSafetyNumber,
+    IdentityCertificate,
+};
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub use one_time_key::{HybridOneTimeKey, HybridOneTimeKeyPair};
 #[cfg(any(feature = "std", feature = "wasm"))]
 pub use prekey_bundle::HybridPreKeyBundle;
@@ -115,7 +122,8 @@ pub use prekey_bundle::HybridPreKeyBundle;
 pub use recovery::derive_recovery_keypair;
 #[cfg(feature = "alloc")]
 pub use recovery::{
-    CompromiseNotice, CompromiseReason, FINGERPRINT_SIZE, RECOVERY_SEED_SIZE, key_fingerprint,
+    CompromiseNotice, CompromiseReason, FINGERPRINT_SIZE, RECOVERY_SEED_SIZE,
+    RecoveryKeyAttestation, key_fingerprint,
 };
 #[cfg(any(feature = "std", feature = "wasm"))]
 pub use safety_number::SafetyNumber;

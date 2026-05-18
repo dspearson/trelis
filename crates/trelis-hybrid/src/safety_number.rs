@@ -43,11 +43,14 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::identity::HybridIdentityPublicKey;
+use crate::signature::HybridSigningPublicKey;
 
 /// Context strings re-exported from the central BLAKE3 derive-key registry
 /// in `trelis_primitives::blake3_kdf` (PROTO-07-NEW1). The downstream-visible
 /// names are preserved.
-pub use trelis_primitives::{SAFETY_NUMBER_CONTEXT, SAFETY_NUMBER_SYNC_CONTEXT};
+pub use trelis_primitives::{
+    SAFETY_NUMBER_CONTEXT, SAFETY_NUMBER_DEVICE_SET_CONTEXT, SAFETY_NUMBER_SYNC_CONTEXT,
+};
 
 /// Size of the thread ID for history-sync safety numbers.
 pub const THREAD_ID_SIZE: usize = 32;
@@ -134,6 +137,93 @@ impl SafetyNumber {
         Self { fingerprint }
     }
 
+    /// Creates a safety number bound to the current device set of both users.
+    ///
+    /// This is the spec §15.6 device-set-binding construction. The resulting
+    /// safety number changes whenever either user adds or removes a device,
+    /// giving cryptographic detection of silent device additions. Each user's
+    /// device set is hashed in canonical (fingerprint-sorted) order so the
+    /// safety number is independent of device insertion order.
+    ///
+    /// A distinct BLAKE3 context (`SAFETY_NUMBER_DEVICE_SET_CONTEXT`) ensures
+    /// device-set-bound safety numbers are not confused with identity-only
+    /// ones — they encode a stricter security claim.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_a` — First user's identity public key
+    /// * `key_b` — Second user's identity public key
+    /// * `devices_a` — First user's current device-identity public keys
+    /// * `devices_b` — Second user's current device-identity public keys
+    ///
+    /// # Commutativity
+    ///
+    /// `new_with_device_set(a, b, da, db) == new_with_device_set(b, a, db, da)`
+    /// — the per-user (identity, device-set) tuples are paired then sorted.
+    #[cfg(feature = "alloc")]
+    #[must_use]
+    pub fn new_with_device_set(
+        key_a: &HybridIdentityPublicKey,
+        key_b: &HybridIdentityPublicKey,
+        devices_a: &[HybridSigningPublicKey],
+        devices_b: &[HybridSigningPublicKey],
+    ) -> Self {
+        // For each user, fold identity + sorted-device-set into one 32-byte
+        // digest. The pairing is what gives the commutativity invariant: a
+        // user's device set always travels with their identity.
+        let a_combined = Self::hash_identity_with_devices(key_a, devices_a);
+        let b_combined = Self::hash_identity_with_devices(key_b, devices_b);
+
+        // Sort the two combined digests so swap-of-arguments produces the
+        // same fingerprint.
+        let (first, second) = if a_combined.as_bytes() < b_combined.as_bytes() {
+            (a_combined, b_combined)
+        } else {
+            (b_combined, a_combined)
+        };
+
+        let mut input = [0u8; 64];
+        input[..32].copy_from_slice(first.as_bytes());
+        input[32..].copy_from_slice(second.as_bytes());
+
+        let fingerprint = blake3::derive_key(SAFETY_NUMBER_DEVICE_SET_CONTEXT, &input);
+
+        Self { fingerprint }
+    }
+
+    /// Folds a hybrid identity public key together with a sorted hash of its
+    /// device set into a single 32-byte digest.
+    ///
+    /// Devices are sorted by `BLAKE3(device_pk_bytes)` ascending before
+    /// concatenation, so the device-set hash is independent of insertion
+    /// order.
+    #[cfg(feature = "alloc")]
+    fn hash_identity_with_devices(
+        key: &HybridIdentityPublicKey,
+        devices: &[HybridSigningPublicKey],
+    ) -> blake3::Hash {
+        // Step 1: per-device fingerprints (sorted)
+        let mut device_fingerprints: Vec<[u8; 32]> = devices
+            .iter()
+            .map(|pk| *blake3::hash(&pk.to_bytes()).as_bytes())
+            .collect();
+        device_fingerprints.sort_unstable();
+
+        // Step 2: hash the concatenated sorted fingerprints
+        let mut device_set_input: Vec<u8> = Vec::with_capacity(device_fingerprints.len() * 32);
+        for fp in &device_fingerprints {
+            device_set_input.extend_from_slice(fp);
+        }
+        let device_set_hash = blake3::hash(&device_set_input);
+
+        // Step 3: combine identity digest + device-set digest
+        let identity_digest = Self::hash_identity(key);
+        let mut combined = [0u8; 64];
+        combined[..32].copy_from_slice(identity_digest.as_bytes());
+        combined[32..].copy_from_slice(device_set_hash.as_bytes());
+        blake3::hash(&combined)
+    }
+
     /// Hashes a hybrid identity public key to a 32-byte digest.
     ///
     /// Includes all four key components:
@@ -158,6 +248,19 @@ impl SafetyNumber {
     #[must_use]
     pub fn fingerprint(&self) -> &[u8; 32] {
         &self.fingerprint
+    }
+
+    /// Reconstructs a `SafetyNumber` from its raw 32-byte fingerprint.
+    ///
+    /// This is the wire-tier inverse of [`Self::fingerprint`] — used when
+    /// deserialising structures that embed a safety number (e.g.
+    /// `CertifiedSafetyNumber`). It does NOT re-verify that the bytes
+    /// were produced by a real `new()` / `new_with_history_sync` /
+    /// `new_with_device_set` call; callers must check the surrounding
+    /// signature to ensure provenance.
+    #[must_use]
+    pub fn from_fingerprint_bytes(fingerprint: [u8; 32]) -> Self {
+        Self { fingerprint }
     }
 
     /// Formats the safety number as 60 decimal digits.
@@ -496,5 +599,133 @@ mod tests {
         let encoded = base64_url_encode(&data);
         let decoded = base64_url_decode(&encoded).unwrap();
         assert_eq!(data.to_vec(), decoded);
+    }
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_device_set_safety_number_commutativity() {
+        let alice = HybridIdentityKeypair::generate().unwrap();
+        let bob = HybridIdentityKeypair::generate().unwrap();
+
+        let alice_dev1 = HybridIdentityKeypair::generate().unwrap();
+        let alice_dev2 = HybridIdentityKeypair::generate().unwrap();
+        let bob_dev1 = HybridIdentityKeypair::generate().unwrap();
+
+        let alice_devices = [
+            alice_dev1.public_key().signing().clone(),
+            alice_dev2.public_key().signing().clone(),
+        ];
+        let bob_devices = [bob_dev1.public_key().signing().clone()];
+
+        let sn1 = SafetyNumber::new_with_device_set(
+            alice.public_key(),
+            bob.public_key(),
+            &alice_devices,
+            &bob_devices,
+        );
+        let sn2 = SafetyNumber::new_with_device_set(
+            bob.public_key(),
+            alice.public_key(),
+            &bob_devices,
+            &alice_devices,
+        );
+
+        assert_eq!(
+            sn1.fingerprint(),
+            sn2.fingerprint(),
+            "Order of (key, devices) tuples should not matter"
+        );
+    }
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_device_set_safety_number_changes_with_device_addition() {
+        let alice = HybridIdentityKeypair::generate().unwrap();
+        let bob = HybridIdentityKeypair::generate().unwrap();
+
+        let alice_dev1 = HybridIdentityKeypair::generate().unwrap();
+        let alice_dev2 = HybridIdentityKeypair::generate().unwrap();
+        let bob_dev1 = HybridIdentityKeypair::generate().unwrap();
+
+        let before = SafetyNumber::new_with_device_set(
+            alice.public_key(),
+            bob.public_key(),
+            &[alice_dev1.public_key().signing().clone()],
+            &[bob_dev1.public_key().signing().clone()],
+        );
+
+        let after = SafetyNumber::new_with_device_set(
+            alice.public_key(),
+            bob.public_key(),
+            &[
+                alice_dev1.public_key().signing().clone(),
+                alice_dev2.public_key().signing().clone(),
+            ],
+            &[bob_dev1.public_key().signing().clone()],
+        );
+
+        assert_ne!(
+            before.fingerprint(),
+            after.fingerprint(),
+            "Adding a device must change the safety number"
+        );
+    }
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_device_set_safety_number_independent_of_device_insertion_order() {
+        let alice = HybridIdentityKeypair::generate().unwrap();
+        let bob = HybridIdentityKeypair::generate().unwrap();
+
+        let alice_dev1 = HybridIdentityKeypair::generate().unwrap();
+        let alice_dev2 = HybridIdentityKeypair::generate().unwrap();
+        let bob_dev1 = HybridIdentityKeypair::generate().unwrap();
+
+        let devices_order_1 = [
+            alice_dev1.public_key().signing().clone(),
+            alice_dev2.public_key().signing().clone(),
+        ];
+        let devices_order_2 = [
+            alice_dev2.public_key().signing().clone(),
+            alice_dev1.public_key().signing().clone(),
+        ];
+
+        let sn1 = SafetyNumber::new_with_device_set(
+            alice.public_key(),
+            bob.public_key(),
+            &devices_order_1,
+            &[bob_dev1.public_key().signing().clone()],
+        );
+        let sn2 = SafetyNumber::new_with_device_set(
+            alice.public_key(),
+            bob.public_key(),
+            &devices_order_2,
+            &[bob_dev1.public_key().signing().clone()],
+        );
+
+        assert_eq!(
+            sn1.fingerprint(),
+            sn2.fingerprint(),
+            "Device order must be canonicalised (sorted by fingerprint)"
+        );
+    }
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_device_set_distinct_from_identity_only_safety_number() {
+        let alice = HybridIdentityKeypair::generate().unwrap();
+        let bob = HybridIdentityKeypair::generate().unwrap();
+
+        let identity_only = SafetyNumber::new(alice.public_key(), bob.public_key());
+        let with_empty_device_sets =
+            SafetyNumber::new_with_device_set(alice.public_key(), bob.public_key(), &[], &[]);
+
+        // Distinct BLAKE3 context strings — even empty device sets must
+        // produce a different fingerprint than the identity-only number.
+        assert_ne!(
+            identity_only.fingerprint(),
+            with_empty_device_sets.fingerprint(),
+            "Device-set-bound and identity-only safety numbers MUST live in distinct security domains"
+        );
     }
 }
