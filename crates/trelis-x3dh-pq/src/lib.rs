@@ -52,6 +52,8 @@ extern crate std;
 // Full MIRI coverage of this crate must be invoked with `--features std`
 // (the default).
 #[cfg(any(feature = "std", feature = "wasm"))]
+pub mod builder;
+#[cfg(any(feature = "std", feature = "wasm"))]
 pub mod bundle;
 #[cfg(any(feature = "std", feature = "wasm"))]
 pub mod initiator;
@@ -62,6 +64,8 @@ pub mod session_keys;
 #[cfg(any(feature = "std", feature = "wasm"))]
 pub mod transcript;
 
+#[cfg(any(feature = "std", feature = "wasm"))]
+pub use builder::PrekeyBundleBuilder;
 #[cfg(any(feature = "std", feature = "wasm"))]
 pub use bundle::{PreKeyBundle, SignedPreKeyBundle};
 #[cfg(any(feature = "std", feature = "wasm"))]
