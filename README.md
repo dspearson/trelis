@@ -39,13 +39,33 @@ Hybrid operations combine both classical and post-quantum components. Security d
 
 ## Features
 
-- Hybrid post-quantum key encapsulation and signatures
-- X3DH-PQ key agreement for session establishment
-- Per-message KEM ratchet providing forward secrecy
-- CoCoA-SA for group messaging with server-assisted delivery
-- Multi-device support with history synchronisation
-- `no_std` support for embedded and WASM environments
-- Automatic zeroisation of secret material
+- **Hybrid post-quantum cryptography**: every signature and KEM operation
+  combines a classical primitive (Ed448 or X448) with a post-quantum
+  primitive (ML-DSA-65 or sntrup761). An attacker must break both.
+- **Hedged ML-DSA-65 signing**: combines the deterministic FIPS 204 nonce
+  with fresh randomness as defence-in-depth against PRNG failure.
+- **X3DH-PQ** for session establishment, with a typed-state builder that
+  prevents mixing signed and unsigned prekey bundles at the API level.
+- **KEM ratchet** providing per-message forward secrecy via a fresh hybrid
+  encapsulation on every send.
+- **CoCoA-SA group messaging** with per-sender message chains and
+  sender-bound AAD — two members at the same `(epoch, counter)` derive
+  disjoint keys, eliminating the cross-sender nonce-reuse risk.
+- **Multi-device support**: self-verifying `DeviceApprovalCertificate` (the
+  approving device's public key is embedded in the cert body), wrapped
+  key delivery to new devices, history-key synchronisation, and signed
+  revocation certificates.
+- **Identity certificates and recovery**: issuer-signed `IdentityCertificate`,
+  `CertifiedSafetyNumber`, and `RecoveryKeyAttestation` for offline
+  identity verification and account recovery.
+- **Hardware-attested identity**: seeded keypair derivation for callers
+  that obtain entropy from an HSM, secure element, or other attested
+  source.
+- **Memory hygiene**: `ZeroizeOnDrop` on every secret type, `Zeroizing<>`
+  wrappers around all KDF outputs, and optional `mlock`-backed
+  `LockedBox` / `GuardedBox` containers behind the `mlock` feature.
+- **`no_std` support** for embedded and WASM environments; `wasm-bindgen`
+  bindings published as the `trelis-wasm` crate.
 
 ## Building
 
