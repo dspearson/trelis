@@ -6,6 +6,8 @@
 //! - Message encryption/decryption state
 
 #[cfg(feature = "alloc")]
+use alloc::collections::BTreeSet;
+#[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
 use trelis_error::{CryptoError, Result};
@@ -34,6 +36,16 @@ pub struct CocoaSession {
     epoch: Epoch,
     /// Transcript hash chain.
     transcript_hash: [u8; 32],
+    /// Known group members, keyed by derived user ID.
+    ///
+    /// GAP-03 double-join guard. Populated with the creator on `create_group`,
+    /// the joiner on `join_group`, each added member on `add_member` /
+    /// `process_add`, and pruned on `process_remove`. On a session restored
+    /// from a serialised blob only `our_user_id` is known (the leaf owners are
+    /// not recoverable from the tree, which stores `last_updater_id`), so the
+    /// guard is best-effort across (de)serialisation — its load-bearing value
+    /// is on active sessions (OQ-3 residual).
+    members: BTreeSet<UserId>,
 }
 
 #[cfg(feature = "alloc")]
@@ -68,6 +80,10 @@ impl CocoaSession {
         let transcript_hash = [0u8; 32];
         let epoch = Epoch::initial(epoch_secret, transcript_hash);
 
+        // GAP-03: the creator is the group's first member.
+        let mut members = BTreeSet::new();
+        members.insert(our_user_id);
+
         Ok(Self {
             group_id,
             our_user_id,
@@ -76,6 +92,7 @@ impl CocoaSession {
             tree,
             epoch,
             transcript_hash,
+            members,
         })
     }
 
@@ -115,6 +132,11 @@ impl CocoaSession {
 
         let epoch = Epoch::initial(epoch_secret, transcript_hash);
 
+        // GAP-03: best-effort — a joiner knows its own user ID. The remaining
+        // leaf owners are learned as future add/remove commits are processed.
+        let mut members = BTreeSet::new();
+        members.insert(our_user_id);
+
         Self {
             group_id,
             our_user_id,
@@ -123,7 +145,126 @@ impl CocoaSession {
             tree,
             epoch,
             transcript_hash,
+            members,
         }
+    }
+
+    /// Restores a session directly at `epoch_number` from a stored epoch secret
+    /// (session (de)serialisation, GAP-04b / WR-06).
+    ///
+    /// Unlike [`join_group`](Self::join_group) followed by repeated
+    /// [`advance_epoch`](Self::advance_epoch), this reconstructs the epoch
+    /// secrets from the EXACT stored epoch secret and sets the epoch number
+    /// WITHOUT re-deriving. Advancing from epoch 0 would move the secret away
+    /// (via `h5_epoch_secret`) and corrupt the restored `app_secret` for any
+    /// epoch > 0, so a round-tripped session at epoch > 0 could no longer
+    /// decrypt any peer's messages. Gated behind `session-serialization` (the
+    /// sole consumer is the `trelis-wasm` session deserialiser).
+    ///
+    /// The message counter starts at 0; the caller restores it via
+    /// [`set_message_counter`](Self::set_message_counter). Like `join_group`,
+    /// only `our_user_id` is seeded into the member registry (OQ-3 residual).
+    #[cfg(feature = "session-serialization")]
+    #[allow(clippy::too_many_arguments)]
+    #[must_use]
+    pub fn restore_session(
+        group_id: GroupId,
+        our_user_id: UserId,
+        our_keypair: HybridKemKeypair,
+        our_position: u32,
+        tree_depth: u32,
+        member_count: u32,
+        epoch_secret: &[u8; 32],
+        transcript_hash: [u8; 32],
+        epoch_number: u64,
+    ) -> Self {
+        let mut tree = PartialTreeView::new(our_position, tree_depth);
+        tree.set_member_count(member_count);
+
+        let epoch = Epoch::restore(epoch_secret, transcript_hash, epoch_number);
+
+        let mut members = BTreeSet::new();
+        members.insert(our_user_id);
+
+        Self {
+            group_id,
+            our_user_id,
+            our_leaf_position: our_position,
+            our_keypair,
+            tree,
+            epoch,
+            transcript_hash,
+            members,
+        }
+    }
+
+    /// Restores a session through the single safe door: the watermark check runs
+    /// BEFORE any reconstruction, so this entry cannot be used to roll a session
+    /// back below the highest `(epoch, counter)` the caller has already committed
+    /// for this identity (RBK-01 / GAP-05). It then delegates to the
+    /// byte-unchanged [`restore_session`](Self::restore_session) and
+    /// [`set_message_counter`](Self::set_message_counter) — the 52-05 in-object
+    /// guard still runs on the reconstructed object (SC2).
+    ///
+    /// The watermark comparison is lexicographic `(epoch_number, message_counter)`
+    /// and rejects strictly-below while accepting equal or above (see
+    /// `SessionWatermark::check`).
+    ///
+    /// # Caller contract
+    ///
+    /// The `watermark` MUST be the one the caller persisted for THIS identity
+    /// `(group_id, our_user_id)`. The crate reconstructs strictly at the blob's
+    /// own identity, so a watermark only ever gates the exact `(epoch, counter)`
+    /// supplied here — but the caller MUST key its persisted watermark store by
+    /// `(group_id, our_user_id)`. Comparing a watermark from a DIFFERENT identity
+    /// is a caller error: the 16-byte watermark carries no identity by design,
+    /// and identity-binding it is a noted future hardening.
+    ///
+    /// After the caller emits or serialises, it MUST advance and persist the
+    /// watermark to the new `(epoch, counter)` — the `advanced` / `of_session` of
+    /// the post-op state — atomically with, or before, releasing the emitted
+    /// ciphertext. Accepting an EQUAL `(epoch, counter)` on restore is safe ONLY
+    /// because emit advances the persisted watermark past the reloaded blob; a
+    /// crash between emit and persist would otherwise re-open the same-counter
+    /// re-emit. Route every durable-storage load through this checked door.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CryptoError::MessageCounterTooOld`] if the restore would roll
+    /// below the watermark (via `SessionWatermark::check`), plus any error
+    /// [`set_message_counter`](Self::set_message_counter) surfaces.
+    #[cfg(feature = "session-serialization")]
+    #[allow(clippy::too_many_arguments)]
+    pub fn restore_session_checked(
+        watermark: &crate::session_watermark::SessionWatermark,
+        group_id: GroupId,
+        our_user_id: UserId,
+        our_keypair: HybridKemKeypair,
+        our_position: u32,
+        tree_depth: u32,
+        member_count: u32,
+        epoch_secret: &[u8; 32],
+        transcript_hash: [u8; 32],
+        epoch_number: u64,
+        message_counter: u64,
+    ) -> Result<CocoaSession> {
+        // Reject the rollback BEFORE any reconstruction. Reconstruction emits no
+        // ciphertext, but checking first makes this door unusable unsafely.
+        watermark.check(epoch_number, message_counter)?;
+        let mut s = CocoaSession::restore_session(
+            group_id,
+            our_user_id,
+            our_keypair,
+            our_position,
+            tree_depth,
+            member_count,
+            epoch_secret,
+            transcript_hash,
+            epoch_number,
+        );
+        // The 52-05 in-object guard still runs on the fresh `0 -> N` forward-set.
+        s.set_message_counter(message_counter)?;
+        Ok(s)
     }
 
     /// Returns the group identifier.
@@ -179,6 +320,26 @@ impl CocoaSession {
         self.tree.member_count()
     }
 
+    /// Returns `true` if `id` is a known member of this group.
+    ///
+    /// GAP-03 double-join guard. Reflects the members this session has learned
+    /// about (see the `members` field docs for the best-effort caveat on
+    /// restored sessions).
+    #[must_use]
+    pub fn is_member(&self, id: &UserId) -> bool {
+        self.members.contains(id)
+    }
+
+    /// Records `id` as a known member (idempotent).
+    pub(crate) fn insert_member(&mut self, id: UserId) {
+        self.members.insert(id);
+    }
+
+    /// Removes `id` from the known-member set (idempotent).
+    pub(crate) fn remove_member(&mut self, id: &UserId) {
+        self.members.remove(id);
+    }
+
     /// Returns the current epoch's init_secret for serialisation.
     ///
     /// This is needed to properly serialise and restore session state.
@@ -187,9 +348,16 @@ impl CocoaSession {
         self.epoch.init_secret()
     }
 
-    /// Returns the current epoch secret. Used by server-side epoch history
-    /// capture. Must be read BEFORE any epoch advance — the secret is
-    /// zeroized when EpochSecrets is dropped during the advance.
+    /// Returns the current epoch secret. Gated behind the
+    /// `session-serialization` feature so the raw secret is not on the default
+    /// public surface — the sole consumer is the `trelis-wasm` session
+    /// serialiser, which enables the feature (GAP-04b / F07 prong b, OQ-4
+    /// Option 1). Moving (de)serialisation fully in-crate (OQ-4 Option 3) is the
+    /// stronger follow-up.
+    ///
+    /// Must be read BEFORE any epoch advance — the secret is zeroized when
+    /// `EpochSecrets` is dropped during the advance.
+    #[cfg(feature = "session-serialization")]
     #[must_use]
     pub fn current_epoch_secret(&self) -> &[u8; 32] {
         self.epoch.secrets().epoch_secret()
@@ -201,12 +369,19 @@ impl CocoaSession {
         self.epoch.message_counter()
     }
 
-    /// Sets the message counter (for deserialisation).
+    /// Sets the message counter (for deserialisation), monotonic-forward only.
     ///
-    /// This directly sets the counter without deriving intermediate keys,
-    /// which is both more efficient and avoids potential overflow issues.
-    pub fn set_message_counter(&mut self, counter: u64) {
-        self.epoch.set_message_counter(counter);
+    /// Delegates to [`Epoch::set_message_counter`], which rejects an
+    /// intra-epoch regression (a value strictly below the current counter) so a
+    /// rolled-back counter cannot re-emit an already-used `(key, nonce)` pair
+    /// under XChaCha20-Poly1305.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CryptoError::MessageCounterTooOld`] if `counter` is strictly
+    /// less than the current message counter.
+    pub fn set_message_counter(&mut self, counter: u64) -> Result<()> {
+        self.epoch.set_message_counter(counter)
     }
 
     /// Encrypts a message for the group.
@@ -382,7 +557,8 @@ impl Zeroize for CocoaSession {
         self.our_keypair.zeroize();
         self.epoch.zeroize();
         self.transcript_hash.zeroize();
-        // group_id, our_user_id, our_leaf_position, and tree are not secrets
+        // group_id, our_user_id, our_leaf_position, tree, and members are not
+        // secrets (member IDs are derived public identifiers)
     }
 }
 
@@ -566,6 +742,129 @@ mod tests {
 
         assert_eq!(session.epoch_number(), 1);
         assert_eq!(session.transcript_hash(), &new_transcript);
+    }
+
+    /// GAP-05 / F09: after a legitimate restore that forward-sets the counter
+    /// to N, `encrypt()` derives at N and then advances — it never re-emits a
+    /// lower `(leaf, counter)` triple.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_encrypt_after_restore_advances() {
+        let mut session = create_test_session();
+        session.set_message_counter(10).unwrap();
+        assert_eq!(session.message_counter(), 10);
+
+        let encrypted = session.encrypt(b"after restore").unwrap();
+        assert_eq!(
+            encrypted.counter, 10,
+            "encrypt must use the restored counter"
+        );
+        assert_eq!(
+            session.message_counter(),
+            11,
+            "encrypt must advance past the restored counter"
+        );
+    }
+
+    /// GAP-05 / F09: the session-level setter delegates the monotonic-forward
+    /// guard — a regression is rejected at the `CocoaSession` boundary (the
+    /// exact boundary the WASM deserialiser drives), leaving the counter
+    /// unchanged.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_session_counter_regression_rejected() {
+        let mut session = create_test_session();
+        session.set_message_counter(5).unwrap();
+        let result = session.set_message_counter(3);
+        assert!(matches!(result, Err(CryptoError::MessageCounterTooOld)));
+        assert_eq!(session.message_counter(), 5);
+    }
+
+    /// GAP-05 / RBK-01: the single safe restore door rejects a strictly-below
+    /// `(epoch, counter)` — the cross-invocation rollback — before any
+    /// reconstruction, while accepting the honest equal / same-epoch-forward /
+    /// higher-epoch reloads. The 52-05 in-object guard still runs on the
+    /// reconstructed object (equal is accepted on the fresh `0 -> N` forward-set).
+    #[cfg(feature = "session-serialization")]
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn restore_session_checked_gates_rollback() {
+        use crate::SessionWatermark;
+
+        let group_id = [0x42u8; 32];
+        let user_id = [0x01u8; 32];
+        let epoch_secret = [0u8; 32];
+        let transcript_hash = [0u8; 32];
+        let our_position = 0;
+        let tree_depth = 1;
+        let member_count = 2;
+
+        let wm = SessionWatermark::new(0, 150);
+
+        // (a) strictly-below rollback → rejected before any reconstruction.
+        let rolled = CocoaSession::restore_session_checked(
+            &wm,
+            group_id,
+            user_id,
+            HybridKemKeypair::generate().unwrap(),
+            our_position,
+            tree_depth,
+            member_count,
+            &epoch_secret,
+            transcript_hash,
+            0,
+            50,
+        );
+        assert!(matches!(rolled, Err(CryptoError::MessageCounterTooOld)));
+
+        // (b) equal → accepted (honest newest-blob reload); counter restored.
+        let equal = CocoaSession::restore_session_checked(
+            &wm,
+            group_id,
+            user_id,
+            HybridKemKeypair::generate().unwrap(),
+            our_position,
+            tree_depth,
+            member_count,
+            &epoch_secret,
+            transcript_hash,
+            0,
+            150,
+        )
+        .unwrap();
+        assert_eq!(equal.message_counter(), 150);
+
+        // (c) same epoch, forward → accepted.
+        let forward = CocoaSession::restore_session_checked(
+            &wm,
+            group_id,
+            user_id,
+            HybridKemKeypair::generate().unwrap(),
+            our_position,
+            tree_depth,
+            member_count,
+            &epoch_secret,
+            transcript_hash,
+            0,
+            200,
+        );
+        assert!(forward.is_ok());
+
+        // (d) higher epoch dominates (disjoint key space) → accepted.
+        let higher = CocoaSession::restore_session_checked(
+            &wm,
+            group_id,
+            user_id,
+            HybridKemKeypair::generate().unwrap(),
+            our_position,
+            tree_depth,
+            member_count,
+            &epoch_secret,
+            transcript_hash,
+            1,
+            0,
+        );
+        assert!(higher.is_ok());
     }
 
     #[test]

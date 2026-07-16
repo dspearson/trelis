@@ -9,6 +9,11 @@
 //! The nonce is NOT included in the output and must be transmitted separately
 //! or derived deterministically.
 //!
+//! The committing variant (`encrypt_committing`) additionally appends a 32-byte
+//! BLAKE3 key-commitment, so its output is `ciphertext || tag || commitment`
+//! (commitment = [`COMMITMENT_SIZE`] bytes). See the "Committing AEAD" section
+//! below for the CMT-4 construction.
+//!
 //! # Security Properties
 //!
 //! - **Confidentiality**: XChaCha20 stream cipher
@@ -51,6 +56,13 @@ use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use trelis_error::{CryptoError, Result};
+
+// The committing-AEAD wrapper (`encrypt_committing`/`decrypt_committing`)
+// derives its key-commitment subkey via `blake3_kdf`. Only the allocating path
+// needs it, so the import is gated on `alloc` to avoid an unused-import warning
+// under `--no-default-features`.
+#[cfg(feature = "alloc")]
+use crate::blake3_kdf::{self, AEAD_COMMIT_CONTEXT};
 
 /// Size of the AEAD key in bytes (256 bits).
 pub const KEY_SIZE: usize = 32;
@@ -349,6 +361,121 @@ pub fn decrypt_in_place(
         .map_err(|_| CryptoError::AeadAuthenticationFailed)
 }
 
+// ============================================================================
+// Committing AEAD (CMT-4) — additive wrapper over the multi-key wraps
+// ============================================================================
+//
+// The base `encrypt`/`decrypt` above are XChaCha20-Poly1305, which is NOT
+// key-committing: one ciphertext can in principle open under two different keys
+// to two different plaintexts. The multi-key wraps ("one plaintext, N keys" —
+// group path seeds, Welcome epoch secrets, device-key wraps) need that to be a
+// *designed* property, not incidental. The functions below layer an
+// Encrypt-then-BLAKE3-commit (CMT-4) commitment on top of the base cipher: the
+// cipher and its Poly1305 tag are unchanged, and a 32-byte BLAKE3
+// key-commitment is appended. See `blake3_kdf::AEAD_COMMIT_CONTEXT`
+// (Phase 54, AEAD-01/F01).
+
+/// Size of the appended key-commitment tag in bytes.
+///
+/// This is the full 256-bit BLAKE3 output, giving 128-bit collision
+/// resistance. It MUST NOT be truncated: a 16-byte commitment would fall to
+/// 2^64 birthday resistance, too weak to bind the key.
+pub const COMMITMENT_SIZE: usize = 32;
+
+/// Computes the length-framed, domain-separated BLAKE3 key-commitment.
+///
+/// `C = BLAKE3_keyed(K_commit, LE64(|nonce|)‖nonce ‖ LE64(|aad|)‖aad ‖ LE64(|ct|)‖ct)`
+/// where `K_commit = derive_key(AEAD_COMMIT_CONTEXT, key)`. The `LE64(len)‖field`
+/// framing on each of nonce/aad/ct is mandatory: without it `nonce‖aad‖ct` is
+/// parse-ambiguous and a byte could be shifted across the aad|ct boundary for
+/// the same MAC input (a canonicalisation collision). The prefixes are LE64
+/// (not LE32) so a field length can never truncate modulo 2^32 and alias two
+/// distinct triples onto one MAC input (WR-01) — u64 covers any `usize` length;
+/// the commitment output stays 32 bytes regardless. Centralised here so
+/// `encrypt_committing` and `decrypt_committing` cannot drift.
+///
+/// `K_commit` stays inside the `Zeroizing` that `derive_key` returns, so it is
+/// zeroed on drop; it is never copied into a bare array. The returned
+/// commitment is public (it is appended to the ciphertext on the wire).
+#[cfg(feature = "alloc")]
+fn aead_commitment(key: &AeadKey, nonce: &Nonce, aad: &[u8], ct: &[u8]) -> [u8; COMMITMENT_SIZE] {
+    let k_commit = blake3_kdf::derive_key(AEAD_COMMIT_CONTEXT, key.as_bytes());
+    let mut input = Vec::with_capacity(8 + NONCE_SIZE + 8 + aad.len() + 8 + ct.len());
+    input.extend_from_slice(&(NONCE_SIZE as u64).to_le_bytes());
+    input.extend_from_slice(nonce.as_bytes());
+    input.extend_from_slice(&(aad.len() as u64).to_le_bytes());
+    input.extend_from_slice(aad);
+    input.extend_from_slice(&(ct.len() as u64).to_le_bytes());
+    input.extend_from_slice(ct);
+    *blake3_kdf::keyed_hash(&k_commit, &input)
+}
+
+/// Committing AEAD: XChaCha20-Poly1305 then an appended 32-byte BLAKE3
+/// key-commitment (CMT-4).
+///
+/// The output is `encrypt(key, nonce, plaintext, aad) ‖ commitment(32)`, so
+/// `out.len() == plaintext.len() + TAG_SIZE + COMMITMENT_SIZE`. The commitment
+/// binds the length-framed `(nonce, aad, full-ciphertext)` — where the
+/// ciphertext includes the Poly1305 tag — under a domain-separated subkey. This
+/// gives key commitment: a single committing ciphertext cannot be opened under
+/// two different keys. The base [`encrypt`] is called unchanged and retained —
+/// this is an additive wrapper for the multi-key ("one plaintext, N keys")
+/// wraps.
+///
+/// # Errors
+///
+/// Propagates any error from the underlying [`encrypt`].
+#[cfg(feature = "alloc")]
+pub fn encrypt_committing(
+    key: &AeadKey,
+    nonce: &Nonce,
+    plaintext: &[u8],
+    aad: &[u8],
+) -> Result<Vec<u8>> {
+    let mut out = encrypt(key, nonce, plaintext, aad)?; // body ‖ poly1305 tag
+    let commitment = aead_commitment(key, nonce, aad, &out);
+    out.extend_from_slice(&commitment); // ‖ commitment(32)
+    Ok(out)
+}
+
+/// Inverse of [`encrypt_committing`]: constant-time-verify the 32-byte
+/// commitment, then the Poly1305 tag.
+///
+/// Returns the recovered plaintext iff BOTH the recomputed commitment matches
+/// (in constant time) AND the Poly1305 tag verifies. On either failure the
+/// uniform [`CryptoError::AeadAuthenticationFailed`] is returned, so a caller
+/// cannot distinguish a commitment mismatch from a Poly1305 failure. The
+/// commitment is verified BEFORE the Poly1305 open (Encrypt-then-MAC), so the
+/// key-commitment property holds independently of Poly1305.
+///
+/// # Errors
+///
+/// - [`CryptoError::InvalidCiphertext`] if `committing_ct` is shorter than
+///   `TAG_SIZE + COMMITMENT_SIZE` (checked before any slicing).
+/// - [`CryptoError::AeadAuthenticationFailed`] on a commitment mismatch, a
+///   wrong key, tampered ciphertext/commitment, or a wrong AAD.
+#[cfg(feature = "alloc")]
+#[must_use = "the decrypted plaintext must be checked or used"]
+pub fn decrypt_committing(
+    key: &AeadKey,
+    nonce: &Nonce,
+    committing_ct: &[u8],
+    aad: &[u8],
+) -> Result<Vec<u8>> {
+    if committing_ct.len() < TAG_SIZE + COMMITMENT_SIZE {
+        return Err(CryptoError::InvalidCiphertext);
+    }
+    let split = committing_ct.len() - COMMITMENT_SIZE;
+    let (ct, commitment) = committing_ct.split_at(split);
+    let expected = aead_commitment(key, nonce, aad, ct);
+    // Constant-time compare; the uniform error is identical to a Poly1305
+    // failure, so no oracle distinguishes the two paths.
+    if expected[..].ct_eq(commitment).unwrap_u8() != 1 {
+        return Err(CryptoError::AeadAuthenticationFailed);
+    }
+    decrypt(key, nonce, ct, aad) // Poly1305 verify + open
+}
+
 // Gated on `alloc` because the tests below use the allocating
 // `encrypt`/`decrypt` helpers and `alloc::vec` macros. Without this gate,
 // `cargo {check,miri test} --no-default-features` fails to compile the
@@ -618,5 +745,110 @@ mod tests {
 
         // Decrypt empty
         decrypt_in_place(&key, &nonce, &mut buf, 0, &tag, b"").unwrap();
+    }
+
+    #[test]
+    fn committing_aead_is_key_committing() {
+        // Positive round-trip: encrypt then decrypt under the same key recovers
+        // the exact plaintext (the commitment is stripped on the way out).
+        let k1 = AeadKey::from_bytes([0x11; KEY_SIZE]);
+        let n = Nonce::from_bytes([0x00; NONCE_SIZE]);
+        let plaintext = b"epoch-secret-material";
+        let aad = b"aad";
+
+        let ct = encrypt_committing(&k1, &n, plaintext, aad).unwrap();
+        // out = body ‖ poly1305 tag(16) ‖ commitment(32).
+        assert_eq!(ct.len(), plaintext.len() + TAG_SIZE + COMMITMENT_SIZE);
+        let recovered = decrypt_committing(&k1, &n, &ct, aad).unwrap();
+        assert_eq!(recovered, plaintext);
+
+        // Key commitment (the direct F01 / AEAD-01 guarantee): the SAME
+        // committing ciphertext MUST NOT open under a different key.
+        let k2 = AeadKey::from_bytes([0x22; KEY_SIZE]);
+        assert!(matches!(
+            decrypt_committing(&k2, &n, &ct, aad),
+            Err(CryptoError::AeadAuthenticationFailed)
+        ));
+
+        // Tampered commitment (flip the last byte) is rejected with the uniform
+        // error — the constant-time compare fails before the Poly1305 open.
+        let mut bad_commit = ct.clone();
+        let last = bad_commit.len() - 1;
+        bad_commit[last] ^= 0xff;
+        assert!(matches!(
+            decrypt_committing(&k1, &n, &bad_commit, aad),
+            Err(CryptoError::AeadAuthenticationFailed)
+        ));
+
+        // Tampered ciphertext body is rejected (uniform error): the recomputed
+        // commitment no longer matches the stored one.
+        let mut bad_ct = ct.clone();
+        bad_ct[0] ^= 0xff;
+        assert!(matches!(
+            decrypt_committing(&k1, &n, &bad_ct, aad),
+            Err(CryptoError::AeadAuthenticationFailed)
+        ));
+
+        // Wrong AAD is rejected (the commitment binds the AAD).
+        assert!(matches!(
+            decrypt_committing(&k1, &n, &ct, b"wrong aad"),
+            Err(CryptoError::AeadAuthenticationFailed)
+        ));
+
+        // Truncated input (shorter than TAG_SIZE + COMMITMENT_SIZE) is rejected
+        // with InvalidCiphertext, returned before any slicing.
+        let short = [0u8; TAG_SIZE + COMMITMENT_SIZE - 1];
+        assert!(matches!(
+            decrypt_committing(&k1, &n, &short, aad),
+            Err(CryptoError::InvalidCiphertext)
+        ));
+    }
+
+    #[test]
+    fn base_aead_still_present() {
+        // SC2: the base XChaCha20-Poly1305 encrypt/decrypt remain usable and
+        // unchanged — the per-message channel relies on them and they carry no
+        // deprecation marker. The base output carries only the Poly1305 tag; the
+        // committing wrapper appends exactly COMMITMENT_SIZE more bytes.
+        let key = AeadKey::from_bytes([0x42; KEY_SIZE]);
+        let nonce = Nonce::from_bytes([0x00; NONCE_SIZE]);
+        let plaintext = b"per-message channel payload";
+        let aad = b"channel-aad";
+
+        let base = encrypt(&key, &nonce, plaintext, aad).unwrap();
+        assert_eq!(base.len(), plaintext.len() + TAG_SIZE);
+        let decrypted = decrypt(&key, &nonce, &base, aad).unwrap();
+        assert_eq!(decrypted, plaintext);
+
+        let committing = encrypt_committing(&key, &nonce, plaintext, aad).unwrap();
+        assert_eq!(committing.len(), base.len() + COMMITMENT_SIZE);
+    }
+}
+
+#[cfg(all(test, feature = "alloc"))]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Partitioning-resistance (the direct F01 / AEAD-01 guarantee): no
+        /// single committing ciphertext produced under `k1` can be opened under
+        /// any distinct key `k2`. This is the non-inferable backstop named in
+        /// 54-VALIDATION — the commitment binds the key, so one ciphertext
+        /// cannot open under two keys.
+        #[test]
+        fn no_committing_ct_opens_under_two_keys(
+            k1 in proptest::array::uniform32(any::<u8>()),
+            k2 in proptest::array::uniform32(any::<u8>()),
+            msg in proptest::collection::vec(any::<u8>(), 0..128),
+            aad in proptest::collection::vec(any::<u8>(), 0..96),
+        ) {
+            prop_assume!(k1 != k2);
+            let n = Nonce::from_bytes([0x00; NONCE_SIZE]);
+            let ct = encrypt_committing(&AeadKey::from_bytes(k1), &n, &msg, &aad).unwrap();
+            // Under any different key, decrypt_committing must fail (commitment
+            // mismatch or Poly1305 failure — the uniform error).
+            prop_assert!(decrypt_committing(&AeadKey::from_bytes(k2), &n, &ct, &aad).is_err());
+        }
     }
 }

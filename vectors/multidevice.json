@@ -17,7 +17,7 @@
     "thread_id": 32,
     "device_fingerprint": 32,
     "retained_key": 80,
-    "hybrid_signature": 3423,
+    "hybrid_signature": 3366,
     "hybrid_signing_public_key": 2009,
     "hybrid_kem_public_key": 1214,
     "one_time_key": 1222
@@ -72,7 +72,7 @@
     },
     {
       "name": "device_approval_certificate_structure",
-      "description": "Structure of a v0.6 device approval certificate (self-verifying, replay-resistant, user-bound). Embedded approving_device_pk removes the out-of-band public-key lookup required by v0.5.",
+      "description": "Structure of a v0.7 device approval certificate (identity-rooted, self-verifying signature, replay-resistant, user-bound). Binds the account identity signing key (account_identity_pk, 2009 B) into the signed body between approving_device_pk and approved_at, so the device graph is rooted in the account identity key; verify() checks it against the account identity key the relying party independently trusts and rejects a mismatch with IdentityKeyMismatch (TRN-01). Embedded approving_device_pk keeps the signature self-verifying.",
       "signing_data_format": [
         {"offset": 0, "field": "context", "value": "trelis-device-approval-v1"},
         {"offset": "context_len", "size": 16, "field": "approving_device_id"},
@@ -80,6 +80,7 @@
         {"offset": "+32", "size": 32, "field": "new_device_fingerprint"},
         {"offset": "+32", "size": 32, "field": "server_nonce"},
         {"offset": "+32", "size": 2009, "field": "approving_device_pk"},
+        {"offset": "+2009", "size": 2009, "field": "account_identity_pk"},
         {"offset": "+2009", "size": 8, "field": "approved_at", "encoding": "u64 little-endian"}
       ],
       "serialised_format": [
@@ -88,11 +89,13 @@
         {"offset": 48, "size": 32, "field": "new_device_fingerprint"},
         {"offset": 80, "size": 32, "field": "server_nonce"},
         {"offset": 112, "size": 2009, "field": "approving_device_pk"},
-        {"offset": 2121, "size": 8, "field": "approved_at", "encoding": "u64 little-endian"},
-        {"offset": 2129, "size": 3423, "field": "signature"}
+        {"offset": 2121, "size": 2009, "field": "account_identity_pk"},
+        {"offset": 4130, "size": 8, "field": "approved_at", "encoding": "u64 little-endian"},
+        {"offset": 4138, "size": 3366, "field": "signature"}
       ],
-      "total_size": 5552,
+      "total_size": 7504,
       "verify_inputs": {
+        "expected_account_identity_pk": "caller-supplied trusted account identity signing public key (2009 bytes) — the anchor the device graph is rooted in; a mismatch fails with IdentityKeyMismatch",
         "now": "caller-supplied Unix timestamp (seconds)",
         "window_seconds": "validity window in seconds; default 300 (NonceWindow::DEFAULT)"
       }
@@ -110,9 +113,9 @@
         {"offset": 0, "size": 16, "field": "device_id"},
         {"offset": 16, "size": 8, "field": "revoked_at", "encoding": "u64 little-endian"},
         {"offset": 24, "size": 1, "field": "reason"},
-        {"offset": 25, "size": 3423, "field": "signature"}
+        {"offset": 25, "size": 3366, "field": "signature"}
       ],
-      "total_size": 3448
+      "total_size": 3391
     },
     {
       "name": "retained_key_structure",
@@ -139,7 +142,7 @@
         {"offset": 32, "size": 8, "field": "key_count", "encoding": "u64 little-endian"},
         {"offset": 40, "size": "key_count * 80", "field": "keys"},
         {"offset": "40 + keys_size", "size": 8, "field": "shared_at", "encoding": "u64 little-endian"},
-        {"offset": "+8", "size": 3423, "field": "signature"}
+        {"offset": "+8", "size": 3366, "field": "signature"}
       ]
     },
     {
@@ -159,12 +162,15 @@
     },
     {
       "name": "device_key_wrap_structure",
-      "description": "Structure for wrapping keys for specific devices",
+      "description": "Structure for wrapping keys for specific devices (committing AEAD, AEAD-01 / F01). The encrypted_payload is a committing XChaCha20-Poly1305 ciphertext with a 32-byte BLAKE3 key-commitment appended, so one wrap ciphertext cannot open under two device keys.",
       "format": [
-        {"offset": 0, "size": 1095, "field": "encapsulation", "description": "Hybrid KEM encapsulation"},
-        {"offset": 1095, "size": 80, "field": "encrypted_key", "description": "AEAD encrypted (32-byte key + 16-byte tag + 32-byte context)"}
+        {"offset": 0, "size": 8, "field": "recipient_key_id", "description": "Recipient device KEM public key ID"},
+        {"offset": 8, "size": 56, "field": "x448_ephemeral", "description": "X448 ephemeral public key"},
+        {"offset": 64, "size": 1039, "field": "sntrup_ciphertext", "description": "sntrup761 ciphertext"},
+        {"offset": 1103, "size": 24, "field": "nonce", "description": "XChaCha20-Poly1305 nonce"},
+        {"offset": 1127, "size": 80, "field": "encrypted_payload", "description": "Committing AEAD: 32-byte secret + 16-byte Poly1305 tag + 32-byte BLAKE3 key-commitment"}
       ],
-      "total_size": 1175,
+      "total_size": 1207,
       "context_binding": {
         "recipient_key_id": "8 bytes",
         "purpose": "1 byte",

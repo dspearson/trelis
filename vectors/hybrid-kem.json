@@ -67,5 +67,48 @@
         "hybrid_shared_secret_size": 32
       }
     }
+  ],
+  "v2_notes": {
+    "combiner_description": "combine_v2 binds the full encapsulation: it derives the hybrid shared secret from a fixed 184-byte BLAKE3 derive_key input under context 'trelis-hybrid-kem-v2'. Layout (X-Wing-shaped, classical-first): H(ct_sntrup)[0..32] || H(x448_eph)[32..64] || H(pk_hybrid)[64..96] || ss_x448[96..152] || ss_sntrup[152..184]. Each variable-length wire component is hashed to 32 bytes with BLAKE3. This binds ct_sntrup / x448_eph / pk_hybrid so MAL-BIND-K-CT / MAL-BIND-K-PK hold under BLAKE3 collision-resistance alone (CMB-01 / v1.5 F02).",
+    "context_string": "trelis-hybrid-kem-v2",
+    "input_size": 184,
+    "output_size": 32,
+    "reproduction": "ct_sntrup and pk_hybrid are uniform fills reconstructed as [fill; size]; x448 shared secret, sntrup761 shared secret, and x448 ephemeral are given as full hex."
+  },
+  "v2_vectors": [
+    {
+      "name": "hybrid_kem_v2_uniform_fill",
+      "description": "combine_v2 over uniform-fill encapsulation components (identical to the trelis-hybrid combiner unit-test constants)",
+      "inputs": {
+        "x448_shared_secret_hex": "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+        "sntrup761_shared_secret_hex": "2222222222222222222222222222222222222222222222222222222222222222",
+        "x448_ephemeral_hex": "4444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444",
+        "ct_sntrup_fill": 51,
+        "ct_sntrup_size": 1039,
+        "pk_hybrid_fill": 85,
+        "pk_hybrid_size": 1214
+      },
+      "expected": {
+        "hybrid_shared_secret_hex": "e95e2bc72ab4eced051dd6a086c47409990c0bd347996a5fbe4f85832e8828ba",
+        "hybrid_shared_secret_size": 32
+      }
+    },
+    {
+      "name": "hybrid_kem_v2_mixed",
+      "description": "combine_v2 with incrementing X448 shared secret / ephemeral and distinct all-0xff / 0xAB / 0xCD post-quantum components",
+      "inputs": {
+        "x448_shared_secret_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f3031323334353637",
+        "sntrup761_shared_secret_hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "x448_ephemeral_hex": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f7071727374757677",
+        "ct_sntrup_fill": 171,
+        "ct_sntrup_size": 1039,
+        "pk_hybrid_fill": 205,
+        "pk_hybrid_size": 1214
+      },
+      "expected": {
+        "hybrid_shared_secret_hex": "11518f8a9e3cb702a9fd1b5553a8745507e635c63fc21e243b10d5eb871bb485",
+        "hybrid_shared_secret_size": 32
+      }
+    }
   ]
 }

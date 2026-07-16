@@ -569,7 +569,7 @@ mod hybrid_identity_tests {
         let message = b"Test message for hybrid identity signing";
         let signature = hybrid_identity_sign(&secret_key, message).unwrap();
 
-        assert_eq!(signature.len(), 3423);
+        assert_eq!(signature.len(), 3366);
 
         let valid = hybrid_identity_verify(&public_key, message, &signature).unwrap();
         assert!(valid);
@@ -793,7 +793,7 @@ mod compromise_notice_tests {
         )
         .unwrap();
 
-        assert_eq!(notice.len(), 3496);
+        assert_eq!(notice.len(), 3439); // 73-byte body + 3366-byte BoP-2 signature
 
         let result = compromise_notice_verify(&notice, &public_key).unwrap();
         let valid = get_bool_field(&result, "valid");
@@ -894,7 +894,7 @@ mod x3dh_bundle_tests {
             x3dh_create_bundle(signing_public, kem_public, &otk_public, 12345, 1000, 2000).unwrap();
 
         let signed_bundle = x3dh_sign_bundle(&bundle, signing_secret).unwrap();
-        assert_eq!(signed_bundle.len(), 7884);
+        assert_eq!(signed_bundle.len(), 7827);
 
         let result = x3dh_verify_bundle(&signed_bundle).unwrap();
 
@@ -963,7 +963,7 @@ mod x3dh_session_tests {
 
         let (signed_bundle, _, _) = create_signed_bundle();
 
-        let result = x3dh_initiator_establish(&alice_secret, &signed_bundle, 2000).unwrap();
+        let result = x3dh_initiator_establish(&alice_secret, &signed_bundle, 2000, false).unwrap();
 
         let root_key = get_bytes_field(&result, "root_key");
         let send_chain = get_bytes_field(&result, "send_chain_key");
@@ -993,7 +993,8 @@ mod x3dh_session_tests {
         let (signed_bundle, bob_identity_secret, bob_otk_secret) = create_signed_bundle();
 
         // Alice initiates
-        let alice_result = x3dh_initiator_establish(&alice_secret, &signed_bundle, 2000).unwrap();
+        let alice_result =
+            x3dh_initiator_establish(&alice_secret, &signed_bundle, 2000, false).unwrap();
         let initial_message = get_bytes_field(&alice_result, "initial_message");
 
         // Bob responds (needs his own signed bundle to verify the OTK identity
@@ -1005,6 +1006,7 @@ mod x3dh_session_tests {
             alice_x448_public,
             &signed_bundle,
             &initial_message,
+            false,
         )
         .unwrap();
 
@@ -1013,6 +1015,64 @@ mod x3dh_session_tests {
 
         // Both should derive the same root key
         assert_eq!(alice_root_key, bob_root_key);
+    }
+
+    /// End-to-end regression net for F18 through the WASM establish() wrappers:
+    /// the `li_capable` bool passed to `x3dh_initiator_establish` /
+    /// `x3dh_responder_establish` must thread into the transcript on both sides.
+    /// (a) matching `true` still agrees; (b) a `true` / `false` mismatch diverges
+    /// the derived key (fail-closed). Every other WASM session test uses `false`,
+    /// so this is the only guard that a WASM binding actually honours the flag —
+    /// if a binding ignored `li_capable` or hardcoded it, assertion (b) fails.
+    #[wasm_bindgen_test]
+    fn test_x3dh_li_capability_binding_through_establish() {
+        let alice = hybrid_identity_generate().unwrap();
+        let alice_secret = get_bytes_field(&alice, "secret_key");
+        let alice_public = get_bytes_field(&alice, "public_key");
+        let alice_signing_public = &alice_public[..2009];
+        let alice_x448_public = &alice_public[2009..2009 + 56];
+
+        let (signed_bundle, bob_identity_secret, bob_otk_secret) = create_signed_bundle();
+
+        // Alice initiates as LI-capable = true.
+        let alice_result =
+            x3dh_initiator_establish(&alice_secret, &signed_bundle, 2000, true).unwrap();
+        let initial_message = get_bytes_field(&alice_result, "initial_message");
+        let alice_root_key = get_bytes_field(&alice_result, "root_key");
+
+        // (a) Bob responds with the SAME flag → keys agree.
+        let bob_match = x3dh_responder_establish(
+            &bob_identity_secret,
+            &bob_otk_secret,
+            alice_signing_public,
+            alice_x448_public,
+            &signed_bundle,
+            &initial_message,
+            true,
+        )
+        .unwrap();
+        let bob_match_root_key = get_bytes_field(&bob_match, "root_key");
+        assert_eq!(
+            alice_root_key, bob_match_root_key,
+            "matching li_capable=true through wasm establish() must agree"
+        );
+
+        // (b) Bob responds with the MISMATCHED flag → keys diverge (fail-closed).
+        let bob_mismatch = x3dh_responder_establish(
+            &bob_identity_secret,
+            &bob_otk_secret,
+            alice_signing_public,
+            alice_x448_public,
+            &signed_bundle,
+            &initial_message,
+            false,
+        )
+        .unwrap();
+        let bob_mismatch_root_key = get_bytes_field(&bob_mismatch, "root_key");
+        assert_ne!(
+            alice_root_key, bob_mismatch_root_key,
+            "li_capable mismatch through wasm establish() must diverge (F18)"
+        );
     }
 }
 
@@ -1277,8 +1337,17 @@ mod multidevice_tests {
         let identity_secret = get_bytes_field(&identity, "secret_key");
         let signing_secret = &identity_secret[..4089];
 
-        // v0.6 layout: 16-byte device id + 32-byte user id + 32-byte
-        // server-issued nonce, all bound into the signed body.
+        // A dedicated account identity keypair roots the device graph. Its
+        // 2,009-byte signing public key (the first half of the hybrid identity
+        // public key) is bound into the approval and passed as the trusted
+        // anchor at verify (v0.7 identity-rooted layout).
+        let account_identity = hybrid_identity_generate().unwrap();
+        let account_identity_public = get_bytes_field(&account_identity, "public_key");
+        let account_identity_pk = account_identity_public[..2009].to_vec();
+
+        // v0.7 layout: 16-byte device id + 32-byte user id + 32-byte
+        // server-issued nonce + 2,009-byte account identity pk, all bound into
+        // the signed body.
         let approving_device_id = vec![0x01u8; 16];
         let user_id = vec![0x02u8; 32];
         let new_device_fingerprint = vec![0x03u8; 32];
@@ -1290,16 +1359,18 @@ mod multidevice_tests {
             &user_id,
             &new_device_fingerprint,
             &server_nonce,
+            &account_identity_pk,
             approved_at,
             signing_secret,
         )
         .unwrap();
         assert!(!approval.is_empty());
 
-        // Verify within the default 300-second window. The cert is now
-        // self-verifying — the approving device's public key is embedded
-        // in the cert body, so no external public key is supplied here.
-        let result = device_approval_verify(&approval, approved_at + 30, 300).unwrap();
+        // Verify within the default 300-second window. The signature is
+        // self-verifying (embedded approving_device_pk); identity rooting
+        // requires the trusted account identity anchor.
+        let result =
+            device_approval_verify(&approval, &account_identity_pk, approved_at + 30, 300).unwrap();
         assert!(get_bool_field(&result, "valid"));
 
         // Every body field round-trips through the verify result.
@@ -1313,6 +1384,10 @@ mod multidevice_tests {
             new_device_fingerprint
         );
         assert_eq!(get_bytes_field(&result, "server_nonce"), server_nonce);
+        assert_eq!(
+            get_bytes_field(&result, "account_identity_pk"),
+            account_identity_pk
+        );
     }
 
     #[wasm_bindgen_test]
@@ -1321,18 +1396,24 @@ mod multidevice_tests {
         let identity_secret = get_bytes_field(&identity, "secret_key");
         let signing_secret = &identity_secret[..4089];
 
+        let account_identity = hybrid_identity_generate().unwrap();
+        let account_identity_public = get_bytes_field(&account_identity, "public_key");
+        let account_identity_pk = account_identity_public[..2009].to_vec();
+
         let approval = device_approval_create(
             &vec![0x01u8; 16],
             &vec![0x02u8; 32],
             &vec![0x03u8; 32],
             &vec![0x04u8; 32],
+            &account_identity_pk,
             1000,
             signing_secret,
         )
         .unwrap();
 
-        // now is 400 seconds after approved_at, window is 300 — must reject.
-        let result = device_approval_verify(&approval, 1400, 300).unwrap();
+        // now is 400 seconds after approved_at, window is 300 — must reject on
+        // freshness (checked before the identity anchor).
+        let result = device_approval_verify(&approval, &account_identity_pk, 1400, 300).unwrap();
         assert!(!get_bool_field(&result, "valid"));
     }
 
@@ -1342,11 +1423,16 @@ mod multidevice_tests {
         let identity_secret = get_bytes_field(&identity, "secret_key");
         let signing_secret = &identity_secret[..4089];
 
+        let account_identity = hybrid_identity_generate().unwrap();
+        let account_identity_public = get_bytes_field(&account_identity, "public_key");
+        let account_identity_pk = account_identity_public[..2009].to_vec();
+
         let approval = device_approval_create(
             &vec![0x01u8; 16],
             &vec![0x02u8; 32],
             &vec![0x03u8; 32],
             &vec![0x04u8; 32],
+            &account_identity_pk,
             5000,
             signing_secret,
         )
@@ -1355,8 +1441,71 @@ mod multidevice_tests {
         // now is 400 seconds BEFORE approved_at, window is 300 — must reject.
         // The verify path uses abs_diff so both stale and future-dated certs
         // fall outside the window.
-        let result = device_approval_verify(&approval, 4600, 300).unwrap();
+        let result = device_approval_verify(&approval, &account_identity_pk, 4600, 300).unwrap();
         assert!(!get_bool_field(&result, "valid"));
+    }
+
+    /// F10 regression net at the JS consumer boundary: `device_approval_verify`
+    /// must reject a well-formed, in-window cert when the caller supplies a
+    /// DIFFERENT account identity anchor than the one bound into the cert. The
+    /// three other WASM device-approval tests all pass the CORRECT anchor, and
+    /// the two negatives reject on freshness (checked before the identity anchor
+    /// in `verify`), so each of those would still pass even if the binding
+    /// dropped, hard-coded, or self-anchored the argument. This is therefore the
+    /// only WASM guard that the identity-rooting anchor is actually honoured at
+    /// the JS surface. `now = approved_at + 30` keeps the cert inside the
+    /// 300-second window so the rejection is driven by the identity anchor, not
+    /// freshness — the `valid == false` / `IdentityKeyMismatch` assertions below
+    /// fail if a future edit drops the anchor comparison in the wrapper.
+    #[wasm_bindgen_test]
+    fn test_device_approval_verify_identity_mismatch() {
+        let identity = hybrid_identity_generate().unwrap();
+        let identity_secret = get_bytes_field(&identity, "secret_key");
+        let signing_secret = &identity_secret[..4089];
+
+        // The account identity the cert is actually bound to.
+        let account_identity = hybrid_identity_generate().unwrap();
+        let account_identity_public = get_bytes_field(&account_identity, "public_key");
+        let account_identity_pk = account_identity_public[..2009].to_vec();
+
+        let approved_at = 1234567890u64;
+        let approval = device_approval_create(
+            &vec![0x01u8; 16],
+            &vec![0x02u8; 32],
+            &vec![0x03u8; 32],
+            &vec![0x04u8; 32],
+            &account_identity_pk,
+            approved_at,
+            signing_secret,
+        )
+        .unwrap();
+
+        // A DIFFERENT but well-formed account identity signing key — a valid
+        // 2,009-byte anchor that is not the one bound into the cert, so
+        // `from_bytes` accepts it and the mismatch is decided by the anchor
+        // comparison rather than a parse failure.
+        let wrong_identity = hybrid_identity_generate().unwrap();
+        let wrong_identity_public = get_bytes_field(&wrong_identity, "public_key");
+        let wrong_account_identity_pk = wrong_identity_public[..2009].to_vec();
+
+        // In-window (|now - approved_at| = 30 <= 300) so freshness passes and the
+        // identity anchor is what rejects.
+        let result =
+            device_approval_verify(&approval, &wrong_account_identity_pk, approved_at + 30, 300)
+                .unwrap();
+
+        assert!(
+            !get_bool_field(&result, "valid"),
+            "a mismatched account identity anchor must reject"
+        );
+        // The binding surfaces the CryptoError via `{:?}`, so the anchor-rejection
+        // path is `IdentityKeyMismatch` (distinct from the freshness path's
+        // `NonceExpired` and the signature path's `SignatureVerificationFailed`).
+        let err = get_string_field(&result, "error");
+        assert!(
+            err.contains("IdentityKeyMismatch"),
+            "must reject on the identity anchor, got {err}"
+        );
     }
 
     #[wasm_bindgen_test]

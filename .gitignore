@@ -37,3 +37,7 @@ criterion/
 fuzz/target/
 fuzz/artifacts/
 fuzz/corpus/
+
+# crypto-spec/ — LaTeX design reference that informs the implementation; NOT tracked here.
+# The publication-ready v1.4 spec is archived on the `spec-publication-ready` branch.
+crypto-spec/

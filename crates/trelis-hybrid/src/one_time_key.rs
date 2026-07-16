@@ -242,7 +242,7 @@ impl core::fmt::Debug for SignedOneTimeKey {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("SignedOneTimeKey")
             .field("one_time_key", &self.one_time_key)
-            .field("signature", &"[3423 bytes]")
+            .field("signature", &"[3366 bytes]")
             .finish()
     }
 }

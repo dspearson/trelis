@@ -27,7 +27,7 @@ use trelis_hybrid::{HybridIdentityKeypair, HybridIdentityPublicKey, HybridSignat
 
 #[cfg(feature = "alloc")]
 use crate::key_schedule::h3_tree_label;
-use crate::key_schedule::{h3_round_hash, h3_transcript_hash};
+use crate::key_schedule::{ROOT_LABEL_CONTEXT, h3_round_hash, h3_transcript_hash};
 use crate::session::CocoaSession;
 use crate::tree::NodeIndex;
 #[cfg(feature = "alloc")]
@@ -40,6 +40,8 @@ use super::add::PathUpdate;
 use super::commit_sign::{CommitContent, hash_path_updates, sign_commit, verify_commit_signature};
 #[cfg(feature = "alloc")]
 use super::seed_chain::{Seed, derive_path_seeds, generate_leaf_seed};
+#[cfg(feature = "alloc")]
+use super::update::derive_user_id_from_identity;
 
 /// Commit message for removing a member.
 #[cfg(feature = "alloc")]
@@ -51,6 +53,12 @@ pub struct RemoveCommit {
     pub removed_member_id: UserId,
     /// Leaf position of removed member.
     pub removed_leaf_position: u32,
+    /// The remover's (committer's) own leaf position.
+    ///
+    /// GAP-03: bound into the signed `CommitContent`; the verifier
+    /// reconstructs the signed body from this field and rejects a commit whose
+    /// committer leaf is out of range or a known-blank leaf.
+    pub committer_leaf_position: u32,
     /// Epoch after this commit.
     pub epoch: u64,
     /// Path updates (removing member's path becomes blank, remover updates their path).
@@ -164,12 +172,16 @@ pub fn remove_member(
     let path_updates_bytes = serialise_path_updates(&path_updates);
     let path_updates_hash = hash_path_updates(&path_updates_bytes);
 
-    // Step 10: Build commit content for signing
+    // Step 10: Build commit content for signing.
+    // GAP-03: bind our own leaf position + derived identity into the signed body.
+    let committer_leaf_position = session.our_leaf_position();
     let commit_content = CommitContent::new_remove(
         *session.group_id(),
         session.epoch_number() + 1,
         round_hash,
         path_updates_hash,
+        committer_leaf_position,
+        derive_user_id_from_identity(identity.public_key()),
     );
 
     // Step 11: Sign the commit with identity key
@@ -186,6 +198,7 @@ pub fn remove_member(
         group_id: *session.group_id(),
         removed_member_id,
         removed_leaf_position: removed_position,
+        committer_leaf_position,
         epoch: session.epoch_number() + 1,
         path_updates,
         signature,
@@ -262,7 +275,7 @@ fn compute_root_label(path_seeds: &[Seed]) -> [u8; 32] {
     use trelis_primitives::blake3_kdf::derive_key;
 
     if let Some(root_seed) = path_seeds.last() {
-        *derive_key("cocoa-sa-root-label-v1", root_seed)
+        *derive_key(ROOT_LABEL_CONTEXT, root_seed)
     } else {
         [0u8; 32]
     }
@@ -390,25 +403,45 @@ pub fn process_remove(
     let path_updates_bytes = serialise_path_updates(&commit.path_updates);
     let path_updates_hash = hash_path_updates(&path_updates_bytes);
 
-    // Build commit content for signature verification
+    // Build commit content for signature verification.
+    // GAP-03: reconstruct the committer binding — committer_leaf_position from
+    // the wire field, committer_user_id derived from the caller-supplied
+    // remover identity. If the caller passes the wrong identity, the
+    // reconstructed body no longer matches the signed body and the signature
+    // check below fails (binds signer ↔ body identity).
     let commit_content = CommitContent::new_remove(
         commit.group_id,
         commit.epoch,
         commit.round_hash,
         path_updates_hash,
+        commit.committer_leaf_position,
+        derive_user_id_from_identity(remover_identity),
     );
 
     // Verify signature (both Ed448 and ML-DSA-65 must pass)
     verify_commit_signature(remover_identity, &commit_content, &commit.signature)?;
 
-    // Blank the removed member's leaf first (before processing path updates)
-    let leaf_index = NodeIndex::leaf(session.tree().tree_depth(), commit.removed_leaf_position);
-    session.tree_mut().blank_node(&leaf_index);
+    // GAP-03: bind signer ↔ leaf. The remover must sit at an occupied member
+    // leaf — reject a committer leaf that is out of range or a known-blank
+    // leaf in our local view.
+    if commit.committer_leaf_position >= session.member_count()
+        || session
+            .tree()
+            .get(&NodeIndex::leaf(
+                session.tree().tree_depth(),
+                commit.committer_leaf_position,
+            ))
+            .is_some_and(|node| node.state.is_blank())
+    {
+        return Err(trelis_error::CryptoError::InvalidLeafPosition);
+    }
 
     // Convert PathUpdate to NodeUpdate for apply_path_updates
     let node_updates = convert_path_updates_to_node_updates(&commit.path_updates)?;
 
-    // Apply path updates: find our seed, decrypt, derive to root, verify keys
+    // Apply path updates: find our seed, decrypt, derive to root, verify keys.
+    // Reads no session tree state and mutates nothing — it only derives the
+    // delta_root the integrity checks below bind against.
     let delta_root = if node_updates.is_empty() {
         // No path updates means we can't derive delta_root
         // This happens when the commit has no encrypted seeds for us
@@ -426,6 +459,63 @@ pub fn process_remove(
         )?
     };
 
+    // Update transcript hash (local value; not yet committed to the session).
+    let new_transcript = h3_transcript_hash(session.transcript_hash(), &commit.round_hash);
+
+    // ── Integrity checks — ALL must pass BEFORE any session mutation (WR-03) ──
+    // The removed leaf is blanked and the remover's path nodes are written ONLY
+    // after every check passes, so a signature-valid but tag-/round-hash-/
+    // parent-hash-invalid commit (the GAP-04c insider attack) leaves the tree,
+    // member_count and epoch exactly as before (mirroring process_update).
+
+    // Verify confirmation tag (epoch-secret agreement).
+    let expected_tag = compute_confirmation_tag(&delta_root, &new_transcript, commit.epoch);
+    if !constant_time_eq(&expected_tag, &commit.confirmation_tag) {
+        return Err(trelis_error::CryptoError::SignatureVerificationFailed);
+    }
+
+    // GAP-04c (F07): MANDATORY round-hash verification. Independently recompute
+    // the round hash from the LOCALLY-derived delta_root plus this commit's
+    // membership change (remove binds removed = [removed_member_id], added = [])
+    // and reject a divergent/forged value BEFORE advancing the epoch. This
+    // mirrors the committer's build side exactly (compute_root_label +
+    // h3_round_hash with the same removed set).
+    //
+    // The confirmation tag checked above only binds epoch-secret agreement
+    // (delta_root, transcript, epoch); it does NOT bind the round hash to the
+    // actual tree-state / membership change, so a malicious committer could
+    // advertise a round hash inconsistent with the removed member while keeping
+    // the tag self-consistent. This recompute closes that gap, making §12:99
+    // ("undetectably partition ... detected via round hash") true in code.
+    //
+    // NOTE: the full Algorithm-3 `verifyRH` (server-provided Merkle `openRH`
+    // transport) is the deferred follow-up (OQ-5); this lightweight in-crate
+    // recompute is the mandatory Phase-52 minimum.
+    {
+        use trelis_primitives::blake3_kdf::derive_key;
+        let expected_root_label = *derive_key(ROOT_LABEL_CONTEXT, &delta_root);
+        let expected_round_hash =
+            h3_round_hash(&expected_root_label, &[commit.removed_member_id], &[]);
+        if expected_round_hash != commit.round_hash {
+            return Err(trelis_error::CryptoError::RoundHashMismatch);
+        }
+    }
+
+    // GAP-02 (PHash.Ver): recompute h1/h2 and reject a tampered tree structure.
+    // The remover blanks the removed leaf BEFORE building path updates, so we
+    // mirror that on a SCRATCH clone (removed leaf blanked) for the recompute,
+    // leaving the real tree untouched on rejection. h1 (sibling binding) is
+    // mandatory; h2 is enforced where the local resolution reconstructs
+    // (partial-view residual otherwise, OQ-1). Empty path updates are a no-op.
+    let leaf_index = NodeIndex::leaf(session.tree().tree_depth(), commit.removed_leaf_position);
+    let mut scratch = session.tree().clone();
+    scratch.blank_node(&leaf_index);
+    super::path_update::verify_parent_hashes(&scratch, &node_updates)?;
+
+    // ── All checks passed — commit the mutations to the real session ─────────
+    // Blank the removed member's leaf, then write the remover's new path nodes.
+    session.tree_mut().blank_node(&leaf_index);
+
     // Update tree with new public keys from path updates
     // Note: We use the remover's ID (session's user_id) since they created the commit
     update_tree_from_path_updates(
@@ -435,17 +525,12 @@ pub fn process_remove(
         *session.our_user_id(),
     );
 
-    // Update transcript hash
-    let new_transcript = h3_transcript_hash(session.transcript_hash(), &commit.round_hash);
-
-    // Verify confirmation tag
-    let expected_tag = compute_confirmation_tag(&delta_root, &new_transcript, commit.epoch);
-    if !constant_time_eq(&expected_tag, &commit.confirmation_tag) {
-        return Err(trelis_error::CryptoError::SignatureVerificationFailed);
-    }
-
     // Advance epoch with the derived delta_root
     session.advance_epoch(&delta_root, new_transcript);
+
+    // GAP-03: prune the removed member from the local registry so they can be
+    // re-added later without tripping the double-join guard.
+    session.remove_member(&commit.removed_member_id);
 
     Ok(())
 }
@@ -456,7 +541,7 @@ fn convert_path_updates_to_node_updates(
     path_updates: &[PathUpdate],
 ) -> Result<Vec<super::path_update::NodeUpdate>> {
     use super::path_update::{NodeUpdate, RecipientSeed};
-    use super::seed_encrypt::EncryptedNodeSeed;
+    use super::seed_encrypt::{ENCRYPTED_SEED_CIPHERTEXT_SIZE, EncryptedNodeSeed};
 
     let mut node_updates = Vec::with_capacity(path_updates.len());
 
@@ -469,8 +554,8 @@ fn convert_path_updates_to_node_updates(
         for es in &pu.encrypted_seeds {
             let encapsulation = trelis_hybrid::HybridEncapsulation::from_bytes(&es.encapsulation)?;
 
-            let mut ciphertext = [0u8; 48];
-            if es.ciphertext.len() != 48 {
+            let mut ciphertext = [0u8; ENCRYPTED_SEED_CIPHERTEXT_SIZE];
+            if es.ciphertext.len() != ENCRYPTED_SEED_CIPHERTEXT_SIZE {
                 return Err(trelis_error::CryptoError::MalformedMessage);
             }
             ciphertext.copy_from_slice(&es.ciphertext);
@@ -587,11 +672,13 @@ mod tests {
         let mut session =
             CocoaSession::create_group(group_id, user_id, keypair, 1, &epoch_secret).unwrap();
 
-        // Add additional members
+        // Add additional members. Member IDs start at 2 so they never collide
+        // with the creator's user_id ([0x01; 32]) — a collision would (correctly)
+        // trip the GAP-03 double-join guard.
         for i in 1..count {
             let member_identity = create_test_identity();
             let bundle = create_test_bundle(&member_identity);
-            let member_id = [i as u8; 32];
+            let member_id = [(i + 1) as u8; 32];
             add_member(&mut session, &our_identity, &bundle, member_id).unwrap();
         }
 
@@ -643,14 +730,26 @@ mod tests {
         let remover_identity = create_test_identity();
         let initial_epoch = session.epoch_number();
 
-        // Build a valid remove commit
+        // Build a valid remove commit, remover bound to committer leaf 0
         let path_updates_hash = hash_path_updates(&[]);
-        let round_hash = [0x11u8; 32];
+        // GAP-04c: with mandatory round-hash verification the synthetic empty-path
+        // commit must carry the round hash the receiver recomputes from its LOCAL
+        // delta_root ([0;32] for empty updates) + removed = [removed_member].
+        let round_hash = {
+            use trelis_primitives::blake3_kdf::derive_key;
+            h3_round_hash(
+                &derive_key(ROOT_LABEL_CONTEXT, &[0u8; 32]),
+                &[[0x02u8; 32]],
+                &[],
+            )
+        };
         let commit_content = CommitContent::new_remove(
             *session.group_id(),
             initial_epoch + 1,
             round_hash,
             path_updates_hash,
+            0,
+            derive_user_id_from_identity(remover_identity.public_key()),
         );
         let signature = sign_commit(&remover_identity, &commit_content).unwrap();
 
@@ -664,6 +763,7 @@ mod tests {
             group_id: *session.group_id(),
             removed_member_id: [0x02u8; 32],
             removed_leaf_position: 2,
+            committer_leaf_position: 0,
             epoch: initial_epoch + 1,
             path_updates: Vec::new(),
             signature,
@@ -685,14 +785,21 @@ mod tests {
         // Build a valid remove commit for position 0 (us)
         let path_updates_hash = hash_path_updates(&[]);
         let round_hash = [0x11u8; 32];
-        let commit_content =
-            CommitContent::new_remove(*session.group_id(), 1, round_hash, path_updates_hash);
+        let commit_content = CommitContent::new_remove(
+            *session.group_id(),
+            1,
+            round_hash,
+            path_updates_hash,
+            1,
+            derive_user_id_from_identity(remover_identity.public_key()),
+        );
         let signature = sign_commit(&remover_identity, &commit_content).unwrap();
 
         let commit = RemoveCommit {
             group_id: *session.group_id(),
             removed_member_id: [0x01u8; 32],
             removed_leaf_position: 0, // Our position
+            committer_leaf_position: 1,
             epoch: 1,
             path_updates: Vec::new(),
             signature,
@@ -715,7 +822,7 @@ mod tests {
         let signer_identity = create_test_identity();
         let wrong_identity = create_test_identity();
 
-        // Build commit signed by signer_identity
+        // Build commit signed by signer_identity, bound to committer leaf 0
         let path_updates_hash = hash_path_updates(&[]);
         let round_hash = [0x11u8; 32];
         let commit_content = CommitContent::new_remove(
@@ -723,6 +830,8 @@ mod tests {
             session.epoch_number() + 1,
             round_hash,
             path_updates_hash,
+            0,
+            derive_user_id_from_identity(signer_identity.public_key()),
         );
         let signature = sign_commit(&signer_identity, &commit_content).unwrap();
 
@@ -730,6 +839,7 @@ mod tests {
             group_id: *session.group_id(),
             removed_member_id: [0x02u8; 32],
             removed_leaf_position: 2,
+            committer_leaf_position: 0,
             epoch: session.epoch_number() + 1,
             path_updates: Vec::new(),
             signature,
@@ -740,5 +850,247 @@ mod tests {
         // Try to verify with wrong identity - should fail
         let result = process_remove(&mut session, &commit, wrong_identity.public_key());
         assert!(result.is_err());
+    }
+
+    // ─── GAP-02: parent-hash verification on the remove ingest path ─────────
+
+    /// A flipped non-leaf `h1` on a real remove commit is rejected by the
+    /// parent-hash verifier; the honest commit verifies against the builder's
+    /// own tree (positive control). `remove_member` blanks the removed leaf
+    /// before building, mirroring the state `verify_parent_hashes` sees.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_parent_hash_remove_tamper_rejected() {
+        use super::super::path_update::verify_parent_hashes;
+
+        let (mut session, our_identity) = create_test_session_with_members(3);
+        // Remove member at leaf 2 (never ourselves at leaf 0).
+        let commit = remove_member(&mut session, &our_identity, [0x03u8; 32], 2).unwrap();
+        let node_updates = convert_path_updates_to_node_updates(&commit.path_updates).unwrap();
+        assert!(
+            node_updates.len() >= 2,
+            "remove path must carry a non-leaf node"
+        );
+
+        // Positive control: the honest commit verifies against the builder tree.
+        verify_parent_hashes(session.tree(), &node_updates).unwrap();
+
+        // Tamper one byte of a non-leaf h1 -> ParentHashMismatch.
+        let mut tampered = node_updates.clone();
+        tampered[1].parent_hash.0[0] ^= 0xFF;
+        assert!(matches!(
+            verify_parent_hashes(session.tree(), &tampered),
+            Err(trelis_error::CryptoError::ParentHashMismatch)
+        ));
+    }
+
+    // ─── GAP-04c: mandatory round-hash verification on the remove path ───────
+
+    /// A forged `round_hash` — self-consistent with its own confirmation tag and
+    /// covered by a valid signature — is rejected by the mandatory round-hash
+    /// recompute (`RoundHashMismatch`). Empty path updates ⇒ delta_root [0;32],
+    /// so the receiver recomputes `h3_round_hash(derive_key(ROOT_LABEL_CONTEXT,
+    /// [0;32]), [removed_member], [])`; a garbage value differs and is rejected.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_round_hash_remove_mismatch_rejected() {
+        use trelis_primitives::blake3_kdf::derive_key;
+
+        let (mut session, _) = create_test_session_with_members(3);
+        let remover_identity = create_test_identity();
+        let initial_epoch = session.epoch_number();
+
+        let path_updates_hash = hash_path_updates(&[]);
+        // Forged: NOT the value the receiver recomputes from delta_root [0;32].
+        let round_hash = [0x99u8; 32];
+        let commit_content = CommitContent::new_remove(
+            *session.group_id(),
+            initial_epoch + 1,
+            round_hash,
+            path_updates_hash,
+            0,
+            derive_user_id_from_identity(remover_identity.public_key()),
+        );
+        let signature = sign_commit(&remover_identity, &commit_content).unwrap();
+
+        // Tag made SELF-CONSISTENT with the forged round hash so the tag check
+        // passes and execution reaches the round-hash gate.
+        let new_transcript = h3_transcript_hash(session.transcript_hash(), &round_hash);
+        let confirmation_tag =
+            compute_confirmation_tag(&[0u8; 32], &new_transcript, initial_epoch + 1);
+
+        let commit = RemoveCommit {
+            group_id: *session.group_id(),
+            removed_member_id: [0x02u8; 32],
+            removed_leaf_position: 2,
+            committer_leaf_position: 0,
+            epoch: initial_epoch + 1,
+            path_updates: Vec::new(),
+            signature,
+            round_hash,
+            confirmation_tag,
+        };
+
+        assert!(matches!(
+            process_remove(&mut session, &commit, remover_identity.public_key()),
+            Err(trelis_error::CryptoError::RoundHashMismatch)
+        ));
+
+        // Sanity: the honest recompute (removed = [removed_member]) really differs.
+        let honest = h3_round_hash(
+            &derive_key(ROOT_LABEL_CONTEXT, &[0u8; 32]),
+            &[[0x02u8; 32]],
+            &[],
+        );
+        assert_ne!(honest, round_hash);
+    }
+
+    /// Positive control: a remove whose `round_hash` matches the receiver's
+    /// independent recompute (delta_root [0;32] + removed = [removed_member])
+    /// verifies and advances the epoch.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_round_hash_remove_honest_verifies() {
+        use trelis_primitives::blake3_kdf::derive_key;
+
+        let (mut session, _) = create_test_session_with_members(3);
+        let remover_identity = create_test_identity();
+        let initial_epoch = session.epoch_number();
+
+        let path_updates_hash = hash_path_updates(&[]);
+        let round_hash = h3_round_hash(
+            &derive_key(ROOT_LABEL_CONTEXT, &[0u8; 32]),
+            &[[0x02u8; 32]],
+            &[],
+        );
+        let commit_content = CommitContent::new_remove(
+            *session.group_id(),
+            initial_epoch + 1,
+            round_hash,
+            path_updates_hash,
+            0,
+            derive_user_id_from_identity(remover_identity.public_key()),
+        );
+        let signature = sign_commit(&remover_identity, &commit_content).unwrap();
+
+        let new_transcript = h3_transcript_hash(session.transcript_hash(), &round_hash);
+        let confirmation_tag =
+            compute_confirmation_tag(&[0u8; 32], &new_transcript, initial_epoch + 1);
+
+        let commit = RemoveCommit {
+            group_id: *session.group_id(),
+            removed_member_id: [0x02u8; 32],
+            removed_leaf_position: 2,
+            committer_leaf_position: 0,
+            epoch: initial_epoch + 1,
+            path_updates: Vec::new(),
+            signature,
+            round_hash,
+            confirmation_tag,
+        };
+
+        process_remove(&mut session, &commit, remover_identity.public_key()).unwrap();
+        assert_eq!(session.epoch_number(), initial_epoch + 1);
+    }
+
+    // ─── WR-03: rejected commit must not mutate session state ────────────────
+
+    /// WR-03: a signature-valid remove that fails the mandatory round-hash check
+    /// must leave the session state COMPLETELY unchanged — the removed leaf is
+    /// NOT blanked and the epoch does NOT advance. Before the validate-then-
+    /// mutate reorder, `process_remove` blanked the removed leaf BEFORE the
+    /// round-hash check, corrupting the tree on a rejected commit. The removed
+    /// leaf is explicitly populated here so a premature blank is observable.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_process_remove_rejected_commit_leaves_state_unchanged() {
+        use crate::tree::{TreeNode, UpdateOrigin};
+
+        let (mut session, _) = create_test_session_with_members(3);
+        let remover_identity = create_test_identity();
+        let initial_epoch = session.epoch_number();
+        let members_before = session.member_count();
+
+        // Populate the removed leaf so a premature blank would be observable.
+        let removed_leaf = NodeIndex::leaf(session.tree().tree_depth(), 2);
+        let victim_kp = HybridKemKeypair::generate().unwrap();
+        session.tree_mut().insert(TreeNode::new_populated(
+            removed_leaf,
+            victim_kp.public_key().clone(),
+            None,
+            ([0u8; 32], [0u8; 32]),
+            [0x02u8; 32],
+            create_test_identity().sign(b"init").unwrap(),
+            [0u8; 32],
+            [0u8; 32],
+            UpdateOrigin {
+                epoch: 0,
+                sequence: 0,
+                timestamp: 0,
+            },
+        ));
+        assert!(
+            session
+                .tree()
+                .get(&removed_leaf)
+                .unwrap()
+                .state
+                .is_populated()
+        );
+
+        let path_updates_hash = hash_path_updates(&[]);
+        // Forged round hash; self-consistent tag so we reach the round-hash gate.
+        let round_hash = [0x99u8; 32];
+        let commit_content = CommitContent::new_remove(
+            *session.group_id(),
+            initial_epoch + 1,
+            round_hash,
+            path_updates_hash,
+            0,
+            derive_user_id_from_identity(remover_identity.public_key()),
+        );
+        let signature = sign_commit(&remover_identity, &commit_content).unwrap();
+        let new_transcript = h3_transcript_hash(session.transcript_hash(), &round_hash);
+        let confirmation_tag =
+            compute_confirmation_tag(&[0u8; 32], &new_transcript, initial_epoch + 1);
+
+        let commit = RemoveCommit {
+            group_id: *session.group_id(),
+            removed_member_id: [0x02u8; 32],
+            removed_leaf_position: 2,
+            committer_leaf_position: 0,
+            epoch: initial_epoch + 1,
+            path_updates: Vec::new(),
+            signature,
+            round_hash,
+            confirmation_tag,
+        };
+
+        assert!(matches!(
+            process_remove(&mut session, &commit, remover_identity.public_key()),
+            Err(trelis_error::CryptoError::RoundHashMismatch)
+        ));
+
+        // State unchanged: epoch not advanced, member_count intact, and the
+        // removed leaf must still be populated (NOT blanked before the check).
+        assert_eq!(
+            session.epoch_number(),
+            initial_epoch,
+            "epoch must NOT advance on a rejected remove"
+        );
+        assert_eq!(
+            session.member_count(),
+            members_before,
+            "member_count must be unchanged on a rejected remove"
+        );
+        assert!(
+            session
+                .tree()
+                .get(&removed_leaf)
+                .unwrap()
+                .state
+                .is_populated(),
+            "removed leaf must NOT be blanked before the round-hash check"
+        );
     }
 }

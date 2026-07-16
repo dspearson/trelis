@@ -33,7 +33,7 @@
 //! | ML-DSA-65 verify | `fips204` upstream |
 //! | SNTRUP761 decapsulation (incl. implicit rejection) | `sntrup761::pure_rust::decapsulate` |
 //! | X448 Diffie-Hellman + all-zeros check | `x448::diffie_hellman` |
-//! | Hybrid signature verify (bitwise AND of components) | `trelis_hybrid::signature::verify` |
+//! | Hybrid signature verify (BoP-2 ExtCom→H1→ML-DSA pipeline; public inputs only) | `trelis_hybrid::signature::verify` |
 //! | Shared-secret comparison | `*::SharedSecret::ct_eq` |
 //!
 //! Operations that are NOT CT-guaranteed (inputs are attacker-controlled but
@@ -211,6 +211,7 @@ pub use blake3_kdf::{
     DEVICE_SIGNING_KEY_CONTEXT,
     DerivedKey,
     HYBRID_KEM_CONTEXT,
+    HYBRID_KEM_V2_CONTEXT,
     IDENTITY_CERT_CONTEXT,
     OUTPUT_SIZE,
     PREKEY_BUNDLE_SIG_CONTEXT,
@@ -224,12 +225,18 @@ pub use blake3_kdf::{
     SAFETY_NUMBER_DEVICE_SET_CONTEXT,
     SAFETY_NUMBER_SYNC_CONTEXT,
     SESSION_CONTEXT,
+    SESSION_V2_CONTEXT,
+    SIG_BOP2_H1_CONTEXT,
+    SIG_BOP2_H2_CONTEXT,
     derive_device_seed,
     derive_key,
     hash,
     keyed_hash,
 };
-pub use ed448::{Ed448Signature, Ed448SigningKey, Ed448VerifyingKey};
+pub use ed448::{
+    ED448_BOP_RESPONSE_SIZE, Ed448BopCommitment, Ed448BopResponse, Ed448BopSecretNonce,
+    Ed448Signature, Ed448SigningKey, Ed448VerifyingKey,
+};
 pub use ed448_scheme::{DefaultEd448Scheme, Ed448Blake3, Ed448Scheme, Ed448Standard};
 pub use ed448b::{Ed448BSignature, Ed448BSigningKey, Ed448BVerifyingKey};
 pub use mldsa::{DefaultMlDsaScheme, MlDsa65Blake3, MlDsa65Fips204, MlDsaScheme};

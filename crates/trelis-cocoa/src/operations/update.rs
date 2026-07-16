@@ -153,12 +153,15 @@ pub fn create_update(
     let path_updates_bytes = serialise_path_updates(&path_updates);
     let path_updates_hash = hash_path_updates(&path_updates_bytes);
 
-    // Step 9: Build commit content for signing
+    // Step 9: Build commit content for signing.
+    // GAP-03: bind our own leaf position + derived identity into the signed body.
     let commit_content = CommitContent::new_update(
         *session.group_id(),
         session.epoch_number() + 1,
         round_hash,
         path_updates_hash,
+        session.our_leaf_position(),
+        derive_user_id_from_identity(identity.public_key()),
     );
 
     // Step 10: Sign the commit with identity key
@@ -424,16 +427,39 @@ pub fn process_update(
     let path_updates_bytes = serialise_path_updates(&commit.path_updates);
     let path_updates_hash = hash_path_updates(&path_updates_bytes);
 
-    // Build commit content for signature verification
+    // Build commit content for signature verification.
+    // GAP-03: reconstruct the committer binding — committer_leaf_position from
+    // the wire `updater_leaf_position`, committer_user_id derived from the
+    // caller-supplied updater identity. If the caller passes the wrong
+    // identity, the reconstructed body no longer matches the signed body and
+    // the signature check below fails (binds signer ↔ body identity).
+    let committer_user_id = derive_user_id_from_identity(updater_identity);
     let commit_content = CommitContent::new_update(
         commit.group_id,
         commit.epoch,
         commit.round_hash,
         path_updates_hash,
+        commit.updater_leaf_position,
+        committer_user_id,
     );
 
     // Verify signature (both Ed448 and ML-DSA-65 must pass)
     verify_commit_signature(updater_identity, &commit_content, &commit.signature)?;
+
+    // GAP-03: bind signer ↔ leaf. Reject a committer leaf that is out of range
+    // or a known-blank leaf in our local view. (In-range is also checked
+    // earlier; this additionally rejects a present-but-blank leaf.)
+    if commit.updater_leaf_position >= session.member_count()
+        || session
+            .tree()
+            .get(&NodeIndex::leaf(
+                session.tree().tree_depth(),
+                commit.updater_leaf_position,
+            ))
+            .is_some_and(|node| node.state.is_blank())
+    {
+        return Err(trelis_error::CryptoError::InvalidLeafPosition);
+    }
 
     // Convert PathUpdate to NodeUpdate for apply_path_updates
     let node_updates = convert_path_updates_to_node_updates(&commit.path_updates)?;
@@ -459,10 +485,46 @@ pub fn process_update(
         return Err(trelis_error::CryptoError::SignatureVerificationFailed);
     }
 
-    // Update tree with new public keys from path updates
-    // Derive user ID from the updater's identity public key
-    let updater_id = derive_user_id_from_identity(updater_identity);
-    update_tree_from_path_updates(session, &commit.path_updates, &commit.signature, updater_id);
+    // GAP-04c (F07): MANDATORY round-hash verification. Independently recompute
+    // the round hash from the LOCALLY-derived delta_root plus this commit's
+    // membership change (update binds added = [], removed = []) and reject a
+    // divergent/forged value BEFORE advancing the epoch. This mirrors the
+    // committer's build side exactly (compute_root_label + h3_round_hash).
+    //
+    // The confirmation tag checked above only binds epoch-secret agreement
+    // (delta_root, transcript, epoch); it does NOT bind the round hash to the
+    // actual tree-state / membership change, so a malicious committer could
+    // advertise a round hash inconsistent with the true state while keeping the
+    // tag self-consistent. This recompute closes that gap, making §12:99
+    // ("undetectably partition ... detected via round hash") true in code.
+    //
+    // NOTE: the full Algorithm-3 `verifyRH` (server-provided Merkle `openRH`
+    // transport) is the deferred follow-up (OQ-5); this lightweight in-crate
+    // recompute is the mandatory Phase-52 minimum.
+    {
+        use trelis_primitives::blake3_kdf::derive_key;
+        let expected_root_label = *derive_key(ROOT_LABEL_CONTEXT, &delta_root);
+        let expected_round_hash = h3_round_hash(&expected_root_label, &[], &[]);
+        if expected_round_hash != commit.round_hash {
+            return Err(trelis_error::CryptoError::RoundHashMismatch);
+        }
+    }
+
+    // GAP-02 (PHash.Ver): recompute h1/h2 from LOCAL tree state and reject a
+    // tampered tree structure BEFORE any node is written — no verbatim wire
+    // parent-hash insertion. h1 (sibling binding) is mandatory; h2 is enforced
+    // where the local resolution reconstructs (partial-view residual otherwise,
+    // OQ-1). Empty path updates are a no-op.
+    super::path_update::verify_parent_hashes(session.tree(), &node_updates)?;
+
+    // Update tree with new public keys from path updates.
+    // Reuse the committer_user_id derived above (identical value).
+    update_tree_from_path_updates(
+        session,
+        &commit.path_updates,
+        &commit.signature,
+        committer_user_id,
+    );
 
     // Clear our unmerged status from the updater's path nodes
     // Since we successfully decrypted this update, we now have current key material
@@ -480,7 +542,7 @@ fn convert_path_updates_to_node_updates(
     path_updates: &[PathUpdate],
 ) -> Result<Vec<super::path_update::NodeUpdate>> {
     use super::path_update::{NodeUpdate, RecipientSeed};
-    use super::seed_encrypt::EncryptedNodeSeed;
+    use super::seed_encrypt::{ENCRYPTED_SEED_CIPHERTEXT_SIZE, EncryptedNodeSeed};
 
     let mut node_updates = Vec::with_capacity(path_updates.len());
 
@@ -493,8 +555,8 @@ fn convert_path_updates_to_node_updates(
         for es in &pu.encrypted_seeds {
             let encapsulation = trelis_hybrid::HybridEncapsulation::from_bytes(&es.encapsulation)?;
 
-            let mut ciphertext = [0u8; 48];
-            if es.ciphertext.len() != 48 {
+            let mut ciphertext = [0u8; ENCRYPTED_SEED_CIPHERTEXT_SIZE];
+            if es.ciphertext.len() != ENCRYPTED_SEED_CIPHERTEXT_SIZE {
                 return Err(trelis_error::CryptoError::MalformedMessage);
             }
             ciphertext.copy_from_slice(&es.ciphertext);
@@ -598,8 +660,13 @@ fn clear_unmerged_on_path(session: &mut CocoaSession, updater_leaf_position: u32
 ///
 /// Uses BLAKE3 KDF with a domain separator to derive a deterministic
 /// 32-byte user ID from the identity public key bytes.
+///
+/// `pub(crate)` so the add/remove commit paths can bind the same
+/// deterministic `committer_user_id` into the signed `CommitContent`
+/// (GAP-03). Reuses the registered `USER_ID_CONTEXT` = `cocoa-sa-user-id-v1`;
+/// no new context is introduced.
 #[must_use]
-fn derive_user_id_from_identity(identity: &HybridIdentityPublicKey) -> crate::UserId {
+pub(crate) fn derive_user_id_from_identity(identity: &HybridIdentityPublicKey) -> crate::UserId {
     use trelis_primitives::blake3_kdf::derive_key;
     *derive_key(USER_ID_CONTEXT, &identity.to_bytes())
 }
@@ -771,8 +838,14 @@ mod tests {
         // Build commit signed by signer_identity
         let path_updates_hash = hash_path_updates(&[]);
         let round_hash = [0x11u8; 32];
-        let commit_content =
-            CommitContent::new_update(*session.group_id(), 1, round_hash, path_updates_hash);
+        let commit_content = CommitContent::new_update(
+            *session.group_id(),
+            1,
+            round_hash,
+            path_updates_hash,
+            1,
+            derive_user_id_from_identity(signer_identity.public_key()),
+        );
         let signature = sign_commit(&signer_identity, &commit_content).unwrap();
 
         let commit = UpdateCommit {
@@ -799,8 +872,14 @@ mod tests {
         // Build commit with valid signature but invalid position
         let path_updates_hash = hash_path_updates(&[]);
         let round_hash = [0x11u8; 32];
-        let commit_content =
-            CommitContent::new_update(*session.group_id(), 1, round_hash, path_updates_hash);
+        let commit_content = CommitContent::new_update(
+            *session.group_id(),
+            1,
+            round_hash,
+            path_updates_hash,
+            99,
+            derive_user_id_from_identity(other_identity.public_key()),
+        );
         let signature = sign_commit(&other_identity, &commit_content).unwrap();
 
         let commit = UpdateCommit {
@@ -833,5 +912,409 @@ mod tests {
         }
 
         assert_eq!(session.epoch_number(), 5);
+    }
+
+    // ─── GAP-02: parent-hash verification on the update ingest path ─────────
+
+    /// A flipped non-leaf `h1` on a real update commit is rejected by the
+    /// parent-hash verifier; the honest commit verifies against the builder's
+    /// own tree (positive control). `create_update` does not mutate the tree
+    /// nodes, so the session tree is exactly the view the builder used.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_parent_hash_update_tamper_rejected() {
+        use super::super::path_update::verify_parent_hashes;
+
+        // 2-member group (depth 1) so the path carries a non-leaf (root) node.
+        let group_id = [0x42u8; 32];
+        let epoch_secret = [0xABu8; 32];
+        let keypair = HybridKemKeypair::generate().unwrap();
+        let mut session =
+            CocoaSession::create_group(group_id, [0x01u8; 32], keypair, 2, &epoch_secret).unwrap();
+        let identity = create_test_identity();
+
+        let commit = create_update(&mut session, &identity).unwrap();
+        let node_updates = convert_path_updates_to_node_updates(&commit.path_updates).unwrap();
+        assert!(
+            node_updates.len() >= 2,
+            "update path must carry a non-leaf node"
+        );
+
+        // Positive control: the honest commit verifies against the builder tree.
+        verify_parent_hashes(session.tree(), &node_updates).unwrap();
+
+        // Tamper one byte of a non-leaf h1 -> ParentHashMismatch.
+        let mut tampered = node_updates.clone();
+        tampered[1].parent_hash.0[0] ^= 0xFF;
+        assert!(matches!(
+            verify_parent_hashes(session.tree(), &tampered),
+            Err(trelis_error::CryptoError::ParentHashMismatch)
+        ));
+    }
+
+    // ─── GAP-04c: mandatory round-hash verification on the update path ───────
+
+    /// Builds two synchronised 2-member sessions (member1 at leaf 0, member2 at
+    /// leaf 1) with cross-populated trees, so member1's update encrypts a path
+    /// seed member2 can decrypt — the deterministic setup needed to drive a
+    /// NON-empty update through `process_update` (which rejects empty paths, so
+    /// the empty-path shortcut the add/remove tests use is unavailable here).
+    fn two_member_update_sessions() -> (CocoaSession, CocoaSession, HybridIdentityKeypair) {
+        use crate::tree::{NodeIndex, TreeNode, UpdateOrigin};
+
+        let group_id = [0x42u8; 32];
+        let epoch_secret = [0xABu8; 32];
+        let user1_id = [0x01u8; 32];
+        let user2_id = [0x02u8; 32];
+
+        let member1_keypair = HybridKemKeypair::generate().unwrap();
+        let member1_identity = create_test_identity();
+        let member2_keypair = HybridKemKeypair::generate().unwrap();
+        let member2_identity = create_test_identity();
+
+        let mut session1 = CocoaSession::create_group(
+            group_id,
+            user1_id,
+            HybridKemKeypair::from_bytes(&member1_keypair.to_bytes()[..]).unwrap(),
+            2,
+            &epoch_secret,
+        )
+        .unwrap();
+        let mut session2 = CocoaSession::join_group(
+            group_id,
+            user2_id,
+            HybridKemKeypair::from_bytes(&member2_keypair.to_bytes()[..]).unwrap(),
+            1,
+            1,
+            2,
+            &epoch_secret,
+            [0u8; 32],
+        );
+
+        session1.tree_mut().insert(TreeNode::new_populated(
+            NodeIndex::leaf(1, 1),
+            member2_keypair.public_key().clone(),
+            None,
+            ([0u8; 32], [0u8; 32]),
+            user2_id,
+            member2_identity.sign(b"init").unwrap(),
+            [0u8; 32],
+            [0u8; 32],
+            UpdateOrigin {
+                epoch: 0,
+                sequence: 0,
+                timestamp: 0,
+            },
+        ));
+        session2.tree_mut().insert(TreeNode::new_populated(
+            NodeIndex::leaf(1, 0),
+            member1_keypair.public_key().clone(),
+            None,
+            ([0u8; 32], [0u8; 32]),
+            user1_id,
+            member1_identity.sign(b"init").unwrap(),
+            [0u8; 32],
+            [0u8; 32],
+            UpdateOrigin {
+                epoch: 0,
+                sequence: 0,
+                timestamp: 0,
+            },
+        ));
+
+        (session1, session2, member1_identity)
+    }
+
+    /// Positive control: an honest real update commit round-trips through
+    /// `process_update` — the mandatory round-hash recompute accepts it and the
+    /// epoch advances.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_round_hash_update_honest_verifies() {
+        let (mut session1, mut session2, member1_identity) = two_member_update_sessions();
+        let initial_epoch = session2.epoch_number();
+
+        let commit = create_update(&mut session1, &member1_identity).unwrap();
+        process_update(&mut session2, &commit, member1_identity.public_key()).unwrap();
+
+        assert_eq!(session2.epoch_number(), initial_epoch + 1);
+    }
+
+    /// A real update commit whose `round_hash` is then forged — with a matching,
+    /// self-consistent confirmation tag and a fresh valid signature over the
+    /// forged body — is rejected by the mandatory round-hash recompute
+    /// (`RoundHashMismatch`). The receiver independently recomputes the round
+    /// hash from the delta_root it derives and rejects the divergent value even
+    /// though the tag and signature check out.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_round_hash_update_mismatch_rejected() {
+        let (mut session1, mut session2, member1_identity) = two_member_update_sessions();
+
+        let honest = create_update(&mut session1, &member1_identity).unwrap();
+
+        // Derive (read-only) the delta_root the receiver will compute, so the
+        // forged commit's confirmation tag can be made self-consistent.
+        let node_updates = convert_path_updates_to_node_updates(&honest.path_updates).unwrap();
+        let delta_root = super::super::path_update::apply_path_updates(
+            &node_updates,
+            session2.our_keypair(),
+            session2.our_leaf_position(),
+            honest.updater_leaf_position,
+        )
+        .unwrap();
+
+        // Forge the round hash (flip one byte of the honest value -> guaranteed
+        // to differ from the receiver's recompute).
+        let mut forged_round_hash = honest.round_hash;
+        forged_round_hash[0] ^= 0xFF;
+
+        // Re-sign the body carrying the forged round hash so the signature check
+        // passes and execution reaches the round-hash gate.
+        let path_updates_hash = hash_path_updates(&serialise_path_updates(&honest.path_updates));
+        let commit_content = CommitContent::new_update(
+            honest.group_id,
+            honest.epoch,
+            forged_round_hash,
+            path_updates_hash,
+            honest.updater_leaf_position,
+            derive_user_id_from_identity(member1_identity.public_key()),
+        );
+        let signature = sign_commit(&member1_identity, &commit_content).unwrap();
+
+        // Confirmation tag self-consistent with (delta_root, forged round hash).
+        let new_transcript = h3_transcript_hash(session2.transcript_hash(), &forged_round_hash);
+        let confirmation_tag = compute_confirmation_tag(&delta_root, &new_transcript, honest.epoch);
+
+        let forged = UpdateCommit {
+            group_id: honest.group_id,
+            updater_leaf_position: honest.updater_leaf_position,
+            epoch: honest.epoch,
+            path_updates: honest.path_updates.clone(),
+            signature,
+            round_hash: forged_round_hash,
+            confirmation_tag,
+        };
+
+        assert!(matches!(
+            process_update(&mut session2, &forged, member1_identity.public_key()),
+            Err(trelis_error::CryptoError::RoundHashMismatch)
+        ));
+    }
+
+    // ─── WR-03: complete==true h2-enforcement reached on a REAL ingest ───────
+
+    /// Test helper: a populated tree node at `index` holding `pk`, owned by
+    /// `uid`. The stored signature is a throwaway (not verified on this path).
+    fn populated_node(
+        index: crate::tree::NodeIndex,
+        pk: HybridKemPublicKey,
+        uid: crate::UserId,
+        identity: &HybridIdentityKeypair,
+    ) -> crate::tree::TreeNode {
+        use crate::tree::{TreeNode, UpdateOrigin};
+        TreeNode::new_populated(
+            index,
+            pk,
+            None,
+            ([0u8; 32], [0u8; 32]),
+            uid,
+            identity.sign(b"init").unwrap(),
+            [0u8; 32],
+            [0u8; 32],
+            UpdateOrigin {
+                epoch: 0,
+                sequence: 0,
+                timestamp: 0,
+            },
+        )
+    }
+
+    /// Builds two synchronised sessions for a depth-2 (4-leaf) group in which
+    /// committer 0's path has a non-leaf level `(1,0)` whose co-path sibling
+    /// `(1,1)` is a blank internal with two POPULATED leaf children `(2,2)` and
+    /// `(2,3)`. That sibling subtree is fully materialised in BOTH views, so at
+    /// verify time `reconstruct_resolution_complete((1,0))` reports
+    /// `complete == true` with a NON-EMPTY resolution `{(2,2),(2,3)}` — the
+    /// production analogue of the hand-built `path_update::build_determinable_updates`
+    /// fixture. Receiver 1 owns leaf `(2,1)`; committer 0 encrypts the leaf-level
+    /// seed to it, so a real `process_update` round-trips (decryption succeeds).
+    ///
+    /// The two views hold IDENTICAL `(1,1)`/`(2,2)`/`(2,3)` nodes so the
+    /// builder's and verifier's `compute_lj` agree key-for-key (any divergence
+    /// would false-reject the honest commit at gate (a)/(b)).
+    ///
+    /// Returns `(committer_session, receiver_session, committer_identity)`.
+    fn determinable_ingest_sessions() -> (CocoaSession, CocoaSession, HybridIdentityKeypair) {
+        use crate::tree::{NodeIndex, TreeNode};
+
+        let group_id = [0x42u8; 32];
+        let epoch_secret = [0xABu8; 32];
+        let user1_id = [0x01u8; 32];
+        let user2_id = [0x02u8; 32];
+
+        let member1_keypair = HybridKemKeypair::generate().unwrap();
+        let member1_identity = create_test_identity();
+        let member2_keypair = HybridKemKeypair::generate().unwrap();
+        // Co-path leaf occupants under the sibling subtree (1,1).
+        let kp2 = HybridKemKeypair::generate().unwrap();
+        let kp3 = HybridKemKeypair::generate().unwrap();
+        // Throwaway identity for the filler tree-node signatures.
+        let filler = create_test_identity();
+
+        // Depth-2 (4-leaf) group; committer at leaf 0, receiver at leaf 1.
+        let mut session1 = CocoaSession::create_group(
+            group_id,
+            user1_id,
+            HybridKemKeypair::from_bytes(&member1_keypair.to_bytes()[..]).unwrap(),
+            4,
+            &epoch_secret,
+        )
+        .unwrap();
+        let mut session2 = CocoaSession::join_group(
+            group_id,
+            user2_id,
+            HybridKemKeypair::from_bytes(&member2_keypair.to_bytes()[..]).unwrap(),
+            1,
+            2,
+            4,
+            &epoch_secret,
+            [0u8; 32],
+        );
+
+        // Sibling subtree (1,1): blank internal + two populated leaf children,
+        // inserted identically into both views.
+        for tree in [session1.tree_mut(), session2.tree_mut()] {
+            tree.insert(TreeNode::new_blank(NodeIndex::new(1, 1)));
+            tree.insert(populated_node(
+                NodeIndex::new(2, 2),
+                kp2.public_key().clone(),
+                [0x22u8; 32],
+                &filler,
+            ));
+            tree.insert(populated_node(
+                NodeIndex::new(2, 3),
+                kp3.public_key().clone(),
+                [0x23u8; 32],
+                &filler,
+            ));
+        }
+
+        // Receiver's own leaf (2,1) must be present in the COMMITTER's view so
+        // the leaf-level seed is encrypted to it (enabling decryption on ingest).
+        session1.tree_mut().insert(populated_node(
+            NodeIndex::new(2, 1),
+            member2_keypair.public_key().clone(),
+            user2_id,
+            &filler,
+        ));
+
+        (session1, session2, member1_identity)
+    }
+
+    /// WR-03: a REAL `create_update` -> `process_update` ingest reaches the
+    /// `complete == true` branch with a NON-EMPTY resolution and ACCEPTS the
+    /// honest commit. The committer's level `(1,0)` resolves to the two populated
+    /// co-path leaves `{(2,2),(2,3)}`, so the SC1 gate ENFORCES `h2` here (rather
+    /// than deferring on absence) — yet the honest commit still verifies
+    /// end-to-end and the receiver's epoch advances. This is the production-path
+    /// counterpart to the hand-built `path_update::build_determinable_updates`
+    /// fixture: it proves the strengthening actually fires on real ingest, not
+    /// only on a synthetic view.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_parent_hash_update_ingest_complete_h2_honest_accepts() {
+        use crate::tree::NodeIndex;
+
+        let (mut session1, mut session2, id1) = determinable_ingest_sessions();
+        let initial_epoch = session2.epoch_number();
+
+        let commit = create_update(&mut session1, &id1).unwrap();
+
+        // The determinable non-leaf level (1,0) carries a NON-EMPTY recipient
+        // list (its co-path resolves to {(2,2),(2,3)}) — the property that makes
+        // this a non-trivial `complete == true` case rather than the empty-root
+        // level the pre-existing ingest tests exercised.
+        let node_updates = convert_path_updates_to_node_updates(&commit.path_updates).unwrap();
+        assert_eq!(node_updates[1].node_index, NodeIndex::new(1, 0));
+        assert_eq!(
+            node_updates[1].encrypted_seeds.len(),
+            2,
+            "level (1,0) must resolve to the two populated co-path leaves"
+        );
+
+        // Full production ingest accepts the honest commit.
+        process_update(&mut session2, &commit, id1.public_key()).unwrap();
+        assert_eq!(session2.epoch_number(), initial_epoch + 1);
+    }
+
+    /// WR-03: on that SAME determinable ingest, forging ONLY the level-`(1,0)`
+    /// `h2` (`parent_hash.1`) — with a fresh valid signature over the tampered
+    /// body and a self-consistent confirmation tag, so execution reaches the
+    /// parent-hash gate — is REJECTED with `ParentHashMismatch`. Because the
+    /// level is `complete`, `h2` is enforced by the (b) recompute; a deferral
+    /// regression (e.g. sparse ingest views) would instead ACCEPT this forgery,
+    /// so this is the live guard that `complete == true` is reachable on the
+    /// production path and that `h2` (not only `h1`) is enforced there.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_parent_hash_update_ingest_complete_h2_forged_rejected() {
+        use crate::tree::NodeIndex;
+
+        let (mut session1, mut session2, id1) = determinable_ingest_sessions();
+
+        let honest = create_update(&mut session1, &id1).unwrap();
+
+        // Forge the level-(1,0) h2 (predecessor/resolution binding); leave h1 and
+        // every ciphertext untouched so the ONLY failure source is the h2 gate.
+        let mut forged_updates = honest.path_updates.clone();
+        assert_eq!(forged_updates[1].node_index, NodeIndex::new(1, 0));
+        forged_updates[1].parent_hash.1[0] ^= 0xFF;
+
+        // The receiver-derived delta_root is unchanged by an h2 flip (it depends
+        // only on the seed chain), so the honest round hash and a tag recomputed
+        // over that delta_root stay self-consistent — execution passes the
+        // signature, confirmation-tag and round-hash gates and REACHES
+        // verify_parent_hashes.
+        let forged_node_updates = convert_path_updates_to_node_updates(&forged_updates).unwrap();
+        let delta_root = super::super::path_update::apply_path_updates(
+            &forged_node_updates,
+            session2.our_keypair(),
+            session2.our_leaf_position(),
+            honest.updater_leaf_position,
+        )
+        .unwrap();
+
+        // Re-sign the body carrying the forged parent hash (path_updates_hash
+        // binds parent_hash, so the honest signature would otherwise fail first).
+        let path_updates_hash = hash_path_updates(&serialise_path_updates(&forged_updates));
+        let commit_content = CommitContent::new_update(
+            honest.group_id,
+            honest.epoch,
+            honest.round_hash,
+            path_updates_hash,
+            honest.updater_leaf_position,
+            derive_user_id_from_identity(id1.public_key()),
+        );
+        let signature = sign_commit(&id1, &commit_content).unwrap();
+
+        // Confirmation tag self-consistent with (delta_root, honest round hash).
+        let new_transcript = h3_transcript_hash(session2.transcript_hash(), &honest.round_hash);
+        let confirmation_tag = compute_confirmation_tag(&delta_root, &new_transcript, honest.epoch);
+
+        let forged = UpdateCommit {
+            group_id: honest.group_id,
+            updater_leaf_position: honest.updater_leaf_position,
+            epoch: honest.epoch,
+            path_updates: forged_updates,
+            signature,
+            round_hash: honest.round_hash,
+            confirmation_tag,
+        };
+
+        assert!(matches!(
+            process_update(&mut session2, &forged, id1.public_key()),
+            Err(trelis_error::CryptoError::ParentHashMismatch)
+        ));
     }
 }

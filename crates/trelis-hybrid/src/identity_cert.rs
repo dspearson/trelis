@@ -110,7 +110,7 @@ impl IdentityCertificate {
     /// Serialises the certificate to its canonical wire form.
     ///
     /// Layout: `subject_identity (3,223) || issuer_signing_pk (2,009) ||
-    /// issued_at (8) || expires_at (8) || signature (3,423)` = 8,671 bytes.
+    /// issued_at (8) || expires_at (8) || signature (3,366)` = 8,614 bytes.
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(CERTIFICATE_WIRE_SIZE);
@@ -193,7 +193,7 @@ impl core::fmt::Debug for IdentityCertificate {
             .field("issuer_signing_pk", &"[hybrid signing pk]")
             .field("issued_at", &self.issued_at)
             .field("expires_at", &self.expires_at)
-            .field("signature", &"[3423 bytes]")
+            .field("signature", &"[3366 bytes]")
             .finish()
     }
 }
@@ -300,8 +300,8 @@ impl CertifiedSafetyNumber {
     /// Serialises to the canonical wire form.
     ///
     /// Layout: `safety_number (32) || presence_byte (1) ||
-    /// our_certificate (8,671) || our_signature (3,423) ||
-    /// [their_certificate (8,671) || their_signature (3,423)]`. The
+    /// our_certificate (8,614) || our_signature (3,366) ||
+    /// [their_certificate (8,614) || their_signature (3,366)]`. The
     /// presence byte is `0x00` for one-sided, `0x01` for two-sided.
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -399,8 +399,11 @@ impl CertifiedSafetyNumber {
 const IDENTITY_PK_SIZE: usize = 3_223;
 /// Size of `HybridSigningPublicKey` on the wire (Ed448 57 + ML-DSA 1,952).
 const SIGNING_PK_SIZE: usize = 2_009;
-/// Size of `HybridSignature` on the wire (Ed448 114 + ML-DSA 3,309).
-const SIGNATURE_WIRE_SIZE: usize = 3_423;
+/// Size of `HybridSignature` on the wire (BoP-2 response 57 + ML-DSA 3,309).
+///
+/// Single-sourced from [`crate::signature::SIGNATURE_SIZE`] so the certificate
+/// wire layout tracks the combiner (now the 3,366-byte BoP-2 signature).
+const SIGNATURE_WIRE_SIZE: usize = crate::signature::SIGNATURE_SIZE;
 /// Total wire size of one [`IdentityCertificate`].
 pub const CERTIFICATE_WIRE_SIZE: usize =
     IDENTITY_PK_SIZE + SIGNING_PK_SIZE + 8 + 8 + SIGNATURE_WIRE_SIZE;
@@ -422,8 +425,8 @@ mod tests {
 
     #[test]
     fn test_certificate_wire_size_constant() {
-        assert_eq!(CERTIFICATE_WIRE_SIZE, 3_223 + 2_009 + 8 + 8 + 3_423);
-        assert_eq!(CERTIFICATE_WIRE_SIZE, 8_671);
+        assert_eq!(CERTIFICATE_WIRE_SIZE, 3_223 + 2_009 + 8 + 8 + 3_366);
+        assert_eq!(CERTIFICATE_WIRE_SIZE, 8_614);
     }
 
     #[cfg_attr(miri, ignore)]
@@ -618,8 +621,8 @@ mod tests {
         // One-sided wire size is HEADER + cert + signature.
         // Two-sided is HEADER + 2 * (cert + signature).
         const HEADER: usize = 32 + 1;
-        const ONE_SIDED: usize = HEADER + CERTIFICATE_WIRE_SIZE + 3_423;
-        const TWO_SIDED: usize = HEADER + 2 * (CERTIFICATE_WIRE_SIZE + 3_423);
+        const ONE_SIDED: usize = HEADER + CERTIFICATE_WIRE_SIZE + 3_366;
+        const TWO_SIDED: usize = HEADER + 2 * (CERTIFICATE_WIRE_SIZE + 3_366);
 
         // A length that is neither variant must be rejected.
         let between = vec![0u8; ONE_SIDED + 1];
@@ -646,7 +649,7 @@ mod tests {
         // Build a buffer that has the right one-sided length but a
         // presence byte that is neither 0x00 nor 0x01.
         const HEADER: usize = 32 + 1;
-        const ONE_SIDED: usize = HEADER + CERTIFICATE_WIRE_SIZE + 3_423;
+        const ONE_SIDED: usize = HEADER + CERTIFICATE_WIRE_SIZE + 3_366;
 
         let mut buf = vec![0u8; ONE_SIDED];
         buf[32] = 0x02; // invalid presence byte
@@ -670,7 +673,7 @@ mod tests {
         // even if every sub-component decoded, the structural check at the
         // dispatcher must reject because the trailing bytes are unexpected.
         const HEADER: usize = 32 + 1;
-        const TWO_SIDED: usize = HEADER + 2 * (CERTIFICATE_WIRE_SIZE + 3_423);
+        const TWO_SIDED: usize = HEADER + 2 * (CERTIFICATE_WIRE_SIZE + 3_366);
         let mut buf = vec![0u8; TWO_SIDED];
         buf[32] = 0x00; // claim one-sided, but provide two-sided bytes
         // The outer length switch happens before any presence-byte read,

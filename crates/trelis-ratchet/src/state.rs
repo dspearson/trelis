@@ -295,6 +295,32 @@ impl KemRatchet {
         self.recv_count = message_number + 1;
     }
 
+    /// Restores the send counter to an exact value (deserialisation only).
+    ///
+    /// Unlike [`set_recv_count`](Self::set_recv_count), this stores `count`
+    /// **verbatim** — `send_count` is a plain tally of sent messages with no
+    /// message-number `+1` offset. Copying `set_recv_count`'s `+1` here would
+    /// leave every restored session's send counter off by one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CryptoError::SessionExhausted`] if `count` is at or beyond
+    /// `SESSION_EXHAUSTION_THRESHOLD`. A live ratchet can never reach that
+    /// value (send is refused past it — see
+    /// [`check_exhaustion`](Self::check_exhaustion)), so a decoded count in
+    /// that range denotes a corrupt or hostile state blob and is rejected
+    /// rather than replayed. `send_count` is left unchanged on rejection.
+    pub fn set_send_count(&mut self, count: u64) -> Result<()> {
+        if count >= SESSION_EXHAUSTION_THRESHOLD {
+            return Err(CryptoError::SessionExhausted {
+                current: count,
+                threshold: SESSION_EXHAUSTION_THRESHOLD,
+            });
+        }
+        self.send_count = count;
+        Ok(())
+    }
+
     /// Resets the receive counter (for sender key change).
     pub fn reset_recv_count(&mut self) {
         self.recv_count = 0;
@@ -649,6 +675,33 @@ mod tests {
 
         state.reset_recv_count();
         assert_eq!(state.recv_count(), 0);
+    }
+
+    #[test]
+    fn test_set_send_count() {
+        let session_key = [0x42u8; 32];
+        let their_keypair = HybridKemKeypair::generate().unwrap();
+
+        let mut state =
+            KemRatchet::init_initiator(&session_key, their_keypair.public_key().clone(), 1000)
+                .unwrap();
+
+        assert_eq!(state.send_count(), 0);
+
+        // Stored verbatim — NO +1 (contrast set_recv_count).
+        state.set_send_count(5).unwrap();
+        assert_eq!(state.send_count(), 5);
+
+        // Out-of-range values (>= threshold) are rejected as a corrupt/hostile
+        // blob, reusing the existing SessionExhausted variant.
+        assert!(matches!(
+            state.set_send_count(SESSION_EXHAUSTION_THRESHOLD),
+            Err(CryptoError::SessionExhausted { .. })
+        ));
+        assert!(state.set_send_count(u64::MAX).is_err());
+
+        // send_count is left unchanged after a rejected set.
+        assert_eq!(state.send_count(), 5);
     }
 
     #[test]

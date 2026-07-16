@@ -266,10 +266,14 @@ impl HybridKemKeypair {
             .sntrup_secret
             .decapsulate(&encapsulation.sntrup_ciphertext)?;
 
-        // Combine shared secrets
-        Ok(HybridSharedSecret::combine(
+        // Combine shared secrets via v2 (binds ct_sntrup, x448_eph, and the
+        // recipient's static hybrid public key into the KDF — CMB-01 / F02).
+        Ok(HybridSharedSecret::combine_v2(
             x448_ss.as_bytes(),
             sntrup_ss.as_bytes(),
+            encapsulation.sntrup_ciphertext.as_bytes(),
+            encapsulation.x448_ephemeral.as_bytes(),
+            &self.public_key.to_bytes(),
         ))
     }
 
@@ -447,8 +451,15 @@ impl HybridKemPublicKey {
         // sntrup761 encapsulation
         let (sntrup_ss, sntrup_ciphertext) = self.sntrup.encapsulate()?;
 
-        // Combine shared secrets
-        let shared_secret = HybridSharedSecret::combine(x448_ss.as_bytes(), sntrup_ss.as_bytes());
+        // Combine shared secrets via v2 (binds ct_sntrup, x448_eph, and this
+        // recipient hybrid public key into the KDF — CMB-01 / F02).
+        let shared_secret = HybridSharedSecret::combine_v2(
+            x448_ss.as_bytes(),
+            sntrup_ss.as_bytes(),
+            sntrup_ciphertext.as_bytes(),
+            x448_ephemeral.as_bytes(),
+            &self.to_bytes(),
+        );
 
         let encapsulation = HybridEncapsulation {
             x448_ephemeral,

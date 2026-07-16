@@ -53,11 +53,14 @@ type HybridSignature = trelis_hybrid::HybridSignature<trelis_primitives::mldsa::
 /// blob in `deserialize_cocoa_session`.
 ///
 /// Deliberately distinct from `trelis_primitives::SESSION_CONTEXT`
-/// (`"trelis-session-v1"`): that context derives an X3DH-PQ *pairwise* session
-/// secret from a 296-byte transcript, whereas this reconstructs a CoCoA *group*
-/// `init_secret` from a 32-byte transcript hash. Different protocols,
-/// different operations — sharing a context string would be a
-/// domain-separation violation, not an interoperability fix.
+/// (`"trelis-session-v1"`): that context (v1) derives an X3DH-PQ *pairwise*
+/// session secret from a 296-byte transcript — the v2 context
+/// (`"trelis-session-v2"`) derives over the 299-byte transcript that appends
+/// the additive `{version || suite-id || SessionFlags}` framing block —
+/// whereas this reconstructs a CoCoA *group* `init_secret` from a 32-byte
+/// transcript hash. Different protocols, different operations — sharing a
+/// context string would be a domain-separation violation, not an
+/// interoperability fix.
 const COCOA_WASM_LEGACY_SESSION_CONTEXT: &str = "trelis-cocoa-wasm-session-v1";
 
 /// Initialise the WASM module with better panic handling (optional).
@@ -382,7 +385,7 @@ pub fn hybrid_sign_generate() -> Result<JsValue, JsValue> {
 /// # Arguments
 /// * `public_key` - 2,009-byte public key
 /// * `message` - Original message
-/// * `signature` - 3,423-byte hybrid signature
+/// * `signature` - 3,366-byte hybrid signature
 ///
 /// # Returns
 /// `true` if both signatures are valid, `false` otherwise
@@ -556,7 +559,7 @@ pub fn hybrid_identity_generate() -> Result<JsValue, JsValue> {
 /// * `message` - Message to sign
 ///
 /// # Returns
-/// 3,423-byte hybrid signature
+/// 3,366-byte hybrid signature
 #[wasm_bindgen]
 pub fn hybrid_identity_sign(secret_key: &[u8], message: &[u8]) -> Result<Vec<u8>, JsValue> {
     let keypair = trelis_hybrid::HybridIdentityKeypair::from_bytes(secret_key)
@@ -574,7 +577,7 @@ pub fn hybrid_identity_sign(secret_key: &[u8], message: &[u8]) -> Result<Vec<u8>
 /// # Arguments
 /// * `public_key` - 3,223-byte hybrid identity public key
 /// * `message` - Original message
-/// * `signature` - 3,423-byte hybrid signature
+/// * `signature` - 3,366-byte hybrid signature
 ///
 /// # Returns
 /// `true` if valid, `false` otherwise
@@ -780,7 +783,7 @@ pub fn key_fingerprint(public_key: &[u8]) -> Result<Vec<u8>, JsValue> {
 /// * `signing_secret` - 4,089-byte signing secret key (compromised key or recovery key)
 ///
 /// # Returns
-/// Serialised compromise notice (3,496 bytes)
+/// Serialised compromise notice (3,439 bytes: 73-byte body + 3,366-byte BoP-2 signature)
 #[wasm_bindgen]
 pub fn compromise_notice_create(
     compromised_fingerprint: &[u8],
@@ -915,7 +918,7 @@ pub fn x3dh_create_bundle(
 /// * `signing_secret` - 4,089-byte hybrid signing secret key
 ///
 /// # Returns
-/// Signed bundle (7,884 bytes = bundle + 3,423-byte signature)
+/// Signed bundle (7,827 bytes = bundle + 3,366-byte signature)
 #[wasm_bindgen]
 pub fn x3dh_sign_bundle(bundle: &[u8], signing_secret: &[u8]) -> Result<Vec<u8>, JsValue> {
     let keypair = HybridSigningKeypair::from_bytes(signing_secret)
@@ -941,15 +944,15 @@ pub fn x3dh_sign_bundle(bundle: &[u8], signing_secret: &[u8]) -> Result<Vec<u8>,
 /// Verify a signed pre-key bundle.
 ///
 /// # Arguments
-/// * `signed_bundle` - 7,884-byte signed bundle
+/// * `signed_bundle` - 7,827-byte signed bundle
 ///
 /// # Returns
 /// Object with bundle fields if valid, error if invalid
 #[wasm_bindgen]
 pub fn x3dh_verify_bundle(signed_bundle: &[u8]) -> Result<JsValue, JsValue> {
-    // Bundle is 4,461 bytes, signature is 3,423 bytes
+    // Bundle is 4,461 bytes, signature is 3,366 bytes
     const BUNDLE_SIZE: usize = 4461;
-    const SIG_SIZE: usize = 3423;
+    const SIG_SIZE: usize = 3366;
 
     if signed_bundle.len() != BUNDLE_SIZE + SIG_SIZE {
         return Err(JsValue::from_str("Invalid signed bundle size"));
@@ -1016,8 +1019,11 @@ pub fn x3dh_verify_bundle(signed_bundle: &[u8]) -> Result<JsValue, JsValue> {
 ///
 /// # Arguments
 /// * `our_identity_secret` - 5,908-byte our identity secret key
-/// * `their_signed_bundle` - 7,884-byte signed pre-key bundle from responder
+/// * `their_signed_bundle` - 7,827-byte signed pre-key bundle from responder
 /// * `current_time` - Current Unix timestamp for bundle validation
+/// * `li_capable` - whether this session is Lawful-Interception-capable
+///   (SessionFlags bit 0, bound into the transcript); MUST match the value the
+///   responder passes to `x3dh_responder_establish`
 ///
 /// # Returns
 /// Object with:
@@ -1030,6 +1036,7 @@ pub fn x3dh_initiator_establish(
     our_identity_secret: &[u8],
     their_signed_bundle: &[u8],
     current_time: u64,
+    li_capable: bool,
 ) -> Result<JsValue, JsValue> {
     // Parse our identity keypair
     let our_identity = trelis_hybrid::HybridIdentityKeypair::from_bytes(our_identity_secret)
@@ -1039,8 +1046,13 @@ pub fn x3dh_initiator_establish(
     let signed_bundle = parse_signed_bundle(their_signed_bundle)?;
 
     // Establish session
-    let result = trelis_x3dh_pq::Initiator::establish(&our_identity, &signed_bundle, current_time)
-        .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+    let result = trelis_x3dh_pq::Initiator::establish(
+        &our_identity,
+        &signed_bundle,
+        current_time,
+        trelis_x3dh_pq::SessionFlags { li_capable },
+    )
+    .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
     let session_keys = result.session_keys();
     let initial_message = result.initial_message();
@@ -1077,8 +1089,11 @@ pub fn x3dh_initiator_establish(
 /// * `our_otk_secret` - 1,819-byte our one-time key secret (matching bundle)
 /// * `their_identity_signing` - 2,009-byte initiator's identity signing public key
 /// * `their_identity_kem_x448` - 56-byte initiator's X448 KEM public key
-/// * `our_signed_bundle` - 7,884-byte the bundle we published
+/// * `our_signed_bundle` - 7,827-byte the bundle we published
 /// * `initial_message` - 1,095-byte initial message from initiator
+/// * `li_capable` - whether this session is Lawful-Interception-capable
+///   (SessionFlags bit 0, bound into the transcript); MUST match the value the
+///   initiator passed to `x3dh_initiator_establish`, else the derived keys diverge
 ///
 /// # Returns
 /// Object with:
@@ -1093,6 +1108,7 @@ pub fn x3dh_responder_establish(
     their_identity_kem_x448: &[u8],
     our_signed_bundle: &[u8],
     initial_message: &[u8],
+    li_capable: bool,
 ) -> Result<JsValue, JsValue> {
     // Parse our identity keypair
     let our_identity = trelis_hybrid::HybridIdentityKeypair::from_bytes(our_identity_secret)
@@ -1129,6 +1145,7 @@ pub fn x3dh_responder_establish(
         &their_x448,
         &our_bundle,
         &init_msg,
+        trelis_x3dh_pq::SessionFlags { li_capable },
     )
     .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
@@ -1155,7 +1172,7 @@ pub fn x3dh_responder_establish(
 /// Internal helper to parse a signed bundle from bytes.
 fn parse_signed_bundle(bytes: &[u8]) -> Result<trelis_x3dh_pq::SignedPreKeyBundle, JsValue> {
     const BUNDLE_SIZE: usize = 4461;
-    const SIG_SIZE: usize = 3423;
+    const SIG_SIZE: usize = 3366;
 
     if bytes.len() != BUNDLE_SIZE + SIG_SIZE {
         return Err(JsValue::from_str("Invalid signed bundle size"));
@@ -1476,11 +1493,12 @@ fn deserialize_ratchet_state(bytes: &[u8]) -> trelis_error::Result<trelis_ratche
         state.set_their_public_key(pk);
     }
 
-    // Set counters by sending/receiving placeholder ops - not ideal but works
-    // In production, add proper set methods to KemRatchet
-    for _ in 0..send_count {
-        state.increment_send_count();
-    }
+    // Restore send_count directly (bounded, O(1)) — replaces the
+    // `0..send_count` replay that hung the WASM thread on a near-u64::MAX
+    // state blob (RCH-02). set_send_count rejects a decoded count at/above
+    // SESSION_EXHAUSTION_THRESHOLD via the existing SessionExhausted variant,
+    // so a hostile blob errors here instead of looping.
+    state.set_send_count(send_count)?;
     // set_recv_count(n) stores n+1, so we have to call it with recv_count-1
     // to restore the exact value. For recv_count==0 the responder default is
     // already 0; calling set_recv_count(0) would bump it to 1.
@@ -1593,6 +1611,16 @@ pub fn cocoa_create_group(
 ///
 /// # Returns
 /// Object with updated `session` and `encrypted_message` (serialised EncryptedMessage)
+///
+/// # Rollback safety (RBK-01 / GAP-05)
+///
+/// This ergonomic path deserialises `session` through the UNCHECKED door and
+/// performs NO cross-invocation rollback check. An app that restores a
+/// durable/persisted blob MUST first validate it through
+/// [`cocoa_deserialize_checked`] against the persisted `SessionWatermark`, and
+/// MUST advance+persist the watermark on every emit (read it from the post-op
+/// blob via [`cocoa_session_watermark`]) — otherwise a stale-blob restore can
+/// re-emit an already-used `(key, nonce)` pair.
 #[wasm_bindgen]
 pub fn cocoa_encrypt(session: &[u8], plaintext: &[u8]) -> Result<JsValue, JsValue> {
     let mut cocoa_session =
@@ -1692,6 +1720,10 @@ pub fn cocoa_session_info(session: &[u8]) -> Result<JsValue, JsValue> {
 /// * `our_user_id` - 32-byte user identifier
 /// * `our_kem_secret` - 1,819-byte KEM secret key (matching bundle used)
 /// * `welcome_bytes` - Serialised welcome message
+/// * `committer_identity_public` - The expected group-creator/adder identity
+///   public key (supplied out-of-band). GAP-01: the welcome's committer
+///   signature is verified against this before joining; an unsigned/forged
+///   welcome is rejected.
 ///
 /// # Returns
 /// Object with `session` (serialised CoCoA session)
@@ -1700,6 +1732,7 @@ pub fn cocoa_process_welcome(
     our_user_id: &[u8],
     our_kem_secret: &[u8],
     welcome_bytes: &[u8],
+    committer_identity_public: &[u8],
 ) -> Result<JsValue, JsValue> {
     if our_user_id.len() != 32 {
         return Err(JsValue::from_str("User ID must be 32 bytes"));
@@ -1711,10 +1744,16 @@ pub fn cocoa_process_welcome(
     let our_kem = trelis_hybrid::HybridKemKeypair::from_bytes(our_kem_secret)
         .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
+    // GAP-01: the caller supplies the expected committer identity out-of-band.
+    let committer_identity =
+        trelis_hybrid::HybridIdentityPublicKey::from_bytes(committer_identity_public)
+            .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+
     let welcome = deserialize_welcome(welcome_bytes)?;
 
-    let session = trelis_cocoa::operations::process_welcome(user_id, our_kem, &welcome)
-        .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+    let session =
+        trelis_cocoa::operations::process_welcome(user_id, our_kem, &welcome, &committer_identity)
+            .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
     let session_bytes = serialize_cocoa_session(&session);
 
@@ -1737,6 +1776,16 @@ pub fn cocoa_process_welcome(
 ///
 /// # Returns
 /// Object with updated `session`
+///
+/// # Rollback safety (RBK-01 / GAP-05)
+///
+/// This ergonomic path deserialises `session` through the UNCHECKED door and
+/// performs NO cross-invocation rollback check. An app that restores a
+/// durable/persisted blob MUST first validate it through
+/// [`cocoa_deserialize_checked`] against the persisted `SessionWatermark`, and
+/// MUST advance+persist the watermark on every emit (read it from the post-op
+/// blob via [`cocoa_session_watermark`]) — otherwise a stale-blob restore can
+/// re-emit an already-used `(key, nonce)` pair.
 #[wasm_bindgen]
 pub fn cocoa_advance_epoch(
     session: &[u8],
@@ -1787,6 +1836,16 @@ pub fn cocoa_advance_epoch(
 ///
 /// # Returns
 /// Object with updated `session` and new `public_key`
+///
+/// # Rollback safety (RBK-01 / GAP-05)
+///
+/// This ergonomic path deserialises `session` through the UNCHECKED door and
+/// performs NO cross-invocation rollback check. An app that restores a
+/// durable/persisted blob MUST first validate it through
+/// [`cocoa_deserialize_checked`] against the persisted `SessionWatermark`, and
+/// MUST advance+persist the watermark on every emit (read it from the post-op
+/// blob via [`cocoa_session_watermark`]) — otherwise a stale-blob restore can
+/// re-emit an already-used `(key, nonce)` pair.
 #[wasm_bindgen]
 pub fn cocoa_rotate_keypair(session: &[u8]) -> Result<JsValue, JsValue> {
     let mut cocoa_session =
@@ -1818,8 +1877,17 @@ pub fn cocoa_rotate_keypair(session: &[u8]) -> Result<JsValue, JsValue> {
 fn serialize_welcome(welcome: &trelis_cocoa::operations::Welcome) -> Vec<u8> {
     // Format: group_id (32) + epoch (8) + leaf_position (4) + tree_depth (4) +
     // member_count (4) + encrypted_info_len (4) + encrypted_info + encapsulation_len (4) + encapsulation
+    //   + signature (SIGNATURE_SIZE) — GAP-01 committer signature, single-sourced size.
     let mut buf = Vec::with_capacity(
-        32 + 8 + 4 + 4 + 4 + 4 + welcome.encrypted_info.len() + 4 + welcome.encapsulation.len(),
+        32 + 8
+            + 4
+            + 4
+            + 4
+            + 4
+            + welcome.encrypted_info.len()
+            + 4
+            + welcome.encapsulation.len()
+            + trelis_hybrid::signature::SIGNATURE_SIZE,
     );
 
     buf.extend_from_slice(&welcome.group_id);
@@ -1831,13 +1899,16 @@ fn serialize_welcome(welcome: &trelis_cocoa::operations::Welcome) -> Vec<u8> {
     buf.extend_from_slice(&welcome.encrypted_info);
     buf.extend_from_slice(&(welcome.encapsulation.len() as u32).to_le_bytes());
     buf.extend_from_slice(&welcome.encapsulation);
+    // GAP-01: marshal the committer signature bytes (fixed SIGNATURE_SIZE).
+    buf.extend_from_slice(&welcome.signature.to_bytes());
 
     buf
 }
 
 // Internal helper to deserialize a Welcome message
 fn deserialize_welcome(bytes: &[u8]) -> Result<trelis_cocoa::operations::Welcome, JsValue> {
-    const MIN_SIZE: usize = 32 + 8 + 4 + 4 + 4 + 4 + 4; // minimum without variable parts
+    // minimum without variable parts, grown by the fixed GAP-01 signature.
+    const MIN_SIZE: usize = 32 + 8 + 4 + 4 + 4 + 4 + 4 + trelis_hybrid::signature::SIGNATURE_SIZE;
 
     if bytes.len() < MIN_SIZE {
         return Err(JsValue::from_str("Welcome message too short"));
@@ -1885,6 +1956,18 @@ fn deserialize_welcome(bytes: &[u8]) -> Result<trelis_cocoa::operations::Welcome
 
     let encapsulation = bytes[encapsulation_start..encapsulation_end].to_vec();
 
+    // GAP-01: the committer signature occupies the trailing fixed SIGNATURE_SIZE
+    // bytes. Use checked arithmetic (wasm32 usize is 32-bit) like the length
+    // handling above.
+    let signature_end = encapsulation_end
+        .checked_add(trelis_hybrid::signature::SIGNATURE_SIZE)
+        .ok_or_else(|| JsValue::from_str("Welcome message length overflow"))?;
+    if bytes.len() < signature_end {
+        return Err(JsValue::from_str("Welcome message truncated"));
+    }
+    let signature = HybridSignature::from_bytes(&bytes[encapsulation_end..signature_end])
+        .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+
     Ok(trelis_cocoa::operations::Welcome {
         group_id,
         epoch,
@@ -1893,6 +1976,7 @@ fn deserialize_welcome(bytes: &[u8]) -> Result<trelis_cocoa::operations::Welcome
         member_count,
         encrypted_info,
         encapsulation,
+        signature,
     })
 }
 
@@ -1927,8 +2011,31 @@ fn serialize_cocoa_session(session: &trelis_cocoa::CocoaSession) -> Vec<u8> {
     buf
 }
 
-// Internal helper to deserialize CocoaSession
-fn deserialize_cocoa_session(bytes: &[u8]) -> trelis_error::Result<trelis_cocoa::CocoaSession> {
+// Parsed fields of a v2 CoCoA session blob — the single-sourced offset parse
+// shared by `deserialize_cocoa_session` (the shipped restore driver) and the
+// checked restore path, so the two cannot drift. Holds only the decoded fields;
+// the restore POLICY (unchecked vs watermark-checked) is the caller's choice.
+struct ParsedCocoaSessionV2 {
+    group_id: [u8; 32],
+    user_id: [u8; 32],
+    epoch_number: u64,
+    leaf_position: u32,
+    member_count: u32,
+    tree_depth: u32,
+    transcript_hash: [u8; 32],
+    epoch_secret: [u8; 32],
+    message_counter: u64,
+    our_keypair: trelis_hybrid::HybridKemKeypair,
+}
+
+// Single-sources the v2 blob parse. This is the EXACT offset logic that was
+// inline in `deserialize_cocoa_session`: it supports both the old (1935-byte)
+// format (epoch_secret derived from the transcript hash via the legacy context,
+// counter 0) and the new (1975-byte) v2 format (raw epoch_secret +
+// message_counter at offsets 116..148 / 148..156). The blob format, offsets, and
+// `NEW_SIZE` (= 1975) are UNCHANGED — this is a signature-preserving extraction
+// so the additive checked path cannot drift from the shipped driver.
+fn parse_cocoa_session_v2(bytes: &[u8]) -> trelis_error::Result<ParsedCocoaSessionV2> {
     // Support both old format (1935 bytes) and new format (1975 bytes)
     const OLD_SIZE: usize = 32 + 32 + 8 + 4 + 4 + 4 + 32 + 1819; // 1935
     const NEW_SIZE: usize = 32 + 32 + 8 + 4 + 4 + 4 + 32 + 32 + 8 + 1819; // 1975
@@ -1968,29 +2075,221 @@ fn deserialize_cocoa_session(bytes: &[u8]) -> trelis_error::Result<trelis_cocoa:
     let our_keypair =
         trelis_hybrid::HybridKemKeypair::from_bytes(&bytes[keypair_offset..keypair_offset + 1819])?;
 
-    // Feed the stored epoch_secret into join_group as the epoch_secret so the
-    // rebuilt EpochSecrets matches the original — derive_app_secret(epoch_secret)
-    // and friends will produce the same per-message keys as the sender did.
-    let mut session = trelis_cocoa::CocoaSession::join_group(
+    Ok(ParsedCocoaSessionV2 {
         group_id,
         user_id,
-        our_keypair,
+        epoch_number,
         leaf_position,
-        tree_depth,
         member_count,
-        &epoch_secret,
+        tree_depth,
         transcript_hash,
+        epoch_secret,
+        message_counter,
+        our_keypair,
+    })
+}
+
+// Internal helper to deserialize CocoaSession
+fn deserialize_cocoa_session(bytes: &[u8]) -> trelis_error::Result<trelis_cocoa::CocoaSession> {
+    let p = parse_cocoa_session_v2(bytes)?;
+
+    // WR-06: reconstruct the session DIRECTLY at its stored epoch number from
+    // the stored epoch secret. `serialize_cocoa_session` persists the CURRENT
+    // epoch secret, so the only correct reconstruction is
+    // EpochSecrets::derive(stored_epoch_secret) carried at `epoch_number`.
+    //
+    // The previous `join_group` (epoch 0) + `advance_epoch` * epoch_number loop
+    // re-derived a FRESH secret at each step (h5_epoch_secret), moving AWAY from
+    // the stored value — so at any epoch > 0 the restored app_secret differed
+    // from the live group's and cocoa_encrypt/cocoa_decrypt after a round trip
+    // produced keys no peer could match (AeadAuthenticationFailed). This is a
+    // pure reconstruction fix: the serialised blob format is unchanged, and an
+    // existing blob now restores correctly at epoch > 0.
+    let mut session = trelis_cocoa::CocoaSession::restore_session(
+        p.group_id,
+        p.user_id,
+        p.our_keypair,
+        p.leaf_position,
+        p.tree_depth,
+        p.member_count,
+        &p.epoch_secret,
+        p.transcript_hash,
+        p.epoch_number,
     );
 
-    // Advance to the correct epoch if needed
-    for _ in 0..epoch_number {
-        session.advance_epoch(&transcript_hash, transcript_hash);
-    }
-
-    // Restore message counter
-    session.set_message_counter(message_counter);
+    // Restore the message counter through the monotonic-forward guard. The
+    // reconstructed epoch is fresh (counter 0), so a forward-set 0 -> N always
+    // succeeds; the guard rejects only an attempt to roll an already-advanced
+    // counter backwards (GAP-05 / F09).
+    session.set_message_counter(p.message_counter)?;
 
     Ok(session)
+}
+
+// Native (host-testable) checked restore driver for a CoCoA session blob
+// (RBK-01 / GAP-05). Parses the v2 blob via the single-sourced
+// `parse_cocoa_session_v2`, enforces the caller's EXPECTED `(group_id, user_id)`
+// identity against the blob, builds the caller's persisted `SessionWatermark`
+// from its 16 bytes, and routes the restore through
+// `CocoaSession::restore_session_checked` (the 58-01 safe door). A rollback —
+// a blob whose `(epoch, counter)` is strictly below the watermark — surfaces
+// `CryptoError::MessageCounterTooOld` via `?` BEFORE any session is
+// reconstructed; an identity mismatch surfaces `CryptoError::MalformedMessage`
+// even earlier (BEFORE the watermark check), so a caller that mis-keys its
+// watermark store cannot silently disable the guard by pairing one identity's
+// watermark with another identity's blob (WR-02). Returns the reconstructed
+// session and the ADVANCED watermark (the lexicographic max of the persisted
+// watermark and the blob's `(epoch, counter)`) for the caller to persist.
+//
+// This is the driver the cross-deserialise rollback regression tests exercise
+// directly (mirroring how `test_cocoa_session_counter_restore_and_guard` drives
+// `deserialize_cocoa_session`); `cocoa_deserialize_checked` is the thin
+// `wasm_bindgen` wrapper over it.
+fn deserialize_cocoa_session_checked(
+    session: &[u8],
+    watermark: &[u8],
+    expected_group_id: &[u8],
+    expected_user_id: &[u8],
+) -> trelis_error::Result<(trelis_cocoa::CocoaSession, trelis_cocoa::SessionWatermark)> {
+    let p = parse_cocoa_session_v2(session)?;
+
+    // WR-02: enforce the caller's EXPECTED identity BEFORE the watermark check or
+    // any reconstruction. The 16-byte watermark carries no identity, so a caller
+    // that mis-keys its watermark store — applying identity A's watermark to
+    // identity B's blob — would otherwise silently disable B's rollback guard.
+    // Reject the mismatch here (Security-category `MalformedMessage`) so the guard
+    // cannot be bypassed by a wrong `(group_id, user_id)` pairing.
+    if p.group_id.as_slice() != expected_group_id || p.user_id.as_slice() != expected_user_id {
+        return Err(trelis_error::CryptoError::MalformedMessage);
+    }
+
+    let wm = trelis_cocoa::SessionWatermark::from_bytes(watermark)?;
+    let restored = trelis_cocoa::CocoaSession::restore_session_checked(
+        &wm,
+        p.group_id,
+        p.user_id,
+        p.our_keypair,
+        p.leaf_position,
+        p.tree_depth,
+        p.member_count,
+        &p.epoch_secret,
+        p.transcript_hash,
+        p.epoch_number,
+        p.message_counter,
+    )?;
+    let advanced = wm.advanced(p.epoch_number, p.message_counter);
+    Ok((restored, advanced))
+}
+
+/// Safe, durable-storage restore entry for a CoCoA session (RBK-01 / GAP-05) —
+/// the application-facing half of the cross-invocation counter-rollback guard.
+///
+/// Deserialises `session` (the 1975-byte v2 blob) and routes the restore through
+/// the 58-01 safe door against the caller's persisted 16-byte `watermark`
+/// (`epoch_u64 || counter_u64`, little-endian — the value a prior
+/// [`cocoa_session_watermark`] or `cocoa_deserialize_checked` returned). If the
+/// blob's `(epoch, counter)` is strictly below the watermark — a stale blob
+/// restored after a newer one already emitted — this REJECTS with an error
+/// instead of returning a session, so no already-used `(key, nonce)` can be
+/// re-derived across the restore boundary. An equal or higher `(epoch, counter)`
+/// is accepted (the honest reload / forward restore).
+///
+/// # Identity binding (WR-02)
+///
+/// `expected_group_id` and `expected_user_id` are the 32-byte identity the caller
+/// looked the `watermark` up under. Because the 16-byte watermark carries no
+/// identity, this entry ENFORCES that the blob's own `(group_id, user_id)` equals
+/// the expected pair BEFORE the watermark check — a mismatch is REJECTED, not
+/// merely reported. This closes the silent-bypass where a caller that mis-keys
+/// its per-identity watermark store (applies identity A's watermark to identity
+/// B's blob) would otherwise disable B's rollback guard.
+///
+/// # Returns
+///
+/// An object with:
+/// * `session` — the re-serialised v2 session blob (byte-identical format),
+/// * `watermark` — the 16-byte ADVANCED watermark the caller MUST persist,
+/// * `group_id` / `user_id` — the blob's own identity (now guaranteed to equal
+///   the `expected_*` inputs, since a mismatch would have been rejected above).
+///
+/// # Caller duty
+///
+/// Persist the returned `watermark` keyed by `(group_id, user_id)`, route every
+/// durable-storage load through this entry, and advance the persisted watermark
+/// on every emit (read it from the post-op blob via [`cocoa_session_watermark`]).
+/// The watermark is app-held SIDE-STATE: it is never stored in the session blob
+/// (an in-blob watermark would roll back with the blob) and never threaded
+/// through the per-op `cocoa_*` functions.
+///
+/// # Errors
+///
+/// Returns a `JsValue` error string if the blob or watermark is malformed, if the
+/// blob's identity does not match `expected_group_id`/`expected_user_id`
+/// (`MalformedMessage`), or if the restore is a rollback (`MessageCounterTooOld`).
+#[wasm_bindgen]
+pub fn cocoa_deserialize_checked(
+    session: &[u8],
+    watermark: &[u8],
+    expected_group_id: &[u8],
+    expected_user_id: &[u8],
+) -> Result<JsValue, JsValue> {
+    let (restored, advanced) =
+        deserialize_cocoa_session_checked(session, watermark, expected_group_id, expected_user_id)
+            .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+
+    let reserialized = serialize_cocoa_session(&restored);
+
+    let obj = js_sys::Object::new();
+    js_sys::Reflect::set(
+        &obj,
+        &"session".into(),
+        &js_sys::Uint8Array::from(reserialized.as_slice()),
+    )?;
+    js_sys::Reflect::set(
+        &obj,
+        &"watermark".into(),
+        &js_sys::Uint8Array::from(advanced.to_bytes().as_slice()),
+    )?;
+    js_sys::Reflect::set(
+        &obj,
+        &"group_id".into(),
+        &js_sys::Uint8Array::from(restored.group_id().as_slice()),
+    )?;
+    js_sys::Reflect::set(
+        &obj,
+        &"user_id".into(),
+        &js_sys::Uint8Array::from(restored.our_user_id().as_slice()),
+    )?;
+
+    Ok(obj.into())
+}
+
+/// Returns the 16-byte `(epoch || counter)` high-water watermark to persist for
+/// this blob's identity (RBK-01 / GAP-05).
+///
+/// A post-op blob (e.g. the `session` a [`cocoa_encrypt`] call returns) already
+/// carries the ADVANCED `(epoch, counter)`, so calling this on that blob yields
+/// the advance-to watermark the caller MUST persist BEFORE releasing the
+/// ciphertext — closing the crash-replay re-emit (an app that advances the
+/// watermark only on restore, never on emit, re-opens it). `cocoa_encrypt` does
+/// not return the counter today, so this helper is how the app reads it.
+///
+/// The returned bytes carry NO secret material — only the public `(epoch,
+/// counter)` metadata already present, in the clear, in the blob. Note the
+/// blob's field order (epoch at offset 64, counter at offset 148) differs from
+/// the watermark byte order (`epoch || counter`); this helper reconciles them.
+///
+/// # Errors
+///
+/// Returns a `JsValue` error string if the blob is malformed.
+#[wasm_bindgen]
+pub fn cocoa_session_watermark(session: &[u8]) -> Result<Vec<u8>, JsValue> {
+    let p = parse_cocoa_session_v2(session).map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+    Ok(
+        trelis_cocoa::SessionWatermark::new(p.epoch_number, p.message_counter)
+            .to_bytes()
+            .to_vec(),
+    )
 }
 
 // ============================================================================
@@ -2013,26 +2312,31 @@ pub fn device_fingerprint(public_key: &[u8]) -> Result<Vec<u8>, JsValue> {
     Ok(fingerprint.to_vec())
 }
 
-/// Create a device approval certificate (v0.6 layout — self-verifying).
+/// Create a device approval certificate (v0.7 layout — identity-rooted).
 ///
 /// # Arguments
 /// * `approving_device_id` - 16-byte device ID of the approving device
 /// * `user_id` - 32-byte user-account identifier
 /// * `new_device_fingerprint` - 32-byte fingerprint of the new device's public key
 /// * `server_nonce` - 32-byte server-issued single-use nonce
+/// * `account_identity_pk` - 2,009-byte account identity signing public key that
+///   roots the device graph (bound as data; the SIGNER is still the approving
+///   device keypair)
 /// * `approved_at` - Unix timestamp (seconds)
 /// * `signing_secret` - signing keypair secret bytes
 ///
 /// # Returns
-/// Serialised approval certificate (5,552 bytes). The embedded
-/// `approving_device_pk` is taken from the supplied keypair so the cert is
-/// self-verifying.
+/// Serialised approval certificate (7,504 bytes). The embedded
+/// `approving_device_pk` keeps the signature self-verifying; the bound
+/// `account_identity_pk` roots the device graph in the account identity key, so
+/// the cert is no longer fully self-contained for trust (TRN-01).
 #[wasm_bindgen]
 pub fn device_approval_create(
     approving_device_id: &[u8],
     user_id: &[u8],
     new_device_fingerprint: &[u8],
     server_nonce: &[u8],
+    account_identity_pk: &[u8],
     approved_at: u64,
     signing_secret: &[u8],
 ) -> Result<Vec<u8>, JsValue> {
@@ -2048,6 +2352,11 @@ pub fn device_approval_create(
     if server_nonce.len() != 32 {
         return Err(JsValue::from_str("Server nonce must be 32 bytes"));
     }
+    if account_identity_pk.len() != 2009 {
+        return Err(JsValue::from_str(
+            "Account identity public key must be 2009 bytes",
+        ));
+    }
 
     let mut device_id = [0u8; 16];
     device_id.copy_from_slice(approving_device_id);
@@ -2061,6 +2370,9 @@ pub fn device_approval_create(
     let mut nonce = [0u8; 32];
     nonce.copy_from_slice(server_nonce);
 
+    let account_identity = trelis_hybrid::HybridSigningPublicKey::from_bytes(account_identity_pk)
+        .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+
     let keypair = trelis_hybrid::HybridSigningKeypair::from_bytes(signing_secret)
         .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
@@ -2069,6 +2381,7 @@ pub fn device_approval_create(
         uid,
         fingerprint,
         nonce,
+        &account_identity,
         approved_at,
         &keypair,
     )
@@ -2077,31 +2390,41 @@ pub fn device_approval_create(
     Ok(cert.to_bytes())
 }
 
-/// Verify a device approval certificate (v0.6 layout — self-verifying).
+/// Verify a device approval certificate (v0.7 layout — identity-rooted).
 ///
 /// # Arguments
 /// * `certificate_bytes` - Serialised approval certificate
+/// * `expected_account_identity_pk` - 2,009-byte account identity signing public
+///   key the relying party independently trusts (the anchor the device graph is
+///   rooted in)
 /// * `now` - Verifier's current Unix timestamp (seconds)
 /// * `window_seconds` - Validity window in seconds (e.g. 300 for the default
 ///   5-minute window). The signature verifies if `|now - approved_at|
 ///   <= window_seconds`.
 ///
-/// The approving device's public key is embedded inside the certificate;
-/// no external public-key argument is required.
+/// The approving device's public key is embedded inside the certificate, so
+/// the signature is self-verifying; identity ROOTING additionally requires the
+/// trusted `expected_account_identity_pk` anchor — a mismatch surfaces as
+/// `IdentityKeyMismatch`.
 ///
 /// # Returns
 /// Object with verification result and certificate fields
 #[wasm_bindgen]
 pub fn device_approval_verify(
     certificate_bytes: &[u8],
+    expected_account_identity_pk: &[u8],
     now: u64,
     window_seconds: u64,
 ) -> Result<JsValue, JsValue> {
     let cert = trelis_multidevice::DeviceApprovalCertificate::from_bytes(certificate_bytes)
         .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
+    let expected_account_identity =
+        trelis_hybrid::HybridSigningPublicKey::from_bytes(expected_account_identity_pk)
+            .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+
     let window = trelis_multidevice::NonceWindow::seconds(window_seconds);
-    let verify_result = cert.verify(now, window);
+    let verify_result = cert.verify(&expected_account_identity, now, window);
     let valid = verify_result.is_ok();
     let error_str = match verify_result {
         Ok(()) => None,
@@ -2137,6 +2460,11 @@ pub fn device_approval_verify(
         &obj,
         &"approving_device_pk".into(),
         &js_sys::Uint8Array::from(cert.approving_device_pk.to_bytes().as_slice()),
+    )?;
+    js_sys::Reflect::set(
+        &obj,
+        &"account_identity_pk".into(),
+        &js_sys::Uint8Array::from(cert.account_identity_pk.to_bytes().as_slice()),
     )?;
     js_sys::Reflect::set(
         &obj,
@@ -2238,7 +2566,7 @@ pub fn device_revocation_verify(
 /// * `epoch` - CoCoA epoch number
 ///
 /// # Returns
-/// Serialised DeviceKeyWrap (1,175 bytes)
+/// Serialised DeviceKeyWrap (1,207 bytes)
 #[wasm_bindgen]
 pub fn device_key_wrap_create(
     secret: &[u8],
@@ -2291,7 +2619,7 @@ pub fn device_key_wrap_create(
 /// Unwrap a DeviceKeyWrap to recover the secret.
 ///
 /// # Arguments
-/// * `wrap_bytes` - Serialised DeviceKeyWrap (1,175 bytes)
+/// * `wrap_bytes` - Serialised DeviceKeyWrap (1,207 bytes)
 /// * `recipient_kem_secret` - 1,819-byte recipient's KEM secret key
 /// * `recipient_key_id` - 8-byte recipient key ID
 /// * `purpose` - Expected wrap purpose
@@ -2413,6 +2741,16 @@ pub fn thread_settings_create(
 ///
 /// # Returns
 /// Object with updated `session`, `commit` (serialised AddCommit), and `welcome` (serialised Welcome)
+///
+/// # Rollback safety (RBK-01 / GAP-05)
+///
+/// This ergonomic path deserialises `session` through the UNCHECKED door and
+/// performs NO cross-invocation rollback check. An app that restores a
+/// durable/persisted blob MUST first validate it through
+/// [`cocoa_deserialize_checked`] against the persisted `SessionWatermark`, and
+/// MUST advance+persist the watermark on every emit (read it from the post-op
+/// blob via [`cocoa_session_watermark`]) — otherwise a stale-blob restore can
+/// re-emit an already-used `(key, nonce)` pair.
 #[wasm_bindgen]
 pub fn cocoa_add_member(
     session: &[u8],
@@ -2483,6 +2821,16 @@ pub fn cocoa_add_member(
 ///
 /// # Returns
 /// Object with updated `session`
+///
+/// # Rollback safety (RBK-01 / GAP-05)
+///
+/// This ergonomic path deserialises `session` through the UNCHECKED door and
+/// performs NO cross-invocation rollback check. An app that restores a
+/// durable/persisted blob MUST first validate it through
+/// [`cocoa_deserialize_checked`] against the persisted `SessionWatermark`, and
+/// MUST advance+persist the watermark on every emit (read it from the post-op
+/// blob via [`cocoa_session_watermark`]) — otherwise a stale-blob restore can
+/// re-emit an already-used `(key, nonce)` pair.
 #[wasm_bindgen]
 pub fn cocoa_process_add(
     session: &[u8],
@@ -2526,6 +2874,16 @@ pub fn cocoa_process_add(
 ///
 /// # Returns
 /// Object with updated `session` and `commit` (serialised UpdateCommit)
+///
+/// # Rollback safety (RBK-01 / GAP-05)
+///
+/// This ergonomic path deserialises `session` through the UNCHECKED door and
+/// performs NO cross-invocation rollback check. An app that restores a
+/// durable/persisted blob MUST first validate it through
+/// [`cocoa_deserialize_checked`] against the persisted `SessionWatermark`, and
+/// MUST advance+persist the watermark on every emit (read it from the post-op
+/// blob via [`cocoa_session_watermark`]) — otherwise a stale-blob restore can
+/// re-emit an already-used `(key, nonce)` pair.
 #[wasm_bindgen]
 pub fn cocoa_create_update(session: &[u8], identity_secret: &[u8]) -> Result<JsValue, JsValue> {
     let mut cocoa_session =
@@ -2570,6 +2928,16 @@ pub fn cocoa_create_update(session: &[u8], identity_secret: &[u8]) -> Result<JsV
 ///
 /// # Returns
 /// Object with updated `session`
+///
+/// # Rollback safety (RBK-01 / GAP-05)
+///
+/// This ergonomic path deserialises `session` through the UNCHECKED door and
+/// performs NO cross-invocation rollback check. An app that restores a
+/// durable/persisted blob MUST first validate it through
+/// [`cocoa_deserialize_checked`] against the persisted `SessionWatermark`, and
+/// MUST advance+persist the watermark on every emit (read it from the post-op
+/// blob via [`cocoa_session_watermark`]) — otherwise a stale-blob restore can
+/// re-emit an already-used `(key, nonce)` pair.
 #[wasm_bindgen]
 pub fn cocoa_process_update(
     session: &[u8],
@@ -2616,6 +2984,16 @@ pub fn cocoa_process_update(
 ///
 /// # Returns
 /// Object with updated `session` and `commit` (serialised RemoveCommit)
+///
+/// # Rollback safety (RBK-01 / GAP-05)
+///
+/// This ergonomic path deserialises `session` through the UNCHECKED door and
+/// performs NO cross-invocation rollback check. An app that restores a
+/// durable/persisted blob MUST first validate it through
+/// [`cocoa_deserialize_checked`] against the persisted `SessionWatermark`, and
+/// MUST advance+persist the watermark on every emit (read it from the post-op
+/// blob via [`cocoa_session_watermark`]) — otherwise a stale-blob restore can
+/// re-emit an already-used `(key, nonce)` pair.
 #[wasm_bindgen]
 pub fn cocoa_remove_member(
     session: &[u8],
@@ -2677,6 +3055,16 @@ pub fn cocoa_remove_member(
 ///
 /// # Returns
 /// Object with updated `session`
+///
+/// # Rollback safety (RBK-01 / GAP-05)
+///
+/// This ergonomic path deserialises `session` through the UNCHECKED door and
+/// performs NO cross-invocation rollback check. An app that restores a
+/// durable/persisted blob MUST first validate it through
+/// [`cocoa_deserialize_checked`] against the persisted `SessionWatermark`, and
+/// MUST advance+persist the watermark on every emit (read it from the post-op
+/// blob via [`cocoa_session_watermark`]) — otherwise a stale-blob restore can
+/// re-emit an already-used `(key, nonce)` pair.
 #[wasm_bindgen]
 pub fn cocoa_process_remove(
     session: &[u8],
@@ -2716,7 +3104,7 @@ pub fn cocoa_process_remove(
 // Serialisation helpers for CoCoA commits
 fn serialize_add_commit(commit: &trelis_cocoa::operations::AddCommit) -> Vec<u8> {
     let sig_bytes = commit.signature.to_bytes();
-    let mut buf = Vec::with_capacity(32 + 32 + 4 + 8 + 32 + 32 + sig_bytes.len());
+    let mut buf = Vec::with_capacity(32 + 32 + 4 + 8 + 32 + 32 + 4 + sig_bytes.len());
 
     buf.extend_from_slice(&commit.group_id);
     buf.extend_from_slice(&commit.new_member_id);
@@ -2724,13 +3112,15 @@ fn serialize_add_commit(commit: &trelis_cocoa::operations::AddCommit) -> Vec<u8>
     buf.extend_from_slice(&commit.epoch.to_le_bytes());
     buf.extend_from_slice(&commit.round_hash);
     buf.extend_from_slice(&commit.confirmation_tag);
+    // GAP-03: committer's own leaf position (bound into the signed body).
+    buf.extend_from_slice(&commit.committer_leaf_position.to_le_bytes());
     buf.extend_from_slice(&sig_bytes);
 
     buf
 }
 
 fn deserialize_add_commit(bytes: &[u8]) -> Result<trelis_cocoa::operations::AddCommit, JsValue> {
-    if bytes.len() < 32 + 32 + 4 + 8 + 32 + 32 {
+    if bytes.len() < 32 + 32 + 4 + 8 + 32 + 32 + 4 {
         return Err(JsValue::from_str("AddCommit too short"));
     }
 
@@ -2749,13 +3139,17 @@ fn deserialize_add_commit(bytes: &[u8]) -> Result<trelis_cocoa::operations::AddC
     let mut confirmation_tag = [0u8; 32];
     confirmation_tag.copy_from_slice(&bytes[108..140]);
 
-    let signature = trelis_hybrid::HybridSignature::from_bytes(&bytes[140..])
+    // GAP-03: committer's own leaf position.
+    let committer_leaf_position = u32::from_le_bytes(bytes[140..144].try_into().unwrap());
+
+    let signature = trelis_hybrid::HybridSignature::from_bytes(&bytes[144..])
         .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
     Ok(trelis_cocoa::operations::AddCommit {
         group_id,
         new_member_id,
         new_leaf_position,
+        committer_leaf_position,
         epoch,
         path_updates: Vec::new(),
         signature,
@@ -2813,7 +3207,7 @@ fn deserialize_update_commit(
 
 fn serialize_remove_commit(commit: &trelis_cocoa::operations::RemoveCommit) -> Vec<u8> {
     let sig_bytes = commit.signature.to_bytes();
-    let mut buf = Vec::with_capacity(32 + 32 + 4 + 8 + 32 + 32 + sig_bytes.len());
+    let mut buf = Vec::with_capacity(32 + 32 + 4 + 8 + 32 + 32 + 4 + sig_bytes.len());
 
     buf.extend_from_slice(&commit.group_id);
     buf.extend_from_slice(&commit.removed_member_id);
@@ -2821,6 +3215,8 @@ fn serialize_remove_commit(commit: &trelis_cocoa::operations::RemoveCommit) -> V
     buf.extend_from_slice(&commit.epoch.to_le_bytes());
     buf.extend_from_slice(&commit.round_hash);
     buf.extend_from_slice(&commit.confirmation_tag);
+    // GAP-03: committer's own leaf position (bound into the signed body).
+    buf.extend_from_slice(&commit.committer_leaf_position.to_le_bytes());
     buf.extend_from_slice(&sig_bytes);
 
     buf
@@ -2829,7 +3225,7 @@ fn serialize_remove_commit(commit: &trelis_cocoa::operations::RemoveCommit) -> V
 fn deserialize_remove_commit(
     bytes: &[u8],
 ) -> Result<trelis_cocoa::operations::RemoveCommit, JsValue> {
-    if bytes.len() < 32 + 32 + 4 + 8 + 32 + 32 {
+    if bytes.len() < 32 + 32 + 4 + 8 + 32 + 32 + 4 {
         return Err(JsValue::from_str("RemoveCommit too short"));
     }
 
@@ -2848,13 +3244,17 @@ fn deserialize_remove_commit(
     let mut confirmation_tag = [0u8; 32];
     confirmation_tag.copy_from_slice(&bytes[108..140]);
 
-    let signature = trelis_hybrid::HybridSignature::from_bytes(&bytes[140..])
+    // GAP-03: committer's own leaf position.
+    let committer_leaf_position = u32::from_le_bytes(bytes[140..144].try_into().unwrap());
+
+    let signature = trelis_hybrid::HybridSignature::from_bytes(&bytes[144..])
         .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
 
     Ok(trelis_cocoa::operations::RemoveCommit {
         group_id,
         removed_member_id,
         removed_leaf_position,
+        committer_leaf_position,
         epoch,
         path_updates: Vec::new(),
         signature,
@@ -3606,6 +4006,64 @@ mod native_tests {
         assert_eq!(state.status(), restored.status());
     }
 
+    /// PRF-04 (SC4) — non-vacuous counter round-trip.
+    ///
+    /// The control `test_ratchet_state_serialization` round-trips a FRESH state
+    /// (`send_count == recv_count == 0`), so it cannot catch an off-by-one in
+    /// the deserialize counter seam: `set_recv_count(n)` stores `n + 1`, so
+    /// `deserialize_ratchet_state` restores with `set_recv_count(recv_count - 1)`
+    /// (lib.rs:1502-1506, state.rs:294). This test drives BOTH counters to
+    /// distinct non-zero values and asserts exact restore, locking that seam.
+    ///
+    /// PRF-04 is satisfied-by-prior-work: `trelis-wasm` has zero replay loops —
+    /// `send_count` (RCH-02), `recv_count`, and `message_counter` (F09/GAP-05)
+    /// already restore via direct/bounded setters. This is the lock, not a fix;
+    /// no production code changes for PRF-04.
+    #[test]
+    fn test_ratchet_state_serialization_nonzero_counters() {
+        use super::*;
+
+        let session_key: [u8; 32] = trelis_primitives::generate_bytes().unwrap();
+        let their_keypair = trelis_hybrid::HybridKemKeypair::generate().unwrap();
+
+        let mut state = trelis_ratchet::KemRatchet::init_initiator(
+            &session_key,
+            their_keypair.public_key().clone(),
+            1000,
+        )
+        .unwrap();
+
+        // Drive BOTH counters to distinct non-zero values via the public
+        // setters. `set_recv_count(n)` stores `n + 1`, so read the observed
+        // values back rather than hardcoding the offset — the round-trip
+        // assertion then locks whatever the live setter/accessor pair produces.
+        state.set_send_count(5).unwrap();
+        state.set_recv_count(6);
+        let expected_send = state.send_count();
+        let expected_recv = state.recv_count();
+        assert!(
+            expected_send > 0 && expected_recv > 0,
+            "test must be non-vacuous: both counters must be non-zero"
+        );
+
+        // Round-trip through the wire serializer.
+        let restored = deserialize_ratchet_state(&serialize_ratchet_state(&state)).unwrap();
+
+        // Exact restore of BOTH counters — locks the `set_recv_count(n - 1)`/`+1`
+        // seam where an off-by-one would otherwise hide (the counters==0 control
+        // cannot detect it).
+        assert_eq!(
+            restored.send_count(),
+            expected_send,
+            "send_count must restore exactly"
+        );
+        assert_eq!(
+            restored.recv_count(),
+            expected_recv,
+            "recv_count must restore exactly"
+        );
+    }
+
     // Regression test: deserialize_ratchet_state must reject a buffer that
     // satisfies the minimum-length entry guard but is too short for the
     // has_their_pk=true layout it claims, returning an error rather than
@@ -3632,6 +4090,36 @@ mod native_tests {
         assert!(deserialize_ratchet_state(&full[..1877]).is_err());
     }
 
+    // RCH-02 (SC2): a state blob whose 8-byte send_count field is overwritten
+    // with u64::MAX must be rejected by deserialize_ratchet_state WITHOUT
+    // hanging. Pre-fix the `0..send_count` replay looped ~u64::MAX times (a
+    // WASM-thread DoS); the bounded set_send_count now returns Err in O(1).
+    // The test simply *terminating* is the proof the unbounded replay is gone.
+    #[test]
+    fn ratchet_state_out_of_range_send_count_is_rejected_without_hanging() {
+        use super::*;
+
+        let session_key: [u8; 32] = trelis_primitives::generate_bytes().unwrap();
+        let their_keypair = trelis_hybrid::HybridKemKeypair::generate().unwrap();
+        let state = trelis_ratchet::KemRatchet::init_initiator(
+            &session_key,
+            their_keypair.public_key().clone(),
+            1000,
+        )
+        .unwrap();
+
+        // Initiator fixture => has_their_pk = true.
+        let mut blob = serialize_ratchet_state(&state);
+        assert_eq!(blob[1851], 1, "fixture should have their_public_key set");
+
+        // Overwrite the little-endian send_count field with u64::MAX. Offset =
+        // our_keypair(1819) + root_key(32) + has_their_pk(1) + their_pk(1214).
+        const SEND_COUNT_OFFSET: usize = 1819 + 32 + 1 + 1214;
+        blob[SEND_COUNT_OFFSET..SEND_COUNT_OFFSET + 8].copy_from_slice(&u64::MAX.to_le_bytes());
+
+        assert!(deserialize_ratchet_state(&blob).is_err());
+    }
+
     #[test]
     fn test_cocoa_session_serialization() {
         use super::*;
@@ -3654,6 +4142,290 @@ mod native_tests {
         assert_eq!(session.our_user_id(), restored.our_user_id());
         assert_eq!(session.our_leaf_position(), restored.our_leaf_position());
         assert_eq!(session.member_count(), restored.member_count());
+    }
+
+    /// GAP-05 / F09: the WASM session (de)serialiser round-trips the message
+    /// counter through the monotonic-forward guard. A session serialised at
+    /// counter=100 restores to 100 (the reconstructed epoch is fresh at 0, so
+    /// the forward-set 0 -> 100 always passes), and the guard remains active on
+    /// the reconstructed object — an attempt to roll the restored counter
+    /// backwards is rejected with `MessageCounterTooOld` and the counter is
+    /// left unchanged. This exercises the exact `CocoaSession` setter boundary
+    /// that `deserialize_cocoa_session` drives via `?`.
+    #[test]
+    fn test_cocoa_session_counter_restore_and_guard() {
+        use super::*;
+
+        let identity = trelis_hybrid::HybridIdentityKeypair::generate().unwrap();
+        let kem = trelis_hybrid::HybridKemKeypair::generate().unwrap();
+        let user_id = [0x42u8; 32];
+
+        let (mut session, _) =
+            trelis_cocoa::operations::create_group(&identity, kem, user_id, &[]).unwrap();
+
+        // Forward-set the source session's counter (allowed) and serialise at 100.
+        session.set_message_counter(100).unwrap();
+        assert_eq!(session.message_counter(), 100);
+        let bytes = serialize_cocoa_session(&session);
+
+        // Deserialise restores the counter through the guarded setter.
+        let mut restored = deserialize_cocoa_session(&bytes).unwrap();
+        assert_eq!(
+            restored.message_counter(),
+            100,
+            "deserialise must restore the serialised counter"
+        );
+
+        // The guard is active on the reconstructed object: a regression is
+        // rejected and the counter is unchanged.
+        let regressed = restored.set_message_counter(50);
+        assert!(
+            matches!(
+                regressed,
+                Err(trelis_error::CryptoError::MessageCounterTooOld)
+            ),
+            "a restored session must reject an intra-epoch counter regression"
+        );
+        assert_eq!(
+            restored.message_counter(),
+            100,
+            "counter must be unchanged after a rejected regression"
+        );
+    }
+
+    /// WR-06: a session serialised at epoch > 0 must restore to the SAME epoch
+    /// secret (and therefore the same per-message keys), so a message encrypted
+    /// before the round trip still decrypts afterwards. The superseded
+    /// deserialiser rebuilt at epoch 0 and advanced `epoch_number` times, which
+    /// re-derived a fresh secret at each step (moving away from the stored one),
+    /// so at epoch > 0 the restored app_secret diverged and cross-decrypt failed
+    /// with AeadAuthenticationFailed.
+    #[test]
+    fn test_cocoa_session_restore_epoch_gt0_preserves_secret() {
+        use super::*;
+
+        let identity = trelis_hybrid::HybridIdentityKeypair::generate().unwrap();
+        let kem = trelis_hybrid::HybridKemKeypair::generate().unwrap();
+        let user_id = [0x42u8; 32];
+
+        let (mut session, _) =
+            trelis_cocoa::operations::create_group(&identity, kem, user_id, &[]).unwrap();
+
+        // Advance to epoch 2 (two commits' worth of epoch advances).
+        session.advance_epoch(&[0x11u8; 32], [0x22u8; 32]);
+        session.advance_epoch(&[0x33u8; 32], [0x44u8; 32]);
+        assert_eq!(session.epoch_number(), 2);
+
+        // Encrypt a message at epoch 2 BEFORE serialising.
+        let plaintext = b"epoch 2 message";
+        let encrypted = session.encrypt(plaintext).unwrap();
+        assert_eq!(encrypted.epoch, 2);
+
+        let secret_before = *session.current_epoch_secret();
+
+        // Round-trip the session through the WASM (de)serialiser.
+        let bytes = serialize_cocoa_session(&session);
+        let restored = deserialize_cocoa_session(&bytes).unwrap();
+
+        // The reconstructed epoch number and secret must match the original.
+        assert_eq!(restored.epoch_number(), 2, "epoch number must be restored");
+        assert_eq!(
+            &secret_before,
+            restored.current_epoch_secret(),
+            "restored epoch secret at epoch 2 must match the serialised secret"
+        );
+
+        // End-to-end: the restored session decrypts the epoch-2 message the
+        // original encrypted — impossible under the buggy re-derivation.
+        let decrypted = restored.decrypt(&encrypted).unwrap();
+        assert_eq!(decrypted, plaintext);
+    }
+
+    /// RBK-01 / GAP-05 — the TRUE cross-deserialise counter rollback, driven
+    /// through the WASM restore driver (`deserialize_cocoa_session_checked`, the
+    /// native core of `cocoa_deserialize_checked`).
+    ///
+    /// Unlike the 52-05 in-object guard
+    /// (`test_cocoa_session_counter_restore_and_guard`), which only sees a *live*
+    /// object's counter go backwards within one invocation, this exercises the
+    /// cross-INVOCATION case the audit named: the same timeline is serialised at
+    /// `(E, 50)` and again at `(E, 150)`, the watermark is persisted from the
+    /// NEWER blob, and the OLDER blob is restored against it. Per Pitfall 2 the
+    /// watermark is NOT read out of the older blob (that would be a silent no-op);
+    /// it is the app's independent high-water side-state.
+    #[test]
+    fn test_cocoa_cross_deserialise_rollback_rejected() {
+        use super::*;
+
+        let identity = trelis_hybrid::HybridIdentityKeypair::generate().unwrap();
+        let kem = trelis_hybrid::HybridKemKeypair::generate().unwrap();
+        let user_id = [0x42u8; 32];
+
+        let (mut session, _) =
+            trelis_cocoa::operations::create_group(&identity, kem, user_id, &[]).unwrap();
+
+        // WR-02: the checked door now enforces the expected identity; capture the
+        // blob's own (group_id, user_id) to pass as the matching expected pair.
+        let group_id = *session.group_id();
+
+        // Older state at counter 50 -> serialise blob_old.
+        session.set_message_counter(50).unwrap();
+        let blob_old = serialize_cocoa_session(&session);
+
+        // Advance the SAME timeline to counter 150 -> serialise blob_new, and
+        // persist the watermark from the NEWER blob (epoch 0 from create_group,
+        // counter 150). Equivalent to `SessionWatermark::of_session` of the
+        // counter-150 session.
+        session.set_message_counter(150).unwrap();
+        let blob_new = serialize_cocoa_session(&session);
+        let watermark = trelis_cocoa::SessionWatermark::new(0, 150)
+            .to_bytes()
+            .to_vec();
+
+        // (a) HONEST: restoring the NEWER blob against the watermark is accepted
+        // (equal), and the returned advanced watermark is exactly (0, 150).
+        // (`unwrap` matches the crate-wide `allow(clippy::unwrap_used)`; the
+        // honest equal restore of the newest blob must be accepted.)
+        let (_restored, advanced) =
+            deserialize_cocoa_session_checked(&blob_new, &watermark, &group_id, &user_id).unwrap();
+        assert_eq!(advanced, trelis_cocoa::SessionWatermark::new(0, 150));
+
+        // (b) ROLLBACK: restoring the OLDER blob (counter 50) against the newer
+        // watermark (150) is REJECTED — the stale counter is never reused.
+        let rolled = deserialize_cocoa_session_checked(&blob_old, &watermark, &group_id, &user_id);
+        assert!(
+            matches!(rolled, Err(trelis_error::CryptoError::MessageCounterTooOld)),
+            "restoring a blob below the persisted watermark must be rejected"
+        );
+
+        // (c) INERT EQUAL: a second honest restore of the newer blob still
+        // accepts (loading a session is inert; the real re-emit is closed by the
+        // emit-time advance, see test_cocoa_cross_deserialise_advance_on_emit).
+        assert!(
+            deserialize_cocoa_session_checked(&blob_new, &watermark, &group_id, &user_id).is_ok()
+        );
+    }
+
+    /// RBK-01 / GAP-05 Pitfall 1 (Assumption A5) — the emit-time-advance caller
+    /// duty. `cocoa_session_watermark` reads the advance-to `(epoch, counter)`
+    /// from any post-op blob, and advancing the persisted watermark on emit
+    /// closes the crash-replay re-emit: a stale blob restored against the
+    /// advanced watermark is rejected. "Allow equal" on restore is safe ONLY
+    /// because emit moves the watermark past the reloaded blob.
+    #[test]
+    fn test_cocoa_cross_deserialise_advance_on_emit() {
+        use super::*;
+
+        let identity = trelis_hybrid::HybridIdentityKeypair::generate().unwrap();
+        let kem = trelis_hybrid::HybridKemKeypair::generate().unwrap();
+        let user_id = [0x42u8; 32];
+
+        let (mut session, _) =
+            trelis_cocoa::operations::create_group(&identity, kem, user_id, &[]).unwrap();
+
+        // WR-02: capture the blob's own identity to pass to the checked door.
+        let group_id = *session.group_id();
+
+        // The blob at counter 100: cocoa_session_watermark yields its (0, 100).
+        session.set_message_counter(100).unwrap();
+        let blob_at_100 = serialize_cocoa_session(&session);
+        let wm_at_100 = cocoa_session_watermark(&blob_at_100).unwrap();
+        assert_eq!(
+            wm_at_100.len(),
+            16,
+            "watermark is the 16-byte (epoch||counter)"
+        );
+        assert_eq!(
+            wm_at_100,
+            trelis_cocoa::SessionWatermark::new(0, 100)
+                .to_bytes()
+                .to_vec()
+        );
+
+        // Model an emit: the post-op blob carries the advanced (0, 101). The app
+        // reads and persists THAT advance-to watermark before releasing the
+        // ciphertext.
+        session.set_message_counter(101).unwrap();
+        let blob_at_101 = serialize_cocoa_session(&session);
+        let wm_after_emit = cocoa_session_watermark(&blob_at_101).unwrap();
+        assert_eq!(
+            wm_after_emit,
+            trelis_cocoa::SessionWatermark::new(0, 101)
+                .to_bytes()
+                .to_vec()
+        );
+
+        // Restoring the STALE blob_at_100 against the advanced watermark is
+        // rejected — advancing on emit closes the crash-replay re-emit.
+        let replay =
+            deserialize_cocoa_session_checked(&blob_at_100, &wm_after_emit, &group_id, &user_id);
+        assert!(
+            matches!(replay, Err(trelis_error::CryptoError::MessageCounterTooOld)),
+            "a stale restore against the emit-advanced watermark must be rejected"
+        );
+    }
+
+    /// WR-02 — the checked door ENFORCES the caller's expected `(group_id,
+    /// user_id)` identity, it does not merely report it. A watermark looked up
+    /// under the WRONG identity (a caller mis-keying its per-identity watermark
+    /// store) is rejected BEFORE the counter check, so the rollback guard cannot
+    /// be silently disabled by pairing one identity's watermark with another
+    /// identity's blob.
+    #[test]
+    fn test_cocoa_deserialise_checked_identity_mismatch_rejected() {
+        use super::*;
+
+        let identity = trelis_hybrid::HybridIdentityKeypair::generate().unwrap();
+        let kem = trelis_hybrid::HybridKemKeypair::generate().unwrap();
+        let user_id = [0x42u8; 32];
+
+        let (mut session, _) =
+            trelis_cocoa::operations::create_group(&identity, kem, user_id, &[]).unwrap();
+
+        // A blob at counter 100 and a LOW watermark at (0, 5) that would pass the
+        // counter guard (100 >= 5) — so the ONLY thing that can reject the restore
+        // is the identity check.
+        session.set_message_counter(100).unwrap();
+        let blob = serialize_cocoa_session(&session);
+        let group_id = *session.group_id();
+        let low_watermark = trelis_cocoa::SessionWatermark::new(0, 5)
+            .to_bytes()
+            .to_vec();
+
+        // Sanity: with the MATCHING identity the low watermark is accepted (the
+        // counter guard alone does not reject it), isolating the identity check.
+        assert!(
+            deserialize_cocoa_session_checked(&blob, &low_watermark, &group_id, &user_id).is_ok(),
+            "matching identity + non-rollback watermark must be accepted"
+        );
+
+        // Wrong group_id (one byte flipped): rejected with the Security-category
+        // MalformedMessage BEFORE the (passing) counter check — the guard is not
+        // silently disabled by a mis-keyed watermark.
+        let mut wrong_group = group_id;
+        wrong_group[0] ^= 0xff;
+        let mismatch_group =
+            deserialize_cocoa_session_checked(&blob, &low_watermark, &wrong_group, &user_id);
+        assert!(
+            matches!(
+                mismatch_group,
+                Err(trelis_error::CryptoError::MalformedMessage)
+            ),
+            "a watermark applied under the wrong group_id must be rejected"
+        );
+
+        // Wrong user_id (one byte flipped): same rejection.
+        let mut wrong_user = user_id;
+        wrong_user[0] ^= 0xff;
+        let mismatch_user =
+            deserialize_cocoa_session_checked(&blob, &low_watermark, &group_id, &wrong_user);
+        assert!(
+            matches!(
+                mismatch_user,
+                Err(trelis_error::CryptoError::MalformedMessage)
+            ),
+            "a watermark applied under the wrong user_id must be rejected"
+        );
     }
 
     // Regression test: the CoCoA WASM legacy-session context string is

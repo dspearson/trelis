@@ -13,7 +13,7 @@
 use trelis_error::Result;
 use trelis_hybrid::{HybridIdentityKeypair, HybridKemKeypair, HybridSigningKeypair};
 use trelis_ratchet::{KemRatchet, receive_message, send_message};
-use trelis_x3dh_pq::{Initiator, PreKeyBundle, Responder};
+use trelis_x3dh_pq::{Initiator, PreKeyBundle, Responder, SessionFlags};
 
 /// Complete session establishment and message exchange between Alice and Bob.
 #[cfg_attr(miri, ignore)]
@@ -49,7 +49,12 @@ fn test_full_session_establishment() -> Result<()> {
     // Step 2: Alice initiates session using Bob's bundle
     // =========================================================================
 
-    let alice_result = Initiator::establish(&alice_identity, &signed_bundle, 1500)?;
+    let alice_result = Initiator::establish(
+        &alice_identity,
+        &signed_bundle,
+        1500,
+        SessionFlags::default(),
+    )?;
 
     // =========================================================================
     // Step 3: Bob receives initial message and derives session keys
@@ -62,6 +67,7 @@ fn test_full_session_establishment() -> Result<()> {
         alice_identity.kem().public_key().x448(),
         &signed_bundle,
         alice_result.initial_message(),
+        SessionFlags::default(),
     )?;
 
     // =========================================================================
@@ -116,7 +122,12 @@ fn test_invalid_bundle_signature() -> Result<()> {
     signed_bundle.bundle.identity_signing = bob_identity.signing().public_key().clone();
 
     // Alice tries to initiate with Bob's expected identity
-    let result = Initiator::establish(&alice_identity, &signed_bundle, 1500);
+    let result = Initiator::establish(
+        &alice_identity,
+        &signed_bundle,
+        1500,
+        SessionFlags::default(),
+    );
 
     // Should fail due to signature mismatch
     assert!(result.is_err(), "Invalid signature should be rejected");
@@ -145,7 +156,12 @@ fn test_expired_bundle_rejection() -> Result<()> {
     let signed_bundle = bob_bundle.sign(bob_identity.signing())?;
 
     // Try to use bundle after expiration
-    let result = Initiator::establish(&alice_identity, &signed_bundle, 3000);
+    let result = Initiator::establish(
+        &alice_identity,
+        &signed_bundle,
+        3000,
+        SessionFlags::default(),
+    );
 
     assert!(result.is_err(), "Expired bundle should be rejected");
 
@@ -172,7 +188,12 @@ fn test_ratchet_from_session_keys() -> Result<()> {
     );
     let signed_bundle = bob_bundle.sign(bob_identity.signing())?;
 
-    let alice_result = Initiator::establish(&alice_identity, &signed_bundle, 1500)?;
+    let alice_result = Initiator::establish(
+        &alice_identity,
+        &signed_bundle,
+        1500,
+        SessionFlags::default(),
+    )?;
 
     let bob_keys = Responder::establish(
         &bob_identity,
@@ -181,6 +202,7 @@ fn test_ratchet_from_session_keys() -> Result<()> {
         alice_identity.kem().public_key().x448(),
         &signed_bundle,
         alice_result.initial_message(),
+        SessionFlags::default(),
     )?;
 
     // Initialise KEM Ratchet for both parties
@@ -230,7 +252,12 @@ fn test_multi_message_exchange() -> Result<()> {
     );
     let signed_bundle = bob_bundle.sign(bob_identity.signing())?;
 
-    let alice_result = Initiator::establish(&alice_identity, &signed_bundle, 1500)?;
+    let alice_result = Initiator::establish(
+        &alice_identity,
+        &signed_bundle,
+        1500,
+        SessionFlags::default(),
+    )?;
 
     let bob_keys = Responder::establish(
         &bob_identity,
@@ -239,6 +266,7 @@ fn test_multi_message_exchange() -> Result<()> {
         alice_identity.kem().public_key().x448(),
         &signed_bundle,
         alice_result.initial_message(),
+        SessionFlags::default(),
     )?;
 
     // Create ratchets
@@ -287,7 +315,12 @@ fn test_tampered_message_rejection() -> Result<()> {
     );
     let signed_bundle = bob_bundle.sign(bob_identity.signing())?;
 
-    let alice_result = Initiator::establish(&alice_identity, &signed_bundle, 1500)?;
+    let alice_result = Initiator::establish(
+        &alice_identity,
+        &signed_bundle,
+        1500,
+        SessionFlags::default(),
+    )?;
 
     let bob_keys = Responder::establish(
         &bob_identity,
@@ -296,6 +329,7 @@ fn test_tampered_message_rejection() -> Result<()> {
         alice_identity.kem().public_key().x448(),
         &signed_bundle,
         alice_result.initial_message(),
+        SessionFlags::default(),
     )?;
 
     let bob_ratchet_keypair = HybridKemKeypair::generate()?;
@@ -348,7 +382,12 @@ fn test_identity_binding() -> Result<()> {
     let signed_bundle = bob_bundle.sign(bob_identity.signing())?;
 
     // Alice establishes session
-    let alice_result = Initiator::establish(&alice_identity, &signed_bundle, 1500)?;
+    let alice_result = Initiator::establish(
+        &alice_identity,
+        &signed_bundle,
+        1500,
+        SessionFlags::default(),
+    )?;
 
     // Bob uses Carol's identity instead of Alice's (MITM attempt)
     let bob_keys_with_carol = Responder::establish(
@@ -358,6 +397,7 @@ fn test_identity_binding() -> Result<()> {
         carol_identity.kem().public_key().x448(),
         &signed_bundle,
         alice_result.initial_message(),
+        SessionFlags::default(),
     )?;
 
     // Keys should NOT match due to identity binding
@@ -388,7 +428,12 @@ fn test_otk_uniqueness() -> Result<()> {
         2000,
     );
     let signed_bundle1 = bundle1.sign(bob_identity.signing())?;
-    let alice_result1 = Initiator::establish(&alice_identity, &signed_bundle1, 1500)?;
+    let alice_result1 = Initiator::establish(
+        &alice_identity,
+        &signed_bundle1,
+        1500,
+        SessionFlags::default(),
+    )?;
 
     // Second session with second OTK
     let bob_otk2 = HybridKemKeypair::generate()?;
@@ -401,7 +446,12 @@ fn test_otk_uniqueness() -> Result<()> {
         2000,
     );
     let signed_bundle2 = bundle2.sign(bob_identity.signing())?;
-    let alice_result2 = Initiator::establish(&alice_identity, &signed_bundle2, 1500)?;
+    let alice_result2 = Initiator::establish(
+        &alice_identity,
+        &signed_bundle2,
+        1500,
+        SessionFlags::default(),
+    )?;
 
     // Keys should be different due to different OTKs and ephemeral keys
     assert_ne!(

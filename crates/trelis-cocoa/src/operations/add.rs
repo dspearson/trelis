@@ -46,6 +46,8 @@ use super::Welcome;
 use super::commit_sign::{CommitContent, hash_path_updates, sign_commit, verify_commit_signature};
 #[cfg(feature = "alloc")]
 use super::seed_chain::{Seed, derive_path_seeds, generate_leaf_seed};
+#[cfg(feature = "alloc")]
+use super::update::derive_user_id_from_identity;
 
 /// Commit message for adding a member.
 #[cfg(feature = "alloc")]
@@ -57,6 +59,12 @@ pub struct AddCommit {
     pub new_member_id: UserId,
     /// New member's assigned leaf position.
     pub new_leaf_position: u32,
+    /// The adder's (committer's) own leaf position.
+    ///
+    /// GAP-03: bound into the signed `CommitContent`; the verifier
+    /// reconstructs the signed body from this field and rejects a commit whose
+    /// committer leaf is out of range or a known-blank leaf.
+    pub committer_leaf_position: u32,
     /// Epoch after this commit.
     pub epoch: u64,
     /// Path updates for the adding member.
@@ -114,6 +122,12 @@ pub fn add_member(
     new_member_bundle: &HybridPreKeyBundle,
     new_member_id: UserId,
 ) -> Result<(AddCommit, Welcome)> {
+    // GAP-03: double-join guard — reject re-adding an existing member BEFORE
+    // assigning a leaf position, so no tree/epoch state is mutated on rejection.
+    if session.is_member(&new_member_id) {
+        return Err(trelis_error::CryptoError::DuplicateMember);
+    }
+
     // Step 1: Find next available leaf position
     let new_position = session.member_count();
 
@@ -199,12 +213,16 @@ pub fn add_member(
     let path_updates_bytes = serialise_path_updates(&path_updates);
     let path_updates_hash = hash_path_updates(&path_updates_bytes);
 
-    // Step 11: Build commit content for signing
+    // Step 11: Build commit content for signing.
+    // GAP-03: bind our own leaf position + derived identity into the signed body.
+    let committer_leaf_position = session.our_leaf_position();
     let commit_content = CommitContent::new_add(
         *session.group_id(),
         session.epoch_number() + 1,
         round_hash,
         path_updates_hash,
+        committer_leaf_position,
+        derive_user_id_from_identity(identity.public_key()),
     );
 
     // Step 12: Sign the commit with identity key
@@ -213,9 +231,11 @@ pub fn add_member(
     // Step 13: Update transcript
     let new_transcript = h3_transcript_hash(session.transcript_hash(), &round_hash);
 
-    // Step 14: Create welcome message with encrypted group state
+    // Step 14: Create welcome message with encrypted group state (signed by the
+    // adder's identity — GAP-01).
     let welcome = create_welcome_message(
         session,
+        identity,
         new_member_bundle,
         new_position,
         tree_depth,
@@ -231,6 +251,7 @@ pub fn add_member(
         group_id: *session.group_id(),
         new_member_id,
         new_leaf_position: new_position,
+        committer_leaf_position,
         epoch: session.epoch_number() + 1,
         path_updates,
         signature,
@@ -244,6 +265,9 @@ pub fn add_member(
 
     // Step 16: Advance epoch with real delta_root
     session.advance_epoch(&delta_root, new_transcript);
+
+    // Step 17: Record the new member in the local registry (GAP-03).
+    session.insert_member(new_member_id);
 
     Ok((commit, welcome))
 }
@@ -359,16 +383,21 @@ fn compute_sibling_labels(session: &CocoaSession, path: &[NodeIndex]) -> Vec<[u8
 }
 
 /// Creates a welcome message for the new member.
+///
+/// GAP-01 (Insider-A): the adder (`identity`) signs the canonical welcome body
+/// so the new member can authenticate the welcome in `process_welcome` before
+/// adopting group state.
 #[cfg(all(feature = "alloc", any(feature = "std", feature = "wasm")))]
 fn create_welcome_message(
     session: &CocoaSession,
+    identity: &HybridIdentityKeypair,
     new_member_bundle: &HybridPreKeyBundle,
     new_position: u32,
     tree_depth: u32,
     delta_root: &Seed,
     new_transcript: &[u8; 32],
 ) -> Result<Welcome> {
-    use super::init::encrypt_welcome_info;
+    use super::init::{WELCOME_SIGN_CONTEXT, encrypt_welcome_info, welcome_sign_body};
 
     // Build tree_info: serialise nodes on the adder's path
     // The new member needs this to verify the tree structure and decrypt seeds
@@ -386,14 +415,32 @@ fn create_welcome_message(
     let (encrypted_info, encapsulation) =
         encrypt_welcome_info(&group_info, &new_member_bundle.one_time_key().kem)?;
 
+    let group_id = *session.group_id();
+    let epoch = session.epoch_number() + 1;
+    let member_count = new_position + 1;
+
+    // GAP-01 (Insider-A): sign the canonical welcome body over every
+    // joiner-visible field with the adder's identity under WELCOME_SIGN_CONTEXT.
+    let sign_body = welcome_sign_body(
+        &group_id,
+        epoch,
+        new_position,
+        tree_depth,
+        member_count,
+        &encapsulation,
+        &encrypted_info,
+    );
+    let signature = identity.sign_with_context(&sign_body, WELCOME_SIGN_CONTEXT)?;
+
     Ok(Welcome {
-        group_id: *session.group_id(),
-        epoch: session.epoch_number() + 1,
+        group_id,
+        epoch,
         leaf_position: new_position,
         tree_depth,
-        member_count: new_position + 1,
+        member_count,
         encrypted_info,
         encapsulation,
+        signature,
     })
 }
 
@@ -462,12 +509,18 @@ fn serialise_tree_info(session: &CocoaSession) -> Vec<u8> {
 #[cfg(all(feature = "alloc", not(any(feature = "std", feature = "wasm"))))]
 fn create_welcome_message(
     session: &CocoaSession,
+    _identity: &HybridIdentityKeypair,
     _new_member_bundle: &HybridPreKeyBundle,
     new_position: u32,
     tree_depth: u32,
     _delta_root: &Seed,
     _new_transcript: &[u8; 32],
 ) -> Result<Welcome> {
+    // This build has no RNG to sign with and no encrypted_info to authenticate,
+    // so the empty welcome carries a well-formed all-zero placeholder signature
+    // (size single-sourced to trelis_hybrid::signature::SIGNATURE_SIZE) to keep
+    // the struct complete.
+    let signature = HybridSignature::from_bytes(&[0u8; trelis_hybrid::signature::SIGNATURE_SIZE])?;
     Ok(Welcome {
         group_id: *session.group_id(),
         epoch: session.epoch_number() + 1,
@@ -476,6 +529,7 @@ fn create_welcome_message(
         member_count: new_position + 1,
         encrypted_info: Vec::new(),
         encapsulation: Vec::new(),
+        signature,
     })
 }
 
@@ -594,30 +648,82 @@ pub fn process_add(
         });
     }
 
-    // Grow tree if needed for the new member (before path update processing)
-    let new_member_count = commit.new_leaf_position + 1;
-    session.tree_mut().grow_if_needed(new_member_count);
+    // CR-02: compute the new member count with CHECKED arithmetic — a
+    // non-mutating bound check. `new_leaf_position` is an unbounded wire `u32`,
+    // and `+ 1` under the workspace `overflow-checks = true` release/WASM
+    // profile would otherwise trap on `u32::MAX` before any authentication (a
+    // pre-auth WASM DoS an insider/server could trigger with only a matching
+    // group_id + epoch). The tree is NOT grown here: WR-03 defers ALL mutation
+    // until every integrity check has passed.
+    let new_member_count = commit
+        .new_leaf_position
+        .checked_add(1)
+        .ok_or(trelis_error::CryptoError::InvalidLeafPosition)?;
 
     // Serialise and verify path updates hash
     let path_updates_bytes = serialise_path_updates(&commit.path_updates);
     let path_updates_hash = hash_path_updates(&path_updates_bytes);
 
-    // Build commit content for signature verification
+    // Build commit content for signature verification.
+    // GAP-03: reconstruct the committer binding — committer_leaf_position from
+    // the wire field, committer_user_id derived from the caller-supplied adder
+    // identity. If the caller passes the wrong identity, the reconstructed body
+    // no longer matches the signed body and the signature check below fails
+    // (binds signer ↔ body identity).
     let commit_content = CommitContent::new_add(
         commit.group_id,
         commit.epoch,
         commit.round_hash,
         path_updates_hash,
+        commit.committer_leaf_position,
+        derive_user_id_from_identity(adder_identity),
     );
 
     // Verify signature (both Ed448 and ML-DSA-65 must pass)
     verify_commit_signature(adder_identity, &commit_content, &commit.signature)?;
 
+    // WR-03: the honest add grows the tree by (up to) one level and re-indexes
+    // every node. Perform that growth on a SCRATCH clone so the remaining
+    // tree-dependent checks see the post-grow geometry the committer used, while
+    // the real session tree stays UNTOUCHED until every integrity check
+    // (confirmation tag, round hash, parent hash) has passed. A rejected commit
+    // therefore leaves member_count, the tree, and the epoch exactly as before —
+    // mirroring `process_update`'s validate-then-mutate ordering.
+    let mut scratch = session.tree().clone();
+    scratch.grow_if_needed(new_member_count);
+
+    // GAP-03: bind signer ↔ leaf. The adder must sit at an occupied member
+    // leaf — reject a committer leaf that is out of range or a known-blank
+    // leaf in our local view (checked against the grown scratch view).
+    if commit.committer_leaf_position >= session.member_count()
+        || scratch
+            .get(&NodeIndex::leaf(
+                scratch.tree_depth(),
+                commit.committer_leaf_position,
+            ))
+            .is_some_and(|node| node.state.is_blank())
+    {
+        return Err(trelis_error::CryptoError::InvalidLeafPosition);
+    }
+
+    // GAP-03: double-join guard — reject a commit that re-adds a known member
+    // or targets an already-occupied leaf.
+    let new_leaf = NodeIndex::leaf(scratch.tree_depth(), commit.new_leaf_position);
+    if session.is_member(&commit.new_member_id)
+        || scratch
+            .get(&new_leaf)
+            .is_some_and(|node| node.state.is_populated())
+    {
+        return Err(trelis_error::CryptoError::DuplicateMember);
+    }
+
     // Convert PathUpdate to NodeUpdate for apply_path_updates
     let node_updates = convert_path_updates_to_node_updates(&commit.path_updates)?;
 
-    // Apply path updates: find our seed, decrypt, derive to root, verify keys
-    // For add operations, the adder encrypts seeds to us if we're in their resolution
+    // Apply path updates: find our seed, decrypt, derive to root, verify keys.
+    // For add operations, the adder encrypts seeds to us if we're in their
+    // resolution. This reads no session tree state and mutates nothing — it only
+    // derives the delta_root the integrity checks below bind against.
     let delta_root = if node_updates.is_empty() {
         // No path updates means we can't derive delta_root
         // This happens when the commit has no encrypted seeds for us
@@ -635,7 +741,56 @@ pub fn process_add(
         )?
     };
 
-    // Update tree with new member count
+    // Update transcript hash (local value; not yet committed to the session).
+    let new_transcript = h3_transcript_hash(session.transcript_hash(), &commit.round_hash);
+
+    // ── Integrity checks — ALL must pass BEFORE any session mutation (WR-03) ──
+    // A signature-valid but tag-/round-hash-/parent-hash-invalid commit (the
+    // exact GAP-04c insider attack) must NOT corrupt tree/member_count/epoch
+    // state; the checks below run against local/scratch state only.
+
+    // Verify confirmation tag (epoch-secret agreement).
+    let expected_tag = compute_confirmation_tag(&delta_root, &new_transcript, commit.epoch);
+    if !constant_time_eq(&expected_tag, &commit.confirmation_tag) {
+        return Err(trelis_error::CryptoError::SignatureVerificationFailed);
+    }
+
+    // GAP-04c (F07): MANDATORY round-hash verification. Independently recompute
+    // the round hash from the LOCALLY-derived delta_root plus this commit's
+    // membership change (add binds added = [new_member_id], removed = []) and
+    // reject a divergent/forged value BEFORE advancing the epoch. This mirrors
+    // the committer's build side exactly (compute_root_label + h3_round_hash).
+    //
+    // The confirmation tag checked above only binds epoch-secret agreement
+    // (delta_root, transcript, epoch); it does NOT bind the round hash to the
+    // actual tree-state / membership change, so a malicious committer could
+    // advertise a round hash inconsistent with the membership set while keeping
+    // the tag self-consistent. This recompute closes that gap, making §12:99
+    // ("undetectably partition ... detected via round hash") true in code.
+    //
+    // NOTE: the full Algorithm-3 `verifyRH` (server-provided Merkle `openRH`
+    // transport) is the deferred follow-up (OQ-5); this lightweight in-crate
+    // recompute is the mandatory Phase-52 minimum.
+    {
+        use trelis_primitives::blake3_kdf::derive_key;
+        let expected_root_label = *derive_key(ROOT_LABEL_CONTEXT, &delta_root);
+        let expected_round_hash = h3_round_hash(&expected_root_label, &[], &[commit.new_member_id]);
+        if expected_round_hash != commit.round_hash {
+            return Err(trelis_error::CryptoError::RoundHashMismatch);
+        }
+    }
+
+    // GAP-02 (PHash.Ver): recompute h1/h2 from the (grown) scratch view and
+    // reject a tampered tree structure. h1 (sibling binding) is mandatory; h2 is
+    // enforced where the local resolution reconstructs (partial-view residual
+    // otherwise, OQ-1). Verified against the scratch clone, so a mismatch leaves
+    // no session state touched. Empty path updates are a no-op.
+    super::path_update::verify_parent_hashes(&scratch, &node_updates)?;
+
+    // ── All checks passed — commit the mutations to the real session ─────────
+    // Grow, member-count, node writes, unmerged marking and the epoch advance
+    // now happen atomically after validation (mirroring process_update).
+    session.tree_mut().grow_if_needed(new_member_count);
     session.tree_mut().set_member_count(new_member_count);
 
     // Update tree with new public keys from path updates
@@ -651,17 +806,11 @@ pub fn process_add(
     // This ensures they receive encrypted secrets in future updates
     mark_member_as_unmerged(session, commit.new_leaf_position);
 
-    // Update transcript hash
-    let new_transcript = h3_transcript_hash(session.transcript_hash(), &commit.round_hash);
-
-    // Verify confirmation tag
-    let expected_tag = compute_confirmation_tag(&delta_root, &new_transcript, commit.epoch);
-    if !constant_time_eq(&expected_tag, &commit.confirmation_tag) {
-        return Err(trelis_error::CryptoError::SignatureVerificationFailed);
-    }
-
     // Advance epoch with the derived delta_root
     session.advance_epoch(&delta_root, new_transcript);
+
+    // GAP-03: record the newly-added member in the local registry.
+    session.insert_member(commit.new_member_id);
 
     Ok(())
 }
@@ -672,7 +821,7 @@ fn convert_path_updates_to_node_updates(
     path_updates: &[PathUpdate],
 ) -> Result<Vec<super::path_update::NodeUpdate>> {
     use super::path_update::{NodeUpdate, RecipientSeed};
-    use super::seed_encrypt::EncryptedNodeSeed;
+    use super::seed_encrypt::{ENCRYPTED_SEED_CIPHERTEXT_SIZE, EncryptedNodeSeed};
 
     let mut node_updates = Vec::with_capacity(path_updates.len());
 
@@ -685,8 +834,8 @@ fn convert_path_updates_to_node_updates(
         for es in &pu.encrypted_seeds {
             let encapsulation = trelis_hybrid::HybridEncapsulation::from_bytes(&es.encapsulation)?;
 
-            let mut ciphertext = [0u8; 48];
-            if es.ciphertext.len() != 48 {
+            let mut ciphertext = [0u8; ENCRYPTED_SEED_CIPHERTEXT_SIZE];
+            if es.ciphertext.len() != ENCRYPTED_SEED_CIPHERTEXT_SIZE {
                 return Err(trelis_error::CryptoError::MalformedMessage);
             }
             ciphertext.copy_from_slice(&es.ciphertext);
@@ -984,17 +1133,24 @@ mod tests {
         let signer_identity = create_test_identity();
         let wrong_identity = create_test_identity();
 
-        // Build commit signed by signer_identity
+        // Build commit signed by signer_identity, bound to committer leaf 0
         let path_updates_hash = hash_path_updates(&[]);
         let round_hash = [0x11u8; 32];
-        let commit_content =
-            CommitContent::new_add(*session.group_id(), 1, round_hash, path_updates_hash);
+        let commit_content = CommitContent::new_add(
+            *session.group_id(),
+            1,
+            round_hash,
+            path_updates_hash,
+            0,
+            derive_user_id_from_identity(signer_identity.public_key()),
+        );
         let signature = sign_commit(&signer_identity, &commit_content).unwrap();
 
         let commit = AddCommit {
             group_id: *session.group_id(),
             new_member_id: [0x02u8; 32],
             new_leaf_position: 1,
+            committer_leaf_position: 0,
             epoch: 1,
             path_updates: Vec::new(),
             signature,
@@ -1002,9 +1158,46 @@ mod tests {
             confirmation_tag: [0u8; 32], // Placeholder - test fails before tag verification
         };
 
-        // Try to verify with wrong identity - should fail
+        // Try to verify with wrong identity - reconstructed body binds
+        // derive(wrong) as committer_user_id, so the signature check fails.
         let result = process_add(&mut session, &commit, wrong_identity.public_key());
         assert!(result.is_err());
+    }
+
+    /// CR-02: a pre-authentication `new_leaf_position == u32::MAX` must return a
+    /// graceful `Err(InvalidLeafPosition)` from the checked `+ 1`, NOT overflow-
+    /// panic under the crate's `overflow-checks = true` profile. Reaching the
+    /// bound check needs only a matching `group_id` + `epoch` (both known to
+    /// every member and the server), so this is exactly the pre-auth WASM-DoS
+    /// input an insider/transport could send; the signature is never consulted.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_process_add_leaf_position_overflow_is_graceful_err() {
+        let mut session = create_test_session();
+        let adder = create_test_identity();
+
+        // A placeholder signature suffices: the checked bound rejects the
+        // out-of-range position before signature verification is reached.
+        let signature =
+            HybridSignature::from_bytes(&[0u8; trelis_hybrid::signature::SIGNATURE_SIZE]).unwrap();
+
+        let commit = AddCommit {
+            group_id: *session.group_id(),
+            new_member_id: [0x02u8; 32],
+            new_leaf_position: u32::MAX, // `+ 1` overflows a u32
+            committer_leaf_position: 0,
+            epoch: 1,
+            path_updates: Vec::new(),
+            signature,
+            round_hash: [0u8; 32],
+            confirmation_tag: [0u8; 32],
+        };
+
+        // Must be a graceful Err, never a panic.
+        assert!(matches!(
+            process_add(&mut session, &commit, adder.public_key()),
+            Err(trelis_error::CryptoError::InvalidLeafPosition)
+        ));
     }
 
     #[cfg_attr(miri, ignore)]
@@ -1017,14 +1210,21 @@ mod tests {
         let wrong_group_id = [0xFFu8; 32];
         let path_updates_hash = hash_path_updates(&[]);
         let round_hash = [0x11u8; 32];
-        let commit_content =
-            CommitContent::new_add(wrong_group_id, 1, round_hash, path_updates_hash);
+        let commit_content = CommitContent::new_add(
+            wrong_group_id,
+            1,
+            round_hash,
+            path_updates_hash,
+            0,
+            derive_user_id_from_identity(adder_identity.public_key()),
+        );
         let signature = sign_commit(&adder_identity, &commit_content).unwrap();
 
         let commit = AddCommit {
             group_id: wrong_group_id, // Wrong group
             new_member_id: [0x02u8; 32],
             new_leaf_position: 1,
+            committer_leaf_position: 0,
             epoch: 1,
             path_updates: Vec::new(),
             signature,
@@ -1135,11 +1335,27 @@ mod tests {
 
         assert_eq!(session.tree().tree_depth(), 0);
 
-        // Create commit for adding member at position 1
+        // Create commit for adding member at position 1, committer at leaf 0
         let path_updates_hash = hash_path_updates(&[]);
-        let round_hash = [0x11u8; 32];
-        let commit_content =
-            CommitContent::new_add(*session.group_id(), 1, round_hash, path_updates_hash);
+        // GAP-04c: with mandatory round-hash verification the synthetic empty-path
+        // commit must carry the round hash the receiver recomputes from its LOCAL
+        // delta_root ([0;32] for empty updates) + added = [new_member].
+        let round_hash = {
+            use trelis_primitives::blake3_kdf::derive_key;
+            h3_round_hash(
+                &derive_key(ROOT_LABEL_CONTEXT, &[0u8; 32]),
+                &[],
+                &[[0x02u8; 32]],
+            )
+        };
+        let commit_content = CommitContent::new_add(
+            *session.group_id(),
+            1,
+            round_hash,
+            path_updates_hash,
+            0,
+            derive_user_id_from_identity(adder_identity.public_key()),
+        );
         let signature = sign_commit(&adder_identity, &commit_content).unwrap();
 
         // Compute correct confirmation tag for empty path updates
@@ -1151,6 +1367,7 @@ mod tests {
             group_id: *session.group_id(),
             new_member_id: [0x02u8; 32],
             new_leaf_position: 1, // This requires depth 1
+            committer_leaf_position: 0,
             epoch: 1,
             path_updates: Vec::new(),
             signature,
@@ -1184,11 +1401,26 @@ mod tests {
         let blank_node = crate::tree::TreeNode::new_blank(sibling_index);
         session.tree_mut().insert(blank_node);
 
-        // Create commit for adding member at position 1
+        // Create commit for adding member at position 1, committer at leaf 0
         let path_updates_hash = hash_path_updates(&[]);
-        let round_hash = [0x11u8; 32];
-        let commit_content =
-            CommitContent::new_add(*session.group_id(), 1, round_hash, path_updates_hash);
+        // GAP-04c: consistent round hash for the receiver's empty-path recompute
+        // (delta_root [0;32] + added = [new_member]).
+        let round_hash = {
+            use trelis_primitives::blake3_kdf::derive_key;
+            h3_round_hash(
+                &derive_key(ROOT_LABEL_CONTEXT, &[0u8; 32]),
+                &[],
+                &[[0x02u8; 32]],
+            )
+        };
+        let commit_content = CommitContent::new_add(
+            *session.group_id(),
+            1,
+            round_hash,
+            path_updates_hash,
+            0,
+            derive_user_id_from_identity(adder_identity.public_key()),
+        );
         let signature = sign_commit(&adder_identity, &commit_content).unwrap();
 
         // Compute correct confirmation tag for empty path updates
@@ -1200,6 +1432,7 @@ mod tests {
             group_id: *session.group_id(),
             new_member_id: [0x02u8; 32],
             new_leaf_position: 1,
+            committer_leaf_position: 0,
             epoch: 1,
             path_updates: Vec::new(),
             signature,
@@ -1221,5 +1454,392 @@ mod tests {
                 );
             }
         }
+    }
+
+    // ─── GAP-03: double-join guard ──────────────────────────────────────────
+
+    /// Re-adding an already-present member via `add_member` is rejected with
+    /// `DuplicateMember` (double-join / ghost-member guard).
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_double_join_add_member_rejected() {
+        let mut session = create_test_session(); // creator [0x01; 32], 1 member
+        let our_identity = create_test_identity();
+
+        let x_identity = create_test_identity();
+        let x_bundle = create_test_bundle(&x_identity);
+        let x_id = [0x02u8; 32];
+
+        // First add of X succeeds and records X as a member.
+        add_member(&mut session, &our_identity, &x_bundle, x_id).unwrap();
+        assert!(session.is_member(&x_id));
+
+        // Second add of the same X is rejected before any leaf is assigned.
+        let result = add_member(&mut session, &our_identity, &x_bundle, x_id);
+        assert!(matches!(
+            result,
+            Err(trelis_error::CryptoError::DuplicateMember)
+        ));
+    }
+
+    // ─── GAP-03: commit authority (signer ↔ body ↔ leaf) ────────────────────
+
+    /// A commit whose signed body claims `committer_user_id = derive(B)` but is
+    /// signed by A is rejected — regardless of which identity the verifier is
+    /// told to expect, the reconstructed body never matches both the signed
+    /// bytes and the signing key at once.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_commit_authority_signer_mismatch_rejected() {
+        let identity_a = create_test_identity();
+        let identity_b = create_test_identity();
+
+        let group_id = *create_test_session().group_id();
+        let path_updates_hash = hash_path_updates(&[]);
+        let round_hash = [0x11u8; 32];
+
+        // Body claims derive(B) at committer leaf 0, but is signed by A.
+        let commit_content = CommitContent::new_add(
+            group_id,
+            1,
+            round_hash,
+            path_updates_hash,
+            0,
+            derive_user_id_from_identity(identity_b.public_key()),
+        );
+        let signature = sign_commit(&identity_a, &commit_content).unwrap();
+
+        let commit = AddCommit {
+            group_id,
+            new_member_id: [0x02u8; 32],
+            new_leaf_position: 1,
+            committer_leaf_position: 0,
+            epoch: 1,
+            path_updates: Vec::new(),
+            signature,
+            round_hash,
+            confirmation_tag: [0u8; 32],
+        };
+
+        // Told the adder is A: verifier reconstructs derive(A) ≠ signed derive(B).
+        let mut session_a = create_test_session();
+        assert!(process_add(&mut session_a, &commit, identity_a.public_key()).is_err());
+
+        // Told the adder is B: the signature was produced by A, not B.
+        let mut session_b = create_test_session();
+        assert!(process_add(&mut session_b, &commit, identity_b.public_key()).is_err());
+    }
+
+    /// A commit whose bound `committer_leaf_position` is out of range is
+    /// rejected with `InvalidLeafPosition` after the signature verifies.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_commit_authority_bad_leaf_rejected() {
+        let mut session = create_test_session(); // 1 member — only leaf 0 in range
+        let adder = create_test_identity();
+
+        let path_updates_hash = hash_path_updates(&[]);
+        let round_hash = [0x11u8; 32];
+        // committer_leaf_position 99 is out of range; signature is otherwise valid.
+        let commit_content = CommitContent::new_add(
+            *session.group_id(),
+            1,
+            round_hash,
+            path_updates_hash,
+            99,
+            derive_user_id_from_identity(adder.public_key()),
+        );
+        let signature = sign_commit(&adder, &commit_content).unwrap();
+
+        let commit = AddCommit {
+            group_id: *session.group_id(),
+            new_member_id: [0x02u8; 32],
+            new_leaf_position: 1,
+            committer_leaf_position: 99,
+            epoch: 1,
+            path_updates: Vec::new(),
+            signature,
+            round_hash,
+            confirmation_tag: [0u8; 32],
+        };
+
+        let result = process_add(&mut session, &commit, adder.public_key());
+        assert!(matches!(
+            result,
+            Err(trelis_error::CryptoError::InvalidLeafPosition)
+        ));
+    }
+
+    /// Positive control: an honest add (signer == bound committer identity,
+    /// in-range committer leaf, fresh member) round-trips through `process_add`
+    /// and records the new member.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_commit_authority_honest_add_roundtrips() {
+        let mut session = create_test_session();
+        let adder = create_test_identity();
+
+        let path_updates_hash = hash_path_updates(&[]);
+        // GAP-04c: consistent round hash for the receiver's empty-path recompute
+        // (delta_root [0;32] + added = [new_member]).
+        let round_hash = {
+            use trelis_primitives::blake3_kdf::derive_key;
+            h3_round_hash(
+                &derive_key(ROOT_LABEL_CONTEXT, &[0u8; 32]),
+                &[],
+                &[[0x02u8; 32]],
+            )
+        };
+        let commit_content = CommitContent::new_add(
+            *session.group_id(),
+            1,
+            round_hash,
+            path_updates_hash,
+            0,
+            derive_user_id_from_identity(adder.public_key()),
+        );
+        let signature = sign_commit(&adder, &commit_content).unwrap();
+
+        // Empty path updates ⇒ zero delta_root; compute the matching tag.
+        let new_transcript = h3_transcript_hash(session.transcript_hash(), &round_hash);
+        let confirmation_tag = compute_confirmation_tag(&[0u8; 32], &new_transcript, 1);
+
+        let commit = AddCommit {
+            group_id: *session.group_id(),
+            new_member_id: [0x02u8; 32],
+            new_leaf_position: 1,
+            committer_leaf_position: 0,
+            epoch: 1,
+            path_updates: Vec::new(),
+            signature,
+            round_hash,
+            confirmation_tag,
+        };
+
+        process_add(&mut session, &commit, adder.public_key()).unwrap();
+        assert_eq!(session.member_count(), 2);
+        assert!(session.is_member(&[0x02u8; 32]));
+    }
+
+    // ─── GAP-02: parent-hash verification on the add ingest path ────────────
+
+    /// A flipped non-leaf `h1` on a real add commit is rejected by the parent-
+    /// hash verifier; the honest commit verifies against the builder's own tree
+    /// (positive control). Per the plan, the multi-party tree-sync setup is
+    /// infeasible in a unit test, so this asserts `verify_parent_hashes`
+    /// directly against the `add_member` builder output — the load-bearing SC2
+    /// gate — rather than round-tripping through `process_add`.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_parent_hash_add_tamper_rejected() {
+        use super::super::path_update::verify_parent_hashes;
+
+        let mut session = create_test_session(); // 1 member
+        let our_identity = create_test_identity();
+        let new_identity = create_test_identity();
+        let new_bundle = create_test_bundle(&new_identity);
+
+        let (commit, _welcome) =
+            add_member(&mut session, &our_identity, &new_bundle, [0x02u8; 32]).unwrap();
+        let node_updates = convert_path_updates_to_node_updates(&commit.path_updates).unwrap();
+        assert!(
+            node_updates.len() >= 2,
+            "add path must carry a non-leaf node"
+        );
+
+        // Positive control: the honest commit verifies against the builder tree.
+        verify_parent_hashes(session.tree(), &node_updates).unwrap();
+
+        // Tamper one byte of a non-leaf h1 -> ParentHashMismatch.
+        let mut tampered = node_updates.clone();
+        tampered[1].parent_hash.0[0] ^= 0xFF;
+        assert!(matches!(
+            verify_parent_hashes(session.tree(), &tampered),
+            Err(trelis_error::CryptoError::ParentHashMismatch)
+        ));
+    }
+
+    // ─── GAP-04c: mandatory round-hash verification on the add path ──────────
+
+    /// A forged `round_hash` — made self-consistent with its own confirmation
+    /// tag and covered by a valid signature — is rejected by the mandatory
+    /// round-hash recompute (`RoundHashMismatch`). The confirmation tag only
+    /// binds (delta_root, transcript, epoch), so a committer that advertises a
+    /// round hash inconsistent with the membership change is caught ONLY by this
+    /// independent recompute. Empty path updates ⇒ delta_root [0;32], so the
+    /// receiver recomputes `h3_round_hash(derive_key(ROOT_LABEL_CONTEXT,[0;32]),
+    /// [], [new_member])`; a garbage value differs and is rejected.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_round_hash_mismatch_rejected() {
+        use trelis_primitives::blake3_kdf::derive_key;
+
+        let mut session = create_test_session();
+        let adder = create_test_identity();
+
+        let path_updates_hash = hash_path_updates(&[]);
+        // Forged: NOT the value the receiver recomputes from delta_root [0;32].
+        let round_hash = [0x99u8; 32];
+        let commit_content = CommitContent::new_add(
+            *session.group_id(),
+            1,
+            round_hash,
+            path_updates_hash,
+            0,
+            derive_user_id_from_identity(adder.public_key()),
+        );
+        let signature = sign_commit(&adder, &commit_content).unwrap();
+
+        // Tag made SELF-CONSISTENT with the forged round hash, so the tag check
+        // passes and execution reaches the round-hash gate (not an earlier one).
+        let new_transcript = h3_transcript_hash(session.transcript_hash(), &round_hash);
+        let confirmation_tag = compute_confirmation_tag(&[0u8; 32], &new_transcript, 1);
+
+        let commit = AddCommit {
+            group_id: *session.group_id(),
+            new_member_id: [0x02u8; 32],
+            new_leaf_position: 1,
+            committer_leaf_position: 0,
+            epoch: 1,
+            path_updates: Vec::new(),
+            signature,
+            round_hash,
+            confirmation_tag,
+        };
+
+        assert!(matches!(
+            process_add(&mut session, &commit, adder.public_key()),
+            Err(trelis_error::CryptoError::RoundHashMismatch)
+        ));
+
+        // Sanity: the honest recompute really differs from the forged value.
+        let honest = h3_round_hash(
+            &derive_key(ROOT_LABEL_CONTEXT, &[0u8; 32]),
+            &[],
+            &[[0x02u8; 32]],
+        );
+        assert_ne!(honest, round_hash);
+    }
+
+    /// Positive control: an add whose `round_hash` matches the receiver's
+    /// independent recompute (delta_root [0;32] + added = [new_member]) verifies
+    /// and advances the epoch (records the new member).
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_round_hash_honest_verifies() {
+        use trelis_primitives::blake3_kdf::derive_key;
+
+        let mut session = create_test_session();
+        let adder = create_test_identity();
+
+        let path_updates_hash = hash_path_updates(&[]);
+        let round_hash = h3_round_hash(
+            &derive_key(ROOT_LABEL_CONTEXT, &[0u8; 32]),
+            &[],
+            &[[0x02u8; 32]],
+        );
+        let commit_content = CommitContent::new_add(
+            *session.group_id(),
+            1,
+            round_hash,
+            path_updates_hash,
+            0,
+            derive_user_id_from_identity(adder.public_key()),
+        );
+        let signature = sign_commit(&adder, &commit_content).unwrap();
+
+        let new_transcript = h3_transcript_hash(session.transcript_hash(), &round_hash);
+        let confirmation_tag = compute_confirmation_tag(&[0u8; 32], &new_transcript, 1);
+
+        let commit = AddCommit {
+            group_id: *session.group_id(),
+            new_member_id: [0x02u8; 32],
+            new_leaf_position: 1,
+            committer_leaf_position: 0,
+            epoch: 1,
+            path_updates: Vec::new(),
+            signature,
+            round_hash,
+            confirmation_tag,
+        };
+
+        process_add(&mut session, &commit, adder.public_key()).unwrap();
+        assert_eq!(session.member_count(), 2);
+        assert!(session.is_member(&[0x02u8; 32]));
+    }
+
+    // ─── WR-03: rejected commit must not mutate session state ────────────────
+
+    /// WR-03: a signature-valid add that fails the mandatory round-hash check
+    /// must leave the session state COMPLETELY unchanged — the tree is not
+    /// grown, `member_count` is not bumped, the new member is not recorded, and
+    /// the epoch does not advance. Before the validate-then-mutate reorder,
+    /// `process_add` grew the tree and set `member_count` BEFORE the round-hash
+    /// check, so this exact GAP-04c insider commit (a valid signer advertising a
+    /// bad round hash) left the session internally inconsistent.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_process_add_rejected_commit_leaves_state_unchanged() {
+        let mut session = create_test_session(); // 1 member, depth 0, epoch 0
+        let adder = create_test_identity();
+
+        let members_before = session.member_count();
+        let depth_before = session.tree().tree_depth();
+        let epoch_before = session.epoch_number();
+
+        let path_updates_hash = hash_path_updates(&[]);
+        // Forged round hash (NOT the receiver's recompute from delta_root [0;32]);
+        // the confirmation tag is made self-consistent so the tag check passes
+        // and execution reaches the round-hash gate (not an earlier one).
+        let round_hash = [0x99u8; 32];
+        let commit_content = CommitContent::new_add(
+            *session.group_id(),
+            1,
+            round_hash,
+            path_updates_hash,
+            0,
+            derive_user_id_from_identity(adder.public_key()),
+        );
+        let signature = sign_commit(&adder, &commit_content).unwrap();
+        let new_transcript = h3_transcript_hash(session.transcript_hash(), &round_hash);
+        let confirmation_tag = compute_confirmation_tag(&[0u8; 32], &new_transcript, 1);
+
+        let commit = AddCommit {
+            group_id: *session.group_id(),
+            new_member_id: [0x02u8; 32],
+            new_leaf_position: 1, // would require growing the tree to depth 1
+            committer_leaf_position: 0,
+            epoch: 1,
+            path_updates: Vec::new(),
+            signature,
+            round_hash,
+            confirmation_tag,
+        };
+
+        assert!(matches!(
+            process_add(&mut session, &commit, adder.public_key()),
+            Err(trelis_error::CryptoError::RoundHashMismatch)
+        ));
+
+        // State must be exactly as before the rejected commit.
+        assert_eq!(
+            session.member_count(),
+            members_before,
+            "member_count must be unchanged on a rejected add"
+        );
+        assert_eq!(
+            session.tree().tree_depth(),
+            depth_before,
+            "tree must NOT be grown on a rejected add"
+        );
+        assert_eq!(
+            session.epoch_number(),
+            epoch_before,
+            "epoch must NOT advance on a rejected add"
+        );
+        assert!(
+            !session.is_member(&[0x02u8; 32]),
+            "the rejected member must NOT be recorded"
+        );
     }
 }

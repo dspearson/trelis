@@ -1,8 +1,11 @@
 //! sntrup761 Key Encapsulation Mechanism.
 //!
 //! This module provides sntrup761 post-quantum KEM as specified by NTRU Prime.
-//! sntrup761 is a lattice-based key encapsulation mechanism providing
-//! approximately 128-bit security against quantum attacks (NIST Level 3).
+//! sntrup761 is a lattice-based key encapsulation mechanism at NIST
+//! Category 2-3 (Core-SVP 2^153; the designers' conservative floor is
+//! Category 2, Category 3 only under the disputed P80 claim). It is not
+//! NIST-standardised and sits at or below ML-DSA-65's Category 3 — the
+//! lowest (or joint-lowest) post-quantum link in the hybrid.
 //!
 //! # Pedantic-lint policy
 //!

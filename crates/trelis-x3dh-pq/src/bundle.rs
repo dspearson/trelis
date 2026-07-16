@@ -236,9 +236,9 @@ mod tests {
 
     #[test]
     fn test_signed_bundle_size() {
-        // bundle + signature (3423)
-        assert_eq!(SIGNED_BUNDLE_SIZE, PREKEY_BUNDLE_SIZE + 3423);
-        assert_eq!(SIGNED_BUNDLE_SIZE, 7884);
+        // bundle + signature (3366)
+        assert_eq!(SIGNED_BUNDLE_SIZE, PREKEY_BUNDLE_SIZE + 3366);
+        assert_eq!(SIGNED_BUNDLE_SIZE, 7827);
     }
 
     #[cfg_attr(miri, ignore)]

@@ -3,6 +3,7 @@
 //! This module provides types for handling key compromise scenarios:
 //!
 //! - [`CompromiseNotice`]: A signed notice announcing that a key has been compromised
+//! - [`RecoveryKeyAttestation`]: A double-signed old→new identity-rotation attestation
 //! - [`derive_recovery_keypair`]: Derives a deterministic recovery keypair from a seed
 //!
 //! # Security Model
@@ -162,9 +163,9 @@ impl CompromiseReason {
 /// | compromised_at       | 8     | Unix timestamp (LE)
 /// | reason               | 1     | CompromiseReason byte
 /// | signer_fp            | 32    | BLAKE3 fingerprint of signing key
-/// | signature            | 3423  | HybridSignature
+/// | signature            | 3366  | HybridSignature
 /// +----------------------+-------+
-/// Total: 3496 bytes
+/// Total: 3439 bytes
 /// ```
 #[derive(Clone)]
 pub struct CompromiseNotice<S: MlDsaScheme = DefaultMlDsaScheme> {
@@ -358,7 +359,7 @@ impl core::fmt::Debug for CompromiseNotice {
             .field("reason", &self.reason)
             .field("signer_fingerprint", &"[32 bytes]")
             .field("is_self_signed", &self.is_self_signed())
-            .field("signature", &"[3423 bytes]")
+            .field("signature", &"[3366 bytes]")
             .finish()
     }
 }
@@ -453,116 +454,185 @@ pub fn derive_recovery_keypair<S: MlDsaScheme>(
     ))
 }
 
-/// Signed attestation binding a recovery public key to an identity public key.
+/// Size of the stable account identifier bound into a recovery attestation.
+pub const USER_ID_SIZE: usize = 32;
+
+/// Double-signed old→new identity-rotation attestation.
 ///
-/// At account creation, the user publishes their recovery key to the relying
-/// party alongside their identity. This attestation lets a verifier (the
-/// server, or anyone receiving the recovery key out-of-band) confirm that
-/// the recovery key was registered by the identity-key holder — not by an
-/// attacker who controls the publication channel.
+/// Issued when a user rotates their identity keypair (compromise recovery or
+/// key hygiene). The attestation is **cross-signed by BOTH the old and the new
+/// identity keys** over the same domain-separated body, binding both identity
+/// public keys and the stable `user_id`. This proves, in one object:
 ///
-/// The library treats the recovery key as a plain
-/// `HybridSigningPublicKey<S>` — the same type returned by
-/// [`derive_recovery_keypair`]. (Earlier spec text described a separate
-/// `HybridRecoveryPublicKey` newtype; that text was reconciled with the
-/// implementation.)
+/// - possession of the NEW identity secret key (`sig_new`),
+/// - old→new rotation continuity endorsed by the OLD key (`sig_old`), and
+/// - exclusive ownership for THIS account — neither signature can be lifted to
+///   a different rotation or re-homed to another account, because both public
+///   keys and the `user_id` are inside the signed body and BoP-2 additionally
+///   binds each signer's verification key into `m'`.
+///
+/// A verifier MUST accept only an attestation for which BOTH signatures verify
+/// (see [`Self::verify`]); the type has no single-signature construction path,
+/// and a legacy single-sig attestation blob is rejected by the exact-length
+/// wire gate in [`Self::from_bytes`].
 ///
 /// # Wire format
 ///
 /// ```text
 /// +----------------------+-------+
-/// | identity_pk          | 2009  | HybridSigningPublicKey (Ed448 + ML-DSA)
-/// | recovery_pk          | 2009  | HybridSigningPublicKey (Ed448 + ML-DSA)
+/// | old_identity_pk      | 2009  | HybridSigningPublicKey (Ed448 + ML-DSA)
+/// | new_identity_pk      | 2009  | HybridSigningPublicKey (Ed448 + ML-DSA)
+/// | user_id              | 32    | Stable account identifier
 /// | registered_at        | 8     | Unix timestamp (LE)
-/// | signature            | 3423  | HybridSignature
+/// | sig_old              | 3366  | HybridSignature by the OLD identity key
+/// | sig_new              | 3366  | HybridSignature by the NEW identity key
 /// +----------------------+-------+
-/// Total: 7,449 bytes
+/// Total: 10,790 bytes
 /// ```
 ///
 /// Serialise with [`Self::to_bytes`]; parse with [`Self::from_bytes`].
 ///
 /// # Domain separation
 ///
-/// Signing data: `RECOVERY_KEY_ATTEST_CONTEXT || recovery_pk_bytes ||
-/// registered_at`. The context string `trelis-recovery-key-attest-v1`
-/// ensures the signature cannot be replayed as any other protocol
-/// signature.
+/// Signing body: `RECOVERY_KEY_ATTEST_CONTEXT || old_identity_pk_bytes ||
+/// new_identity_pk_bytes || user_id || registered_at(LE)`. The context string
+/// `trelis-recovery-key-attest-v1` ensures the signatures cannot be replayed as
+/// any other protocol signature.
 #[cfg(feature = "alloc")]
 #[derive(Clone)]
 pub struct RecoveryKeyAttestation<S: MlDsaScheme = DefaultMlDsaScheme> {
-    /// The identity key that registered the recovery key.
-    pub identity_pk: HybridSigningPublicKey<S>,
-    /// The recovery public key being attested to.
-    pub recovery_pk: HybridSigningPublicKey<S>,
-    /// Unix timestamp (seconds) when the recovery key was registered.
+    /// The OLD identity key being rotated away from.
+    pub old_identity_pk: HybridSigningPublicKey<S>,
+    /// The NEW identity key being rotated to.
+    pub new_identity_pk: HybridSigningPublicKey<S>,
+    /// Stable 32-byte account identifier (constant across identity rotations).
+    pub user_id: [u8; USER_ID_SIZE],
+    /// Unix timestamp (seconds) when the rotation was registered.
     pub registered_at: u64,
-    /// Hybrid signature by `identity_pk` over the attestation body.
-    pub signature: HybridSignature<S>,
+    /// `sig_old` — signature by the OLD identity key over the body.
+    pub sig_old: HybridSignature<S>,
+    /// `sig_new` — signature by the NEW identity key over the body.
+    pub sig_new: HybridSignature<S>,
 }
 
 #[cfg(feature = "alloc")]
 impl<S: MlDsaScheme> RecoveryKeyAttestation<S> {
-    /// Creates a new attestation, signed by the identity keypair.
+    /// Total wire size in bytes (`old_identity_pk + new_identity_pk + user_id +
+    /// registered_at + sig_old + sig_new`).
+    pub const WIRE_SIZE: usize = SIGNING_PK_WIRE_SIZE
+        + SIGNING_PK_WIRE_SIZE
+        + USER_ID_SIZE
+        + 8
+        + SIGNATURE_WIRE_SIZE
+        + SIGNATURE_WIRE_SIZE;
+
+    /// Cross-signs an old→new identity rotation.
+    ///
+    /// `sig_old` is produced by the OLD identity keypair and `sig_new` by the
+    /// NEW identity keypair, both over the same domain-separated body binding
+    /// both public keys, `user_id`, and `registered_at`.
     ///
     /// # Errors
     ///
-    /// Returns `SignatureError` if the identity keypair fails to sign.
+    /// Returns [`CryptoError::MalformedMessage`] if the old and new identity
+    /// public keys are equal — a no-op "rotate X→X" self-attestation proves no
+    /// key change and is rejected as misuse. Returns a signature error if
+    /// either identity keypair fails to sign.
     pub fn create(
-        identity_keypair: &HybridSigningKeypair<S>,
-        recovery_pk: &HybridSigningPublicKey<S>,
+        old_identity_keypair: &HybridSigningKeypair<S>,
+        new_identity_keypair: &HybridSigningKeypair<S>,
+        user_id: [u8; USER_ID_SIZE],
         registered_at: u64,
     ) -> Result<Self> {
-        let sig_data = Self::signing_data(recovery_pk, registered_at);
-        let signature = identity_keypair.sign(&sig_data)?;
+        let old_identity_pk = old_identity_keypair.public_key().clone();
+        let new_identity_pk = new_identity_keypair.public_key().clone();
+        // Misuse resistance: reject a no-op rotation. An attestation whose old
+        // and new identity keys are equal proves nothing about a key change and
+        // could mislead a consumer that reads "valid attestation ⇒ identity
+        // rotated". `HybridSigningPublicKey: Eq`.
+        if old_identity_pk == new_identity_pk {
+            return Err(CryptoError::MalformedMessage);
+        }
+        let body = Self::signing_data(&old_identity_pk, &new_identity_pk, &user_id, registered_at);
+        let sig_old = old_identity_keypair.sign(&body)?;
+        let sig_new = new_identity_keypair.sign(&body)?;
         Ok(Self {
-            identity_pk: identity_keypair.public_key().clone(),
-            recovery_pk: recovery_pk.clone(),
+            old_identity_pk,
+            new_identity_pk,
+            user_id,
             registered_at,
-            signature,
+            sig_old,
+            sig_new,
         })
     }
 
-    /// Verifies that the attestation was signed by `identity_pk` over the
-    /// stated `recovery_pk` and `registered_at`.
+    /// Verifies the attestation, requiring BOTH signatures.
+    ///
+    /// Recomputes the signed body and checks `sig_old` under `old_identity_pk`
+    /// AND `sig_new` under `new_identity_pk`. The sequential `?` makes this an
+    /// AND, not an OR: verification fails if EITHER signature is invalid.
     ///
     /// # Errors
     ///
-    /// Returns `SignatureVerificationFailed` if the signature does not verify.
+    /// Returns `SignatureVerificationFailed` if either signature does not
+    /// verify.
     #[must_use = "the verify outcome must be checked"]
     pub fn verify(&self) -> Result<()> {
-        let sig_data = Self::signing_data(&self.recovery_pk, self.registered_at);
-        self.identity_pk.verify(&sig_data, &self.signature)
+        let body = Self::signing_data(
+            &self.old_identity_pk,
+            &self.new_identity_pk,
+            &self.user_id,
+            self.registered_at,
+        );
+        self.old_identity_pk.verify(&body, &self.sig_old)?;
+        self.new_identity_pk.verify(&body, &self.sig_new)?;
+        Ok(())
     }
 
-    /// Returns the bytes that should be signed for this attestation.
-    fn signing_data(recovery_pk: &HybridSigningPublicKey<S>, registered_at: u64) -> Vec<u8> {
-        let recovery_bytes = recovery_pk.to_bytes();
-        let mut data =
-            Vec::with_capacity(RECOVERY_KEY_ATTEST_CONTEXT.len() + recovery_bytes.len() + 8);
+    /// Returns the domain-separated body that BOTH identity keys sign.
+    ///
+    /// Format: `RECOVERY_KEY_ATTEST_CONTEXT || old_pk || new_pk || user_id ||
+    /// registered_at(LE)`. All fields after the context are fixed-length.
+    fn signing_data(
+        old_pk: &HybridSigningPublicKey<S>,
+        new_pk: &HybridSigningPublicKey<S>,
+        user_id: &[u8; USER_ID_SIZE],
+        registered_at: u64,
+    ) -> Vec<u8> {
+        let mut data = Vec::with_capacity(
+            RECOVERY_KEY_ATTEST_CONTEXT.len() + 2 * SIGNING_PK_WIRE_SIZE + USER_ID_SIZE + 8,
+        );
         data.extend_from_slice(RECOVERY_KEY_ATTEST_CONTEXT.as_bytes());
-        data.extend_from_slice(&recovery_bytes);
+        data.extend_from_slice(&old_pk.to_bytes());
+        data.extend_from_slice(&new_pk.to_bytes());
+        data.extend_from_slice(user_id);
         data.extend_from_slice(&registered_at.to_le_bytes());
         data
     }
 
     /// Serialises the attestation to its canonical wire form.
     ///
-    /// Layout: `identity_pk (2,009) || recovery_pk (2,009) ||
-    /// registered_at (8 LE) || signature (3,423)` = 7,449 bytes.
+    /// Layout: `old_identity_pk (2,009) || new_identity_pk (2,009) ||
+    /// user_id (32) || registered_at (8 LE) || sig_old (3,366) ||
+    /// sig_new (3,366)` = 10,790 bytes.
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(Self::WIRE_SIZE);
-        bytes.extend_from_slice(&self.identity_pk.to_bytes());
-        bytes.extend_from_slice(&self.recovery_pk.to_bytes());
+        bytes.extend_from_slice(&self.old_identity_pk.to_bytes());
+        bytes.extend_from_slice(&self.new_identity_pk.to_bytes());
+        bytes.extend_from_slice(&self.user_id);
         bytes.extend_from_slice(&self.registered_at.to_le_bytes());
-        bytes.extend_from_slice(&self.signature.to_bytes());
+        bytes.extend_from_slice(&self.sig_old.to_bytes());
+        bytes.extend_from_slice(&self.sig_new.to_bytes());
         bytes
     }
 
     /// Parses an attestation from its canonical wire form.
     ///
     /// Does NOT call [`Self::verify`]; the caller must do so before trusting
-    /// the parsed attestation.
+    /// the parsed attestation. The exact-length gate rejects any input whose
+    /// length is not exactly [`Self::WIRE_SIZE`] (10,790) — this is how a
+    /// legacy single-signature attestation blob is rejected.
     ///
     /// # Errors
     ///
@@ -574,15 +644,19 @@ impl<S: MlDsaScheme> RecoveryKeyAttestation<S> {
         }
 
         let mut offset = 0;
-        let identity_pk =
+        let old_identity_pk =
             HybridSigningPublicKey::<S>::from_bytes(&bytes[offset..offset + SIGNING_PK_WIRE_SIZE])
                 .map_err(|_| CryptoError::MalformedMessage)?;
         offset += SIGNING_PK_WIRE_SIZE;
 
-        let recovery_pk =
+        let new_identity_pk =
             HybridSigningPublicKey::<S>::from_bytes(&bytes[offset..offset + SIGNING_PK_WIRE_SIZE])
                 .map_err(|_| CryptoError::MalformedMessage)?;
         offset += SIGNING_PK_WIRE_SIZE;
+
+        let mut user_id = [0u8; USER_ID_SIZE];
+        user_id.copy_from_slice(&bytes[offset..offset + USER_ID_SIZE]);
+        offset += USER_ID_SIZE;
 
         let registered_at = u64::from_le_bytes(
             bytes[offset..offset + 8]
@@ -591,36 +665,49 @@ impl<S: MlDsaScheme> RecoveryKeyAttestation<S> {
         );
         offset += 8;
 
-        let signature = HybridSignature::<S>::from_bytes(&bytes[offset..])
-            .map_err(|_| CryptoError::MalformedMessage)?;
+        let sig_old =
+            HybridSignature::<S>::from_bytes(&bytes[offset..offset + SIGNATURE_WIRE_SIZE])
+                .map_err(|_| CryptoError::MalformedMessage)?;
+        offset += SIGNATURE_WIRE_SIZE;
+
+        let sig_new =
+            HybridSignature::<S>::from_bytes(&bytes[offset..offset + SIGNATURE_WIRE_SIZE])
+                .map_err(|_| CryptoError::MalformedMessage)?;
 
         Ok(Self {
-            identity_pk,
-            recovery_pk,
+            old_identity_pk,
+            new_identity_pk,
+            user_id,
             registered_at,
-            signature,
+            sig_old,
+            sig_new,
         })
     }
-
-    /// Total wire size in bytes (`identity_pk + recovery_pk + registered_at +
-    /// signature`).
-    pub const WIRE_SIZE: usize =
-        SIGNING_PK_WIRE_SIZE + SIGNING_PK_WIRE_SIZE + 8 + SIGNATURE_WIRE_SIZE;
 }
 
 /// Size of `HybridSigningPublicKey` on the wire (Ed448 57 + ML-DSA-65 1,952).
-const SIGNING_PK_WIRE_SIZE: usize = 2_009;
-/// Size of `HybridSignature` on the wire (Ed448 114 + ML-DSA-65 3,309).
-const SIGNATURE_WIRE_SIZE: usize = 3_423;
+///
+/// Single-sourced from [`crate::signature::PUBLIC_KEY_SIZE`] (the crate
+/// convention, cf. `prekey_bundle.rs` / `one_time_key.rs`) so the attestation
+/// wire layout tracks the signing-key encoding instead of desyncing from a
+/// hand-written literal if the key size ever changes.
+const SIGNING_PK_WIRE_SIZE: usize = crate::signature::PUBLIC_KEY_SIZE;
+/// Size of `HybridSignature` on the wire (BoP-2 response 57 + ML-DSA-65 3,309).
+///
+/// Single-sourced from [`crate::signature::SIGNATURE_SIZE`] so the attestation
+/// wire layout tracks the combiner (now the 3,366-byte BoP-2 signature).
+const SIGNATURE_WIRE_SIZE: usize = crate::signature::SIGNATURE_SIZE;
 
 #[cfg(feature = "alloc")]
 impl<S: MlDsaScheme> core::fmt::Debug for RecoveryKeyAttestation<S> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("RecoveryKeyAttestation")
-            .field("identity_pk", &"[hybrid signing pk]")
-            .field("recovery_pk", &"[hybrid signing pk]")
+            .field("old_identity_pk", &"[hybrid signing pk]")
+            .field("new_identity_pk", &"[hybrid signing pk]")
+            .field("user_id", &"[32 bytes]")
             .field("registered_at", &self.registered_at)
-            .field("signature", &"[3423 bytes]")
+            .field("sig_old", &"[3366 bytes]")
+            .field("sig_new", &"[3366 bytes]")
             .finish()
     }
 }
@@ -845,44 +932,42 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     #[test]
     fn test_recovery_key_attestation_happy_path() {
-        let identity_keypair = TestKeypair::generate().unwrap();
-        let recovery_seed = [0x11u8; 32];
-        let recovery_keypair = derive_recovery_keypair::<MlDsa65Fips204>(&recovery_seed).unwrap();
+        let old_identity = TestKeypair::generate().unwrap();
+        let new_identity = TestKeypair::generate().unwrap();
+        let user_id = [0x11u8; USER_ID_SIZE];
 
-        let attestation = TestAttestation::create(
-            &identity_keypair,
-            recovery_keypair.public_key(),
-            1_704_067_200,
-        )
-        .unwrap();
+        let attestation =
+            TestAttestation::create(&old_identity, &new_identity, user_id, 1_704_067_200).unwrap();
 
         assert!(attestation.verify().is_ok());
         assert_eq!(
-            attestation.identity_pk.to_bytes(),
-            identity_keypair.public_key().to_bytes()
+            attestation.old_identity_pk.to_bytes(),
+            old_identity.public_key().to_bytes()
         );
         assert_eq!(
-            attestation.recovery_pk.to_bytes(),
-            recovery_keypair.public_key().to_bytes()
+            attestation.new_identity_pk.to_bytes(),
+            new_identity.public_key().to_bytes()
         );
+        assert_eq!(attestation.user_id, user_id);
         assert_eq!(attestation.registered_at, 1_704_067_200);
     }
 
     #[cfg_attr(miri, ignore)]
     #[test]
     fn test_recovery_key_attestation_tamper_detection() {
-        let identity_keypair = TestKeypair::generate().unwrap();
-        let recovery_keypair = derive_recovery_keypair::<MlDsa65Fips204>(&[0x22u8; 32]).unwrap();
+        let old_identity = TestKeypair::generate().unwrap();
+        let new_identity = TestKeypair::generate().unwrap();
 
         let mut attestation = TestAttestation::create(
-            &identity_keypair,
-            recovery_keypair.public_key(),
+            &old_identity,
+            &new_identity,
+            [0x22u8; USER_ID_SIZE],
             1_704_067_200,
         )
         .unwrap();
 
-        // Tamper with the timestamp — the original signature no longer
-        // covers the new value.
+        // Tamper with the timestamp — neither signature still covers the new
+        // value, so verification must fail.
         attestation.registered_at = 1_704_067_201;
 
         assert!(attestation.verify().is_err());
@@ -890,46 +975,51 @@ mod tests {
 
     #[cfg_attr(miri, ignore)]
     #[test]
-    fn test_recovery_key_attestation_wrong_identity_rejected() {
-        let identity_keypair = TestKeypair::generate().unwrap();
+    fn test_recovery_attestation_cross_identity_rejected() {
+        let old_identity = TestKeypair::generate().unwrap();
+        let new_identity = TestKeypair::generate().unwrap();
         let other_identity = TestKeypair::generate().unwrap();
-        let recovery_keypair = derive_recovery_keypair::<MlDsa65Fips204>(&[0x33u8; 32]).unwrap();
 
         let mut attestation = TestAttestation::create(
-            &identity_keypair,
-            recovery_keypair.public_key(),
+            &old_identity,
+            &new_identity,
+            [0x33u8; USER_ID_SIZE],
             1_704_067_200,
         )
         .unwrap();
 
-        // Replace the identity_pk with a different keypair's public key —
-        // verification must now fail because the signature was produced
-        // by the original identity, not this one.
-        attestation.identity_pk = other_identity.public_key().clone();
+        // Swap the new identity pk for an unrelated key. `sig_new` was produced
+        // over a body binding the genuine `new_identity_pk` (and BoP-2 binds the
+        // signer vk into m'), so verification must now fail.
+        attestation.new_identity_pk = other_identity.public_key().clone();
 
         assert!(attestation.verify().is_err());
     }
 
     #[test]
     fn test_recovery_key_attestation_wire_size_constant() {
-        // identity_pk (2,009) + recovery_pk (2,009) + registered_at (8)
-        // + signature (3,423) = 7,449
-        assert_eq!(TestAttestation::WIRE_SIZE, 2_009 + 2_009 + 8 + 3_423);
-        assert_eq!(TestAttestation::WIRE_SIZE, 7_449);
+        // old_identity_pk (2,009) + new_identity_pk (2,009) + user_id (32)
+        // + registered_at (8) + sig_old (3,366) + sig_new (3,366) = 10,790
+        assert_eq!(
+            TestAttestation::WIRE_SIZE,
+            2_009 + 2_009 + 32 + 8 + 3_366 + 3_366
+        );
+        assert_eq!(TestAttestation::WIRE_SIZE, 10_790);
+        // WR-01: the public-key wire size is single-sourced from the signature
+        // crate, so a future key-size change flows through to the attestation
+        // layout instead of silently desyncing from a hand-written literal.
+        assert_eq!(SIGNING_PK_WIRE_SIZE, crate::signature::PUBLIC_KEY_SIZE);
     }
 
     #[cfg_attr(miri, ignore)]
     #[test]
     fn test_recovery_key_attestation_serialisation_roundtrip() {
-        let identity_keypair = TestKeypair::generate().unwrap();
-        let recovery_keypair = derive_recovery_keypair::<MlDsa65Fips204>(&[0x44u8; 32]).unwrap();
+        let old_identity = TestKeypair::generate().unwrap();
+        let new_identity = TestKeypair::generate().unwrap();
+        let user_id = [0x44u8; USER_ID_SIZE];
 
-        let attestation = TestAttestation::create(
-            &identity_keypair,
-            recovery_keypair.public_key(),
-            1_704_067_200,
-        )
-        .unwrap();
+        let attestation =
+            TestAttestation::create(&old_identity, &new_identity, user_id, 1_704_067_200).unwrap();
 
         let bytes = attestation.to_bytes();
         assert_eq!(bytes.len(), TestAttestation::WIRE_SIZE);
@@ -937,13 +1027,14 @@ mod tests {
         let parsed = TestAttestation::from_bytes(&bytes).unwrap();
         assert!(parsed.verify().is_ok());
         assert_eq!(parsed.registered_at, 1_704_067_200);
+        assert_eq!(parsed.user_id, user_id);
         assert_eq!(
-            parsed.identity_pk.to_bytes(),
-            identity_keypair.public_key().to_bytes()
+            parsed.old_identity_pk.to_bytes(),
+            old_identity.public_key().to_bytes()
         );
         assert_eq!(
-            parsed.recovery_pk.to_bytes(),
-            recovery_keypair.public_key().to_bytes()
+            parsed.new_identity_pk.to_bytes(),
+            new_identity.public_key().to_bytes()
         );
     }
 
@@ -983,5 +1074,221 @@ mod tests {
             TestAttestation::from_bytes(&all_zeros),
             Err(CryptoError::MalformedMessage)
         ));
+    }
+
+    /// IN-01: exercise the *later* sub-component decode arms of `from_bytes`.
+    ///
+    /// The all-zeros `corrupt_body` test above fails at the FIRST field
+    /// (`old_identity_pk` at offset 0) and returns early, so the decode-failure
+    /// arms for `new_identity_pk`, `sig_old`, and `sig_new` — including the
+    /// BoP-2 response UR-guard — were never independently exercised. Here we
+    /// take a genuine 10,790-byte attestation, keep the leading fields valid,
+    /// and corrupt exactly one later region at a time to `0xFF`. Each buffer
+    /// stays length-valid (passes the exact-length gate) yet must still
+    /// parse-fail with `MalformedMessage`, reaching the later `map_err` arms.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_recovery_key_attestation_from_bytes_corrupt_later_fields() {
+        let old_identity = TestKeypair::generate().unwrap();
+        let new_identity = TestKeypair::generate().unwrap();
+
+        let good = TestAttestation::create(
+            &old_identity,
+            &new_identity,
+            [0xAAu8; USER_ID_SIZE],
+            1_704_067_200,
+        )
+        .unwrap()
+        .to_bytes();
+        assert_eq!(good.len(), TestAttestation::WIRE_SIZE);
+
+        // Field offsets within the 10,790-byte wire form:
+        //   old_identity_pk [0..2009], new_identity_pk [2009..4018],
+        //   user_id [4018..4050], registered_at [4050..4058],
+        //   sig_old [4058..7424], sig_new [7424..10790].
+        // Corrupting a later region to 0xFF forces the matching sub-component
+        // decode to fail: the pk parser rejects the non-canonical Ed448 key
+        // bytes, and the BoP-2 response UR-guard rejects rsp byte 56 = 0xFF.
+        for (start, end) in [(2009usize, 4018usize), (4058, 7424), (7424, 10790)] {
+            let mut corrupt = good.clone();
+            corrupt[start..end].fill(0xFF);
+            assert_eq!(corrupt.len(), TestAttestation::WIRE_SIZE);
+            assert!(
+                matches!(
+                    TestAttestation::from_bytes(&corrupt),
+                    Err(CryptoError::MalformedMessage)
+                ),
+                "corrupting bytes [{start}..{end}] must fail sub-component decode"
+            );
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // REC-01 SC1/SC2 negative + AND-not-OR backstop tests
+    // ------------------------------------------------------------------
+
+    /// SC1 backstop: verify() is an AND, not an OR. A genuine σ_old paired with
+    /// a σ_new made by an UNRELATED key (new_identity_pk left genuine) must be
+    /// rejected — and the symmetric case too.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_recovery_attestation_requires_both_sigs() {
+        let old_identity = TestKeypair::generate().unwrap();
+        let new_identity = TestKeypair::generate().unwrap();
+        let unrelated = TestKeypair::generate().unwrap();
+
+        let genuine = TestAttestation::create(
+            &old_identity,
+            &new_identity,
+            [0x55u8; USER_ID_SIZE],
+            1_704_067_200,
+        )
+        .unwrap();
+
+        // The exact body both genuine keys signed.
+        let body = TestAttestation::signing_data(
+            &genuine.old_identity_pk,
+            &genuine.new_identity_pk,
+            &genuine.user_id,
+            genuine.registered_at,
+        );
+
+        // Case A: genuine sig_old, but sig_new made by an unrelated key over the
+        // same body. `new_identity_pk` stays genuine, so acceptance here would
+        // mean verify only checks one signature. It must reject.
+        let mut forged_new = genuine.clone();
+        forged_new.sig_new = unrelated.sign(&body).unwrap();
+        assert!(forged_new.verify().is_err());
+
+        // Case B: the symmetric case — genuine sig_new, sig_old by the unrelated key.
+        let mut forged_old = genuine.clone();
+        forged_old.sig_old = unrelated.sign(&body).unwrap();
+        assert!(forged_old.verify().is_err());
+    }
+
+    /// SC1: a legacy single-signature attestation blob is rejected. The two
+    /// historical wire lengths — 7,392 (previous code constant) and 7,449 (old
+    /// spec figure) — are both != 10,790, so the exact-length gate rejects them.
+    /// These are the ONLY place the legacy sizes appear, as deliberate inputs.
+    #[test]
+    fn test_recovery_attestation_rejects_legacy_single_sig() {
+        let legacy_code_len = vec![0u8; 7_392];
+        let legacy_spec_len = vec![0u8; 7_449];
+
+        assert!(matches!(
+            TestAttestation::from_bytes(&legacy_code_len),
+            Err(CryptoError::MalformedMessage)
+        ));
+        assert!(matches!(
+            TestAttestation::from_bytes(&legacy_spec_len),
+            Err(CryptoError::MalformedMessage)
+        ));
+    }
+
+    /// SC2: user_id is bound into the signed body. Mutating it after signing —
+    /// e.g. re-homing the rotation to another account — must fail verification.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_recovery_attestation_user_id_binding() {
+        let old_identity = TestKeypair::generate().unwrap();
+        let new_identity = TestKeypair::generate().unwrap();
+
+        let mut attestation = TestAttestation::create(
+            &old_identity,
+            &new_identity,
+            [0x66u8; USER_ID_SIZE],
+            1_704_067_200,
+        )
+        .unwrap();
+
+        // Flip a byte of user_id post-sign: the recomputed body differs from the
+        // one both keys signed, so verification must fail (cross-user binding).
+        attestation.user_id[0] ^= 0x01;
+
+        assert!(attestation.verify().is_err());
+    }
+
+    /// SC2: a signature cannot be grafted from a different attestation. Both
+    /// public keys and user_id are in the body each key signs, and BoP-2 binds
+    /// each signer's vk into m', so B's σ cannot be lifted into A.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_recovery_attestation_sig_graft_rejected() {
+        let old_a = TestKeypair::generate().unwrap();
+        let new_a = TestKeypair::generate().unwrap();
+        let old_b = TestKeypair::generate().unwrap();
+        let new_b = TestKeypair::generate().unwrap();
+
+        let att_a =
+            TestAttestation::create(&old_a, &new_a, [0x77u8; USER_ID_SIZE], 1_704_067_200).unwrap();
+        let att_b =
+            TestAttestation::create(&old_b, &new_b, [0x88u8; USER_ID_SIZE], 1_704_067_200).unwrap();
+
+        // Graft B's sig_new into A ⇒ A's body binds new_a's pk (and user_id 0x77),
+        // not B's, so verification fails.
+        let mut grafted_new = att_a.clone();
+        grafted_new.sig_new = att_b.sig_new.clone();
+        assert!(grafted_new.verify().is_err());
+
+        // Graft B's sig_old into A ⇒ likewise rejected.
+        let mut grafted_old = att_a.clone();
+        grafted_old.sig_old = att_b.sig_old.clone();
+        assert!(grafted_old.verify().is_err());
+    }
+
+    /// SC2 (directional): σ_old verifies under old_identity_pk and NOT under
+    /// new_identity_pk — BoP-2 binds each signer's vk into m', proving the two
+    /// signatures are bound to their respective keys.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_recovery_attestation_signing_direction() {
+        let old_identity = TestKeypair::generate().unwrap();
+        let new_identity = TestKeypair::generate().unwrap();
+
+        let attestation = TestAttestation::create(
+            &old_identity,
+            &new_identity,
+            [0x99u8; USER_ID_SIZE],
+            1_704_067_200,
+        )
+        .unwrap();
+
+        let body = TestAttestation::signing_data(
+            &attestation.old_identity_pk,
+            &attestation.new_identity_pk,
+            &attestation.user_id,
+            attestation.registered_at,
+        );
+
+        // σ_old verifies under the OLD identity pk...
+        assert!(
+            attestation
+                .old_identity_pk
+                .verify(&body, &attestation.sig_old)
+                .is_ok()
+        );
+        // ...but NOT under the NEW identity pk.
+        assert!(
+            attestation
+                .new_identity_pk
+                .verify(&body, &attestation.sig_old)
+                .is_err()
+        );
+    }
+
+    /// IN-04 (misuse resistance): `create` rejects a no-op rotation where the
+    /// old and new identity keys are identical. Such a "rotate X→X"
+    /// self-attestation is semantically meaningless and could mislead a
+    /// consumer that treats a valid attestation as proof the identity changed.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_recovery_attestation_rejects_noop_rotation() {
+        let identity = TestKeypair::generate().unwrap();
+
+        // Same keypair for old and new ⇒ old_identity_pk == new_identity_pk.
+        let result =
+            TestAttestation::create(&identity, &identity, [0xABu8; USER_ID_SIZE], 1_704_067_200);
+
+        assert!(matches!(result, Err(CryptoError::MalformedMessage)));
     }
 }

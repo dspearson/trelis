@@ -221,6 +221,118 @@
         "derive_key_output_hex": "0904af2eb6586e60be67f13bc3a2fba10c6fd2d47c8bc62fd36acf91f868bad4"
       },
       "usage": "Used in trelis-x3dh-pq/src/bundle.rs (BUNDLE_DOMAIN) as prefix for bundle signing data"
+    },
+    {
+      "name": "hybrid_kem_v2_context",
+      "description": "Context for the v2 hybrid KEM combiner (binds the full encapsulation: ct_sntrup, x448_eph, pk_hybrid). CMB-01 / v1.5 F02.",
+      "inputs": {
+        "context_string": "trelis-hybrid-kem-v2",
+        "context_hex": "7472656c69732d6879627269642d6b656d2d7632",
+        "context_length": 20,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "57d21587a68ad1a132d97cbd2ea8efca19c12800abd302a8e4347b4d38dcea6c"
+      },
+      "usage": "Used in trelis-hybrid/src/combiner.rs (HYBRID_KEM_V2_CONTEXT) for combine_v2. v1 (trelis-hybrid-kem-v1) is retained alongside."
+    },
+    {
+      "name": "sig_bop2_h1_context",
+      "description": "Context for the Bird-of-Prey-2 hybrid signature H1: m' = derive_key(ctx, pkID || pkSig || message || R). CMB-02 / v1.5 F03.",
+      "inputs": {
+        "context_string": "trelis-hybrid-sig-bop2-h1-v1",
+        "context_hex": "7472656c69732d6879627269642d7369672d626f70322d68312d7631",
+        "context_length": 28,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "877f16a9e869591e072140f9494c3ca959949021b2a378cdd4a806221396b6b8"
+      },
+      "usage": "Used in trelis-hybrid/src/signature.rs (SIG_BOP2_H1_CONTEXT) to bind the full hybrid vk and commitment into the ML-DSA message"
+    },
+    {
+      "name": "sig_bop2_h2_context",
+      "description": "Context for the Bird-of-Prey-2 hybrid signature H2: the Ed448 Schnorr challenge chl = H2(sigma2) (114-byte BLAKE3 XOF). CMB-02 / v1.5 F03.",
+      "inputs": {
+        "context_string": "trelis-hybrid-sig-bop2-h2-v1",
+        "context_hex": "7472656c69732d6879627269642d7369672d626f70322d68322d7631",
+        "context_length": 28,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "cfc58f65d4f567a8268dab2650c6312e00bb4f1c57b066f779c0c64bf37652bb"
+      },
+      "usage": "Used in trelis-hybrid/src/signature.rs (SIG_BOP2_H2_CONTEXT) to derive the Ed448 challenge from the ML-DSA-65 signature (via a 114-byte XOF, not derive_key's 32-byte output)"
+    },
+    {
+      "name": "session_context_v2",
+      "description": "Context for the v2 X3DH-PQ session key derivation from the 299-byte transcript that binds the additive {version || suite-id || SessionFlags} framing block. TXB-01 / v1.5 F08 + F18.",
+      "inputs": {
+        "context_string": "trelis-session-v2",
+        "context_hex": "7472656c69732d73657373696f6e2d7632",
+        "context_length": 17,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "5ddbeec568b1038fc351ce9fd87fe9700ff998ea64f21fd52f20230217de5463"
+      },
+      "usage": "Used in trelis-x3dh-pq/src/transcript.rs (SESSION_V2_CONTEXT) for deriving the session shared secret from the 299-byte version/suite/SessionFlags-bound transcript. v1 (trelis-session-v1) is retained alongside."
+    },
+    {
+      "name": "cocoa_welcome_sign_context",
+      "description": "Context for the CoCoA-SA Welcome committer signature (GAP-01 / Insider-A). The group creator (create_group) or adder (add.rs::create_welcome_message) signs group_id || epoch || leaf_position || tree_depth || member_count || len(encapsulation) || encapsulation || len(encrypted_info) || encrypted_info under this context (WR-05: the two variable-length fields are u32-LE length-prefixed so the signature commits their boundary; the signed body is internal and re-derived on both sign and verify sides, so this does not change the on-wire Welcome format); process_welcome verifies it against the caller-supplied committer identity BEFORE join_group.",
+      "inputs": {
+        "context_string": "cocoa-sa-welcome-sign-v1",
+        "context_hex": "636f636f612d73612d77656c636f6d652d7369676e2d7631",
+        "context_length": 24,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "30a027ed2fdd4b9c9c230b21ba06a3a61b51ba6afeda07b0f58deca21f555053"
+      },
+      "usage": "Used in trelis-cocoa/src/operations/init.rs (WELCOME_SIGN_CONTEXT) with sign_with_context/verify_with_context (used as bytes, not derive_key). The derive_key KAT over 32 zero bytes pins the string, matching the other byte-used context entries (e.g. prekey_bundle_domain). A distinct context from cocoa-sa-commit-sign-v1."
+    },
+    {
+      "name": "aead_commit_context",
+      "description": "Context for the committing-AEAD key commitment (Encrypt-then-BLAKE3-commit, CMT-4). K_commit = derive_key(AEAD_COMMIT_CONTEXT, K) keys the 32-byte BLAKE3 commitment appended to XChaCha20-Poly1305 by the multi-key wraps. AEAD-01 / v1.5 F01.",
+      "inputs": {
+        "context_string": "trelis-aead-commit-v1",
+        "context_hex": "7472656c69732d616561642d636f6d6d69742d7631",
+        "context_length": 21,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "0e160c4c3223ade332d868108d589d51a8db9eea57549ec0d042feabc0cc4ab8"
+      },
+      "usage": "Used in trelis-primitives/src/blake3_kdf.rs (AEAD_COMMIT_CONTEXT) and aead.rs (encrypt_committing/decrypt_committing) to key the appended BLAKE3 key-commitment. Applied by the multi-key wraps: trelis-cocoa seed_encrypt + init Welcome (54-02) and trelis-multidevice device_key_wrap (54-03)."
+    },
+    {
+      "name": "sig_bop2_h1_ctx_context",
+      "description": "Context for the Bird-of-Prey-2 hybrid signature H1 on the explicit-context signing path (sign_with_context / verify_with_context). Domain-separates the context path from the plain sign() path at the m' root (WR-03): m' = derive_key(ctx, pkID || pkSig || (ctx_len || context || message) || R). Sibling of sig_bop2_h1_context.",
+      "inputs": {
+        "context_string": "trelis-hybrid-sig-bop2-h1-ctx-v1",
+        "context_hex": "7472656c69732d6879627269642d7369672d626f70322d68312d6374782d7631",
+        "context_length": 32,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "15424d9eaa226801ddc795b1512b082b15b939541fdd2d1b0b5b648cf360c446"
+      },
+      "usage": "Used in trelis-hybrid/src/signature.rs (SIG_BOP2_H1_CTX_CONTEXT via H1Domain::Context) to derive m' on the explicit-context signing path. The base sig_bop2_h1_context (plain path) is unchanged."
+    },
+    {
+      "name": "sig_bop2_h1_prehash_context",
+      "description": "Context for the Bird-of-Prey-2 hybrid signature H1 on the BLAKE3-prehash signing path (sign_prehashed / verify_prehashed). Domain-separates the prehash path from the plain sign() path at the m' root (WR-03): m' = derive_key(ctx, pkID || pkSig || derive_key(context, message) || R). Sibling of sig_bop2_h1_context.",
+      "inputs": {
+        "context_string": "trelis-hybrid-sig-bop2-h1-prehash-v1",
+        "context_hex": "7472656c69732d6879627269642d7369672d626f70322d68312d707265686173682d7631",
+        "context_length": 36,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "ff59102918f7a497cf50b5fca376910da0732906519b6746c9894546f48ffef5"
+      },
+      "usage": "Used in trelis-hybrid/src/signature.rs (SIG_BOP2_H1_PREHASH_CONTEXT via H1Domain::Prehashed) to derive m' on the prehash signing path. The base sig_bop2_h1_context (plain path) is unchanged."
     }
   ]
 }

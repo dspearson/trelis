@@ -11,6 +11,9 @@
 //! - **Purpose binding**: AAD includes purpose enum, preventing type confusion
 //! - **Context binding**: AAD includes thread_id, bundle_id, epoch
 //! - **PQ security**: sntrup761 provides post-quantum protection
+//! - **Key commitment**: the committing AEAD appends a 32-byte BLAKE3
+//!   key-commitment (CMT-4), so one wrap ciphertext cannot be opened under
+//!   two different device keys (AEAD-01 / F01, "one secret, N devices")
 //!
 //! # Warning
 //!
@@ -48,11 +51,16 @@ pub const X448_EPHEMERAL_SIZE: usize = 56;
 /// Size of sntrup761 ciphertext.
 pub const SNTRUP_CT_SIZE: usize = 1039;
 
-/// Size of encrypted payload (32-byte secret + 16-byte tag).
-pub const ENCRYPTED_PAYLOAD_SIZE: usize = 32 + TAG_SIZE;
+/// Size of encrypted payload (committing AEAD: 32-byte secret + 16-byte
+/// Poly1305 tag + 32-byte BLAKE3 key-commitment).
+///
+/// Single-sourced to `aead::COMMITMENT_SIZE` so the wire follows the primitive:
+/// a non-committing wrap was `32 + TAG_SIZE` (48); the committing wrap adds
+/// exactly one commitment (80). Never hard-code 80.
+pub const ENCRYPTED_PAYLOAD_SIZE: usize = 32 + TAG_SIZE + aead::COMMITMENT_SIZE;
 
 /// Total size of a DeviceKeyWrap.
-/// 8 + 56 + 1039 + 24 + 48 = 1,175 bytes
+/// 8 + 56 + 1039 + 24 + 80 = 1,207 bytes
 pub const DEVICE_KEY_WRAP_SIZE: usize =
     KEY_ID_SIZE + X448_EPHEMERAL_SIZE + SNTRUP_CT_SIZE + NONCE_SIZE + ENCRYPTED_PAYLOAD_SIZE;
 
@@ -156,7 +164,8 @@ pub struct DeviceKeyWrap {
     /// XChaCha20-Poly1305 nonce (24 bytes).
     pub nonce: [u8; NONCE_SIZE],
 
-    /// Encrypted payload: 32-byte secret + 16-byte auth tag.
+    /// Encrypted payload: 32-byte secret + 16-byte auth tag + 32-byte
+    /// BLAKE3 key-commitment (committing AEAD).
     pub encrypted_payload: [u8; ENCRYPTED_PAYLOAD_SIZE],
 }
 
@@ -192,10 +201,12 @@ impl DeviceKeyWrap {
         // Step 4: Build AAD from context
         let aad = context.to_aad();
 
-        // Step 5: Encrypt the secret with XChaCha20-Poly1305
-        let ciphertext = aead::encrypt(&wrapping_key, &nonce, secret, &aad)?;
+        // Step 5: Encrypt the secret with the committing AEAD (XChaCha20-Poly1305
+        // + a 32-byte BLAKE3 key-commitment). Key/nonce/AAD/plaintext are
+        // byte-identical to the non-committing wrap; only the commitment is added.
+        let ciphertext = aead::encrypt_committing(&wrapping_key, &nonce, secret, &aad)?;
 
-        // Extract the encrypted payload (ciphertext + tag)
+        // Extract the encrypted payload (ciphertext + tag + commitment)
         let encrypted_payload: [u8; ENCRYPTED_PAYLOAD_SIZE] = ciphertext
             .try_into()
             .map_err(|_| CryptoError::MalformedMessage)?;
@@ -258,8 +269,11 @@ impl DeviceKeyWrap {
         // Build nonce
         let nonce = Nonce::from_bytes(self.nonce);
 
-        // Decrypt the payload
-        let plaintext = aead::decrypt(&wrapping_key, &nonce, &self.encrypted_payload, &aad)?;
+        // Decrypt the payload: the committing AEAD verifies the 32-byte
+        // key-commitment (constant time) BEFORE the Poly1305 open, returning the
+        // uniform AeadAuthenticationFailed on either failure.
+        let plaintext =
+            aead::decrypt_committing(&wrapping_key, &nonce, &self.encrypted_payload, &aad)?;
 
         // Convert to fixed-size array
         let secret: [u8; 32] = plaintext
@@ -338,7 +352,7 @@ impl core::fmt::Debug for DeviceKeyWrap {
             .field("x448_ephemeral", &"[56 bytes]")
             .field("sntrup_ciphertext", &"[1039 bytes]")
             .field("nonce", &"[24 bytes]")
-            .field("encrypted_payload", &"[48 bytes]")
+            .field("encrypted_payload", &"[80 bytes]")
             .finish()
     }
 }
@@ -471,6 +485,48 @@ mod tests {
         assert!(matches!(result, Err(CryptoError::DecryptionFailed)));
     }
 
+    /// SC1 (AEAD-01 / F01): the committing AEAD binds a 32-byte key-commitment,
+    /// so tampering the commitment region of a wrap is a *designed* rejection —
+    /// distinct from the incidental wrong-key-id short-circuit
+    /// (`test_wrong_key_id_fails`), which returns `DecryptionFailed` before any
+    /// crypto runs. Exercises `HistoryKey`, the §19 history-key wrap F01 flagged.
+    #[cfg(feature = "alloc")]
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_commitment_tamper_rejected() {
+        let keypair = HybridKemKeypair::generate().unwrap();
+        let secret = [0x5Au8; 32];
+
+        let context = WrapContext::new(
+            [0x42u8; KEY_ID_SIZE],
+            WrapPurpose::HistoryKey,
+            [0x11u8; 32],
+            [0x22u8; 32],
+            7,
+        );
+
+        // Positive round-trip at the grown, committing size.
+        let mut wrap = DeviceKeyWrap::wrap(&secret, keypair.public_key(), &context).unwrap();
+        assert_eq!(wrap.to_bytes().len(), DEVICE_KEY_WRAP_SIZE);
+        assert_eq!(DEVICE_KEY_WRAP_SIZE, 1207);
+        assert_eq!(wrap.unwrap(&keypair, &context).unwrap(), secret);
+
+        // Flip a byte inside the trailing 32-byte commitment region. Payload
+        // layout: [0,32) secret ciphertext, [32,48) Poly1305 tag, [48,80)
+        // BLAKE3 key-commitment.
+        let last = ENCRYPTED_PAYLOAD_SIZE - 1; // inside the commitment
+        wrap.encrypted_payload[last] ^= 0x01;
+
+        // recipient_key_id still matches, so the short-circuit does NOT fire; the
+        // committing wrapper rejects the tampered commitment with the uniform
+        // AeadAuthenticationFailed (verify-commitment-first EtM ordering).
+        let result = wrap.unwrap(&keypair, &context);
+        assert!(
+            matches!(result, Err(CryptoError::AeadAuthenticationFailed)),
+            "tampered commitment must be rejected with AeadAuthenticationFailed, got {result:?}"
+        );
+    }
+
     #[test]
     fn test_wrap_purpose_roundtrip() {
         for purpose in [
@@ -493,8 +549,23 @@ mod tests {
 
     #[test]
     fn test_device_key_wrap_size() {
-        // 8 + 56 + 1039 + 24 + 48 = 1,175 bytes
-        assert_eq!(DEVICE_KEY_WRAP_SIZE, 1175);
+        // 8 + 56 + 1039 + 24 + 80 = 1,207 bytes (committing AEAD payload 80)
+        assert_eq!(DEVICE_KEY_WRAP_SIZE, 1207);
+    }
+
+    #[test]
+    fn device_key_wrap_size_matches_wire_constant() {
+        // IN-01: the 1,207-byte wire size is computed by two independent
+        // expressions -- this crate sums KEY_ID_SIZE + X448_EPHEMERAL_SIZE +
+        // SNTRUP_CT_SIZE + NONCE_SIZE + ENCRYPTED_PAYLOAD_SIZE, while
+        // trelis-wire sums the equivalent component consts. Guard against silent
+        // cross-crate drift: if a future edit to either sum diverges, this fails.
+        assert_eq!(
+            DEVICE_KEY_WRAP_SIZE,
+            trelis_wire::constants::DEVICE_KEY_WRAP_SIZE,
+            "trelis-multidevice and trelis-wire disagree on DEVICE_KEY_WRAP_SIZE \
+             -- the committing-AEAD wire size has drifted between crates"
+        );
     }
 
     #[test]
@@ -598,6 +669,6 @@ mod tests {
 
     #[test]
     fn test_encrypted_payload_size() {
-        assert_eq!(ENCRYPTED_PAYLOAD_SIZE, 48); // 32 secret + 16 tag
+        assert_eq!(ENCRYPTED_PAYLOAD_SIZE, 80); // 32 secret + 16 tag + 32 commitment
     }
 }

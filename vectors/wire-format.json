@@ -89,8 +89,8 @@
         "description": "Hybrid signing public key size in bytes"
       },
       "signature_size": {
-        "value": 3423,
-        "calculation": "114 (Ed448) + 3309 (ML-DSA-65)",
+        "value": 3366,
+        "calculation": "57 (BoP-2 rsp) + 3309 (ML-DSA-65)",
         "description": "Hybrid signature size in bytes"
       }
     },
@@ -130,8 +130,8 @@
       "description": "Pre-key bundle size in bytes (without timestamps)"
     },
     "signed_bundle_size": {
-      "value": 7884,
-      "calculation": "4461 (bundle with timestamps) + 3423 (signature)",
+      "value": 7827,
+      "calculation": "4461 (bundle with timestamps) + 3366 (signature)",
       "components": {
         "identity_signing": 2009,
         "identity_kem": 1214,
@@ -139,14 +139,14 @@
         "otk_key_id": 8,
         "timestamp": 8,
         "expiration": 8,
-        "signature": 3423
+        "signature": 3366
       },
       "description": "Signed pre-key bundle size in bytes (with timestamps and signature)"
     },
     "device_key_wrap_size": {
-      "value": 1175,
-      "calculation": "8 (key_id) + 56 (X448 ephemeral) + 1039 (sntrup761 CT) + 24 (nonce) + 48 (encrypted + tag)",
-      "description": "Device key wrap size in bytes"
+      "value": 1207,
+      "calculation": "8 (key_id) + 56 (X448 ephemeral) + 1039 (sntrup761 CT) + 24 (nonce) + 80 (committing AEAD payload: 32 secret + 16 tag + 32 key-commitment)",
+      "description": "Device key wrap size in bytes (committing AEAD, AEAD-01)"
     }
   },
   "double_ratchet": {
@@ -177,9 +177,9 @@
       "description": "sntrup761 shared secret size in bytes"
     },
     "transcript_size": {
-      "value": 296,
-      "calculation": "3 * 32 (identity hashes, bundle hash) + 3 * 56 (DH1, DH2, DH3) + 32 (PQ_ss) = 96 + 168 + 32",
-      "description": "Total transcript size in bytes for X3DH-PQ key derivation"
+      "value": 299,
+      "calculation": "3 * 32 (identity hashes, bundle hash) + 3 * 56 (DH1, DH2, DH3) + 32 (PQ_ss) + 3 (version, suite, session_flags) = 96 + 168 + 32 + 3",
+      "description": "Total transcript size in bytes for X3DH-PQ key derivation (includes the 3-byte version/suite/SessionFlags framing block)"
     }
   }
 }

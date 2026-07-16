@@ -7,6 +7,8 @@
 
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
+use trelis_error::{CryptoError, Result};
+
 use crate::key_schedule::{
     derive_app_secret, derive_conf_key, derive_init_secret, derive_message_key,
     derive_message_nonce,
@@ -37,9 +39,17 @@ impl EpochSecrets {
         }
     }
 
-    /// Returns the raw epoch secret. Used by server-side epoch history
-    /// capture. Must be read BEFORE any epoch advance — ZeroizeOnDrop clears
-    /// this value when EpochSecrets is dropped.
+    /// Returns the raw epoch secret. Gated behind the `session-serialization`
+    /// feature so the raw secret is not on the default public surface — the
+    /// sole consumer is the `trelis-wasm` session serialiser, which enables the
+    /// feature (GAP-04b / F07 prong b, OQ-4 Option 1). The stronger follow-up
+    /// (OQ-4 Option 3) is to move session (de)serialisation fully in-crate so
+    /// this accessor can become `pub(crate)` and the raw secret never crosses
+    /// the crate boundary.
+    ///
+    /// Must be read BEFORE any epoch advance — `ZeroizeOnDrop` clears this value
+    /// when `EpochSecrets` is dropped.
+    #[cfg(feature = "session-serialization")]
     #[must_use]
     pub fn epoch_secret(&self) -> &[u8; 32] {
         &self.epoch_secret
@@ -190,6 +200,30 @@ impl Epoch {
         }
     }
 
+    /// Reconstructs an epoch at an EXPLICIT number directly from a stored epoch
+    /// secret, WITHOUT re-deriving through intermediate epochs.
+    ///
+    /// The session (de)serialisation restore path persists the CURRENT epoch
+    /// secret (see [`EpochSecrets::epoch_secret`]), so reconstruction must
+    /// re-derive `EpochSecrets` from that exact secret AND carry the stored
+    /// epoch number. Rebuilding at epoch 0 and calling [`advance`](Self::advance)
+    /// `number` times would instead move the secret AWAY via `h5_epoch_secret`,
+    /// producing the WRONG `app_secret` for any epoch > 0 (WR-06). Gated behind
+    /// `session-serialization`, alongside the raw-secret accessor it complements.
+    ///
+    /// The message counter starts at 0; the caller restores it via
+    /// [`set_message_counter`](Self::set_message_counter).
+    #[cfg(feature = "session-serialization")]
+    #[must_use]
+    pub(crate) fn restore(epoch_secret: &[u8; 32], transcript_hash: [u8; 32], number: u64) -> Self {
+        Self {
+            number,
+            secrets: EpochSecrets::derive(epoch_secret),
+            message_counter: 0,
+            transcript_hash,
+        }
+    }
+
     /// Returns the epoch number.
     #[must_use]
     pub fn number(&self) -> u64 {
@@ -246,15 +280,30 @@ impl Epoch {
             .derive_message_key(sender_leaf_position, counter)
     }
 
-    /// Sets the message counter directly (for deserialization).
+    /// Sets the message counter directly (for deserialisation), monotonic-forward only.
     ///
-    /// This is more efficient than calling `next_message_key()` in a loop,
-    /// and avoids potential overflow issues with large counter values.
+    /// The per-message key and nonce are a pure function of
+    /// `(app_secret, sender_leaf_position, counter)`, and encryption uses
+    /// XChaCha20-Poly1305. Rewinding the counter within an epoch would let
+    /// `encrypt()` re-emit an already-used `(key, nonce)` pair — a catastrophic
+    /// Poly1305 nonce reuse. This setter therefore refuses any value strictly
+    /// below the current counter, leaving the counter unchanged on rejection.
     ///
-    /// Note: Since key derivation is a pure function of the counter,
-    /// there's no need to derive intermediate keys.
-    pub fn set_message_counter(&mut self, counter: u64) {
+    /// A value equal to or greater than the current counter is accepted: the
+    /// fresh, zero-counter epoch produced on the deserialise/restore path
+    /// forward-sets from `0` to the stored value, which always succeeds (equal
+    /// is not a regression).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CryptoError::MessageCounterTooOld`] if `counter` is strictly
+    /// less than the current message counter (intra-epoch regression).
+    pub fn set_message_counter(&mut self, counter: u64) -> Result<()> {
+        if counter < self.message_counter {
+            return Err(CryptoError::MessageCounterTooOld);
+        }
         self.message_counter = counter;
+        Ok(())
     }
 
     /// Computes a confirmation tag for a commit.
@@ -444,6 +493,7 @@ mod tests {
         assert!(!debug.contains("42")); // Shouldn't leak actual values
     }
 
+    #[cfg(feature = "session-serialization")]
     #[test]
     fn test_epoch_secret_round_trip() {
         let epoch_secret = [0x42u8; 32];
@@ -455,6 +505,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "session-serialization")]
     #[test]
     fn test_epoch_secrets_debug_redacted_includes_epoch_secret() {
         let secrets = EpochSecrets::derive(&[0x42u8; 32]);
@@ -479,5 +530,43 @@ mod tests {
 
         assert!(debug.contains("REDACTED"));
         assert!(debug.contains("42")); // Counter is visible
+    }
+
+    /// GAP-05 / F09: a legitimate forward set is accepted and the counter
+    /// tracks the highest value seen.
+    #[test]
+    fn test_counter_forward_ok() {
+        let mut epoch = Epoch::initial(&[0x42u8; 32], [0x00u8; 32]);
+        epoch.set_message_counter(5).unwrap();
+        assert_eq!(epoch.message_counter(), 5);
+        epoch.set_message_counter(6).unwrap();
+        assert_eq!(epoch.message_counter(), 6);
+    }
+
+    /// GAP-05 / F09: an intra-epoch regression (a value strictly below the
+    /// current counter) is rejected with `MessageCounterTooOld`, and the
+    /// counter is left unchanged so `encrypt()` cannot re-emit a used
+    /// `(key, nonce)` pair.
+    #[test]
+    fn test_counter_regression_rejected() {
+        let mut epoch = Epoch::initial(&[0x42u8; 32], [0x00u8; 32]);
+        epoch.set_message_counter(5).unwrap();
+        let result = epoch.set_message_counter(3);
+        assert!(matches!(result, Err(CryptoError::MessageCounterTooOld)));
+        assert_eq!(
+            epoch.message_counter(),
+            5,
+            "counter must be unchanged after a rejected regression"
+        );
+    }
+
+    /// GAP-05 / F09 (OQ-6): equal is not a regression — re-setting the same
+    /// value is allowed for the fresh forward-set semantics of deserialise.
+    #[test]
+    fn test_counter_equal_allowed() {
+        let mut epoch = Epoch::initial(&[0x42u8; 32], [0x00u8; 32]);
+        epoch.set_message_counter(5).unwrap();
+        epoch.set_message_counter(5).unwrap();
+        assert_eq!(epoch.message_counter(), 5);
     }
 }

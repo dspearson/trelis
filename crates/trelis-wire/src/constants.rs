@@ -28,6 +28,12 @@ pub const TAG_SIZE: usize = 16;
 /// Size of AEAD key in bytes.
 pub const AEAD_KEY_SIZE: usize = 32;
 
+/// Size of the committing-AEAD key commitment in bytes (full BLAKE3, CMT-4).
+///
+/// The committing AEAD appends this 32-byte BLAKE3 key-commitment after the
+/// Poly1305 tag (AEAD-01 / F01), giving key commitment for the multi-key wraps.
+pub const AEAD_COMMITMENT_SIZE: usize = 32;
+
 // =============================================================================
 // Classical Keys
 // =============================================================================
@@ -67,8 +73,16 @@ pub const SNTRUP761_SS_SIZE: usize = 32;
 /// Size of hybrid signing public key in bytes (Ed448 + ML-DSA-65).
 pub const HYBRID_SIGNING_PK_SIZE: usize = ED448_PK_SIZE + MLDSA65_PK_SIZE;
 
-/// Size of hybrid signature in bytes (Ed448 + ML-DSA-65).
-pub const HYBRID_SIG_SIZE: usize = ED448_SIG_SIZE + MLDSA65_SIG_SIZE;
+/// Size of the Ed448 Bird-of-Prey-2 Schnorr response in bytes.
+///
+/// The BoP-2 hybrid signature combiner (CMB-02) carries a 57-byte Schnorr
+/// response `rsp`, not the 114-byte standalone Ed448 signature. A standalone
+/// Ed448 signature is still 114 bytes ([`ED448_SIG_SIZE`]); only the hybrid
+/// signature composition shrank.
+pub const BOP2_RESPONSE_SIZE: usize = 57;
+
+/// Size of hybrid signature in bytes (BoP-2 response 57B + ML-DSA-65 3309B).
+pub const HYBRID_SIG_SIZE: usize = BOP2_RESPONSE_SIZE + MLDSA65_SIG_SIZE;
 
 /// Size of hybrid KEM public key in bytes (X448 + sntrup761).
 pub const HYBRID_KEM_PK_SIZE: usize = X448_PK_SIZE + SNTRUP761_PK_SIZE;
@@ -93,8 +107,17 @@ pub const OTK_SIZE: usize = KEY_ID_SIZE + HYBRID_KEM_PK_SIZE;
 pub const PREKEY_BUNDLE_SIZE: usize = HYBRID_SIGNING_PK_SIZE + HYBRID_KEM_PK_SIZE + OTK_SIZE;
 
 /// Size of device key wrap in bytes.
-pub const DEVICE_KEY_WRAP_SIZE: usize =
-    KEY_ID_SIZE + X448_PK_SIZE + SNTRUP761_CT_SIZE + NONCE_SIZE + 48;
+///
+/// The encrypted payload is a committing AEAD (Phase 54, AEAD-01): 32-byte
+/// secret + 16-byte Poly1305 tag + 32-byte BLAKE3 key-commitment = 80 bytes.
+/// Single-sourced to the component consts — never a bare payload literal.
+pub const DEVICE_KEY_WRAP_SIZE: usize = KEY_ID_SIZE
+    + X448_PK_SIZE
+    + SNTRUP761_CT_SIZE
+    + NONCE_SIZE
+    + AEAD_KEY_SIZE
+    + TAG_SIZE
+    + AEAD_COMMITMENT_SIZE;
 
 // =============================================================================
 // Double Ratchet
@@ -122,8 +145,8 @@ mod tests {
 
     #[test]
     fn test_hybrid_sig_size() {
-        assert_eq!(HYBRID_SIG_SIZE, 114 + 3309);
-        assert_eq!(HYBRID_SIG_SIZE, 3423);
+        assert_eq!(HYBRID_SIG_SIZE, 57 + 3309);
+        assert_eq!(HYBRID_SIG_SIZE, 3366);
     }
 
     #[test]
@@ -153,8 +176,9 @@ mod tests {
 
     #[test]
     fn test_device_key_wrap_size() {
-        // key_id (8) + x448_eph (56) + sntrup_ct (1039) + nonce (24) + encrypted (48)
-        assert_eq!(DEVICE_KEY_WRAP_SIZE, 8 + 56 + 1039 + 24 + 48);
-        assert_eq!(DEVICE_KEY_WRAP_SIZE, 1175);
+        // key_id (8) + x448_eph (56) + sntrup_ct (1039) + nonce (24)
+        // + committing payload (32 secret + 16 tag + 32 commitment = 80)
+        assert_eq!(DEVICE_KEY_WRAP_SIZE, 8 + 56 + 1039 + 24 + 80);
+        assert_eq!(DEVICE_KEY_WRAP_SIZE, 1207);
     }
 }

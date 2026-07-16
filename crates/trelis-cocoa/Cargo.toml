@@ -15,6 +15,11 @@ alloc = ["trelis-primitives/alloc", "trelis-hybrid/alloc"]
 # WASM target support (browser environment)
 wasm = ["alloc", "trelis-primitives/wasm", "trelis-hybrid/wasm"]
 expose-internals = []
+# Exposes the raw epoch-secret accessors (EpochSecrets::epoch_secret /
+# CocoaSession::current_epoch_secret) for client-side session serialisation.
+# Enabled only by trelis-wasm (the sole consumer); off by default so the raw
+# epoch secret is not on the default public surface (GAP-04b / F07 prong b).
+session-serialization = []
 
 [dependencies]
 trelis-error.workspace = true

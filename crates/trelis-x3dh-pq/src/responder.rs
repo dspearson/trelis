@@ -10,7 +10,7 @@ use trelis_primitives::X448Public;
 use crate::bundle::SignedPreKeyBundle;
 use crate::initiator::InitialMessage;
 use crate::session_keys::SessionKeys;
-use crate::transcript::{DH_SIZE, PQ_SS_SIZE, Transcript};
+use crate::transcript::{DH_SIZE, PQ_SS_SIZE, SessionFlags, Transcript};
 
 /// X3DH-PQ responder (Bob).
 ///
@@ -44,6 +44,7 @@ use crate::transcript::{DH_SIZE, PQ_SS_SIZE, Transcript};
 ///     &their_identity_kem_x448,
 ///     &our_published_bundle,
 ///     &initial_msg,
+///     SessionFlags::default(),  // Must match the flags Alice passed to establish()
 /// )?;
 ///
 /// // Initialise ratchet as responder (send/recv are already swapped)
@@ -62,6 +63,9 @@ impl Responder {
     /// * `their_identity_kem_x448` - Initiator's identity KEM X448 public key
     /// * `our_bundle` - The bundle we published (for transcript binding)
     /// * `initial_message` - The initiator's initial message
+    /// * `flags` - Per-session capability flags (LI-capability bit). MUST be the
+    ///   identical value the initiator passed into `Initiator::establish`; any
+    ///   mismatch diverges the derived key (fail-closed).
     ///
     /// # Protocol Steps
     ///
@@ -83,6 +87,7 @@ impl Responder {
         their_identity_kem_x448: &X448Public,
         our_bundle: &SignedPreKeyBundle,
         initial_message: &InitialMessage,
+        flags: SessionFlags,
     ) -> Result<SessionKeys> {
         // Parse initiator's ephemeral public key
         let their_ephemeral = X448Public::from_bytes(initial_message.ephemeral_public())?;
@@ -118,6 +123,7 @@ impl Responder {
             &dh2_bytes,
             &dh3_bytes,
             &pq_ss_bytes,
+            flags,
         );
 
         let shared_secret = transcript.derive_shared_secret();
@@ -159,7 +165,13 @@ mod tests {
         let signed_bundle = bundle.sign(bob_identity.signing()).unwrap();
 
         // Alice establishes session
-        let alice_result = Initiator::establish(&alice_identity, &signed_bundle, 1500).unwrap();
+        let alice_result = Initiator::establish(
+            &alice_identity,
+            &signed_bundle,
+            1500,
+            SessionFlags::default(),
+        )
+        .unwrap();
 
         // Bob receives initial message and establishes session
         let bob_keys = Responder::establish(
@@ -169,6 +181,7 @@ mod tests {
             alice_identity.kem().public_key().x448(),
             &signed_bundle,
             alice_result.initial_message(),
+            SessionFlags::default(),
         )
         .unwrap();
 
@@ -194,6 +207,83 @@ mod tests {
         );
     }
 
+    /// End-to-end regression net for F18: the LI-capability flag passed to
+    /// `Initiator::establish` / `Responder::establish` must thread all the way
+    /// into `Transcript::new` on both sides. This drives the `true` path — which
+    /// no other establish() test exercises, as every other call site passes
+    /// `SessionFlags::default()` / `false` — and asserts:
+    ///
+    /// (a) matching `li_capable = true` on both sides still agrees, and
+    /// (b) a `true` / `false` mismatch through the public `establish()` API
+    ///     diverges the derived key (fail-closed).
+    ///
+    /// If a future edit dropped the `flags` argument at either call site
+    /// (reverting to `SessionFlags::default()`), an all-`false` suite would
+    /// still pass, because `default() == false` and both sides would
+    /// coincidentally agree. This test catches that: defaulting one side breaks
+    /// assertion (a); defaulting both breaks assertion (b).
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_li_capability_binding_through_establish() {
+        let alice_identity = HybridIdentityKeypair::generate().unwrap();
+        let bob_identity = HybridIdentityKeypair::generate().unwrap();
+        let bob_otk = HybridKemKeypair::generate().unwrap();
+
+        let bundle = PreKeyBundle::new(
+            bob_identity.signing().public_key().clone(),
+            bob_identity.kem().public_key().clone(),
+            bob_otk.public_key().clone(),
+            1,
+            1000,
+            2000,
+        );
+        let signed_bundle = bundle.sign(bob_identity.signing()).unwrap();
+
+        // (a) Both sides LI-capable = true still agree — the flag threads through
+        //     establish() into the transcript identically on both sides.
+        let alice = Initiator::establish(
+            &alice_identity,
+            &signed_bundle,
+            1500,
+            SessionFlags { li_capable: true },
+        )
+        .unwrap();
+        let bob = Responder::establish(
+            &bob_identity,
+            &bob_otk,
+            alice_identity.signing().public_key(),
+            alice_identity.kem().public_key().x448(),
+            &signed_bundle,
+            alice.initial_message(),
+            SessionFlags { li_capable: true },
+        )
+        .unwrap();
+        assert_eq!(
+            alice.session_keys().root_key(),
+            bob.root_key(),
+            "matching li_capable=true through establish() must agree"
+        );
+
+        // (b) Mismatched capability MUST diverge (fail-closed). This is the
+        //     regression an all-`false` suite cannot detect: if establish()
+        //     hardcoded/defaulted the flag, both sides would agree here.
+        let bob_mismatch = Responder::establish(
+            &bob_identity,
+            &bob_otk,
+            alice_identity.signing().public_key(),
+            alice_identity.kem().public_key().x448(),
+            &signed_bundle,
+            alice.initial_message(),
+            SessionFlags { li_capable: false },
+        )
+        .unwrap();
+        assert_ne!(
+            alice.session_keys().root_key(),
+            bob_mismatch.root_key(),
+            "LI-cap mismatch through establish() must diverge the key (F18)"
+        );
+    }
+
     #[cfg_attr(miri, ignore)]
     #[test]
     fn test_different_identities_different_keys() {
@@ -216,7 +306,13 @@ mod tests {
         let signed_bundle = bundle.sign(bob_identity.signing()).unwrap();
 
         // Alice establishes session
-        let alice_result = Initiator::establish(&alice_identity, &signed_bundle, 1500).unwrap();
+        let alice_result = Initiator::establish(
+            &alice_identity,
+            &signed_bundle,
+            1500,
+            SessionFlags::default(),
+        )
+        .unwrap();
 
         // Carol pretends to be Alice but uses her own identity
         let carol_identity = HybridIdentityKeypair::generate().unwrap();
@@ -229,6 +325,7 @@ mod tests {
             carol_identity.kem().public_key().x448(),
             &signed_bundle,
             alice_result.initial_message(),
+            SessionFlags::default(),
         )
         .unwrap();
 
@@ -260,7 +357,13 @@ mod tests {
             2000,
         );
         let signed_bundle1 = bundle1.sign(bob_identity.signing()).unwrap();
-        let alice_result1 = Initiator::establish(&alice_identity, &signed_bundle1, 1500).unwrap();
+        let alice_result1 = Initiator::establish(
+            &alice_identity,
+            &signed_bundle1,
+            1500,
+            SessionFlags::default(),
+        )
+        .unwrap();
 
         // Second session with second OTK
         let bob_otk2 = HybridKemKeypair::generate().unwrap();
@@ -273,7 +376,13 @@ mod tests {
             2000,
         );
         let signed_bundle2 = bundle2.sign(bob_identity.signing()).unwrap();
-        let alice_result2 = Initiator::establish(&alice_identity, &signed_bundle2, 1500).unwrap();
+        let alice_result2 = Initiator::establish(
+            &alice_identity,
+            &signed_bundle2,
+            1500,
+            SessionFlags::default(),
+        )
+        .unwrap();
 
         // Keys should be different due to different OTKs and ephemeral keys
         assert_ne!(

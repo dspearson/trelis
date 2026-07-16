@@ -366,6 +366,53 @@ pub enum CryptoError {
     /// Invalid leaf position in tree.
     InvalidLeafPosition,
 
+    /// Member is already in the group (double-join / ghost-member guard).
+    ///
+    /// Returned by the CoCoA add path when a commit attempts to re-add an
+    /// already-present member or to target an already-occupied leaf. Security
+    /// category — a duplicate join is a potential elevation-of-privilege /
+    /// ghost-member attempt, not a benign protocol slip. Caller logs and
+    /// rejects the commit.
+    DuplicateMember,
+
+    /// Parent-hash verification failed (tampered tree structure).
+    ///
+    /// Returned by the CoCoA parent-hash verifier (`PHash.Ver`) when a
+    /// commit's recomputed non-leaf `h1` (sibling binding) — or an
+    /// enforceable `h2` (predecessor/resolution binding) — does not match the
+    /// wire value, or when a leaf node carries a non-zero parent hash. Security
+    /// category — a mismatch indicates a malicious server/member attempting to
+    /// reposition a leaf or otherwise tamper the ratchet-tree structure, not a
+    /// benign protocol slip. Caller logs and rejects the commit before any tree
+    /// write.
+    ParentHashMismatch,
+
+    /// Round-hash verification failed (divergent / forged commit round hash).
+    ///
+    /// Returned by the CoCoA mandatory round-hash check (`GAP-04c` / F07) when a
+    /// commit's independently-recomputed round hash — derived from the
+    /// receiver's LOCAL `delta_root` plus the commit's added/removed member set —
+    /// does not match the `round_hash` carried on the wire. Security category —
+    /// a mismatch indicates a malicious server/committer advertising a round hash
+    /// inconsistent with the tree-state / membership change it induced (an
+    /// undetected view-partition / divergent-state attempt), which the
+    /// confirmation tag alone (epoch-secret agreement) does not detect. Caller
+    /// logs and rejects the commit before advancing the epoch.
+    RoundHashMismatch,
+
+    /// Account-identity anchor mismatch in a device-approval certificate.
+    ///
+    /// Returned by `DeviceApprovalCertificate::verify` when the
+    /// `account_identity_pk` bound into the approval does not equal the account
+    /// identity key the relying party independently trusts (the caller-supplied
+    /// anchor). Security category — the device graph is rooted in the account
+    /// identity key, so an approval that names a wrong/absent root is a
+    /// potential ghost / wrong-identity device approval (TRN-01 / F10), not a
+    /// benign protocol slip. Rejected before the signature check; distinct from
+    /// `SignatureVerificationFailed` so callers can route on the specific
+    /// identity-rooting failure. Caller logs and rejects the approval.
+    IdentityKeyMismatch,
+
     /// You have been removed from the group.
     RemovedFromGroup,
 
@@ -566,6 +613,10 @@ impl fmt::Display for CryptoError {
             Self::GroupIdMismatch => write!(f, "group ID mismatch"),
             Self::SelfRemovalForbidden => write!(f, "cannot remove yourself from group"),
             Self::InvalidLeafPosition => write!(f, "invalid leaf position"),
+            Self::DuplicateMember => write!(f, "member already in group"),
+            Self::ParentHashMismatch => write!(f, "parent hash verification failed"),
+            Self::RoundHashMismatch => write!(f, "round hash verification failed"),
+            Self::IdentityKeyMismatch => write!(f, "account identity key mismatch"),
             Self::RemovedFromGroup => write!(f, "you have been removed from the group"),
             Self::EpochMismatch { expected, received } => {
                 write!(
@@ -650,6 +701,10 @@ impl CryptoError {
             | Self::AeadAuthenticationFailed
             | Self::DecapsulationFailed
             | Self::MessageCounterTooOld
+            | Self::DuplicateMember
+            | Self::ParentHashMismatch
+            | Self::RoundHashMismatch
+            | Self::IdentityKeyMismatch
             | Self::MessageCounterTooFarAhead { .. }
             | Self::TooManySkippedKeys { .. }
             | Self::SkippedKeyExpired
@@ -736,6 +791,59 @@ mod tests {
         assert!(CryptoError::DuplicateMessage.is_security_error());
         assert!(CryptoError::SignatureVerificationFailed.is_security_error());
         assert!(!CryptoError::RateLimitExceeded.is_security_error());
+    }
+
+    /// The double-join / ghost-member guard (GAP-03) routes through the
+    /// Security category (potential elevation-of-privilege), is non-fatal, and
+    /// carries a stable, side-channel-safe Display string.
+    #[test]
+    fn test_duplicate_member_variant_surface() {
+        let v = CryptoError::DuplicateMember;
+        assert_eq!(v.category(), ErrorCategory::Security);
+        assert!(v.is_security_error());
+        assert!(!v.is_fatal());
+        assert_eq!(v.to_string(), "member already in group");
+    }
+
+    /// The parent-hash verifier (GAP-02 `PHash.Ver`) routes through the
+    /// Security category (tree-structure tampering / leaf repositioning), is
+    /// non-fatal, and carries a stable, side-channel-safe Display string.
+    #[test]
+    fn test_parent_hash_mismatch_variant_surface() {
+        let v = CryptoError::ParentHashMismatch;
+        assert_eq!(v.category(), ErrorCategory::Security);
+        assert!(v.is_security_error());
+        assert!(!v.is_fatal());
+        assert_eq!(v.to_string(), "parent hash verification failed");
+    }
+
+    /// The mandatory round-hash verifier (GAP-04c / F07) routes through the
+    /// Security category (undetected view-partition / divergent-state), is
+    /// non-fatal, and carries a stable, side-channel-safe Display string.
+    #[test]
+    fn test_round_hash_mismatch_variant_surface() {
+        let v = CryptoError::RoundHashMismatch;
+        assert_eq!(v.category(), ErrorCategory::Security);
+        assert!(v.is_security_error());
+        assert!(!v.is_fatal());
+        assert_eq!(v.to_string(), "round hash verification failed");
+    }
+
+    /// The device-approval account-identity anchor mismatch (TRN-01 / F10)
+    /// routes through the Security category (potential ghost / wrong-identity
+    /// approval), is non-fatal, and carries a stable, side-channel-safe Display
+    /// string distinct from the signature-failure message.
+    #[test]
+    fn test_identity_key_mismatch_variant_surface() {
+        let v = CryptoError::IdentityKeyMismatch;
+        assert_eq!(v.category(), ErrorCategory::Security);
+        assert!(v.is_security_error());
+        assert!(!v.is_fatal());
+        assert_eq!(v.to_string(), "account identity key mismatch");
+        assert_ne!(
+            v.to_string(),
+            CryptoError::SignatureVerificationFailed.to_string()
+        );
     }
 
     /// The three nonce-related variants introduced by the multi-device approval

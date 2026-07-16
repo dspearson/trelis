@@ -5,14 +5,17 @@
 //! and the pre-key bundle into the key derivation.
 
 use trelis_hybrid::HybridSigningPublicKey;
-use trelis_wire::constants::{SNTRUP761_SS_SIZE, X448_PK_SIZE};
+use trelis_wire::constants::{CIPHER_SUITE, PROTOCOL_VERSION, SNTRUP761_SS_SIZE, X448_PK_SIZE};
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::bundle::SignedPreKeyBundle;
 
-/// Context string for X3DH-PQ session key derivation. Re-exported from
-/// the `trelis_primitives::blake3_kdf` registry.
-pub use trelis_primitives::SESSION_CONTEXT;
+/// Context strings for X3DH-PQ session key derivation, re-exported from the
+/// `trelis_primitives::blake3_kdf` registry. `SESSION_CONTEXT` (v1) is retained
+/// verbatim as registry history; [`Transcript::derive_shared_secret`] derives
+/// under `SESSION_V2_CONTEXT`, which binds the additive
+/// `{version ‖ suite-id ‖ SessionFlags}` framing block (299-byte transcript).
+pub use trelis_primitives::{SESSION_CONTEXT, SESSION_V2_CONTEXT};
 
 /// Size of a BLAKE3 hash output.
 pub const HASH_SIZE: usize = 32;
@@ -23,11 +26,44 @@ pub const DH_SIZE: usize = X448_PK_SIZE;
 /// Size of sntrup761 shared secret.
 pub const PQ_SS_SIZE: usize = SNTRUP761_SS_SIZE;
 
+/// Size of the trailing `{version ‖ suite-id ‖ SessionFlags}` framing block
+/// appended to the transcript: 1 B `PROTOCOL_VERSION` + 1 B `CIPHER_SUITE`
+/// + 1 B `SessionFlags`.
+pub const FRAMING_SIZE: usize = 3;
+
 /// Total size of the transcript input:
 /// - 3 hashes (32 B each): H(I_a), H(I_b), H(bundle)
 /// - 3 DH outputs (56 B each): DH1, DH2, DH3
 /// - 1 PQ shared secret (32 B): PQ_ss
-pub const TRANSCRIPT_SIZE: usize = 3 * HASH_SIZE + 3 * DH_SIZE + PQ_SS_SIZE;
+/// - 1 framing block (3 B): `PROTOCOL_VERSION` ‖ `CIPHER_SUITE` ‖ `SessionFlags`
+///
+/// The framing block is appended after `pq_ss` at offsets 296/297/298, binding
+/// the negotiated version + cipher-suite and the LI-capability bit into the KDF
+/// input so a downgrade/strip or a toggled LI bit diverges the derived key.
+pub const TRANSCRIPT_SIZE: usize = 3 * HASH_SIZE + 3 * DH_SIZE + PQ_SS_SIZE + FRAMING_SIZE;
+
+/// Per-session capability flags bound into the X3DH-PQ transcript.
+///
+/// Mirrors crypto-spec §22 H.1 `SessionFlags`: bit 0 carries the
+/// Lawful-Interception (LI) capability; bits 1..=7 are reserved and MUST
+/// serialise as zero. Binding this byte into the transcript makes a toggled LI
+/// bit diverge the derived key — the §22 H.1 transparency property (F18).
+#[derive(Clone, Copy, Debug, Default, Zeroize)]
+pub struct SessionFlags {
+    /// Whether this session is Lawful-Interception-capable (transcript bit 0).
+    pub li_capable: bool,
+}
+
+impl SessionFlags {
+    /// Serialises the flags to the single transcript byte.
+    ///
+    /// Returns `[0x01]` when `li_capable`, else `[0x00]`. Bits 1..=7 (reserved)
+    /// are always zero, so both handshake sides emit an identical byte.
+    #[must_use]
+    pub fn to_transcript_bytes(self) -> [u8; 1] {
+        [u8::from(self.li_capable)]
+    }
+}
 
 /// Transcript for X3DH-PQ key derivation.
 ///
@@ -53,6 +89,10 @@ pub struct Transcript {
     dh3: [u8; DH_SIZE],
     /// Post-quantum shared secret from sntrup761 encapsulation.
     pq_ss: [u8; PQ_SS_SIZE],
+    /// Per-session capability flags (LI-capability bit); serialised into the
+    /// trailing framing block. `version`/`suite-id` are protocol constants read
+    /// from `trelis_wire` in `to_bytes()` and are not stored here.
+    flags: SessionFlags,
 }
 
 impl Transcript {
@@ -67,7 +107,10 @@ impl Transcript {
     /// * `dh2` - X448 DH result: Alice ephemeral ↔ Bob identity KEM
     /// * `dh3` - X448 DH result: Alice ephemeral ↔ Bob OTK
     /// * `pq_ss` - sntrup761 shared secret
+    /// * `flags` - per-session capability flags (LI-capability bit); both
+    ///   parties MUST pass the identical value or the derived key diverges
     #[must_use]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         alice_identity: &HybridSigningPublicKey,
         bob_identity: &HybridSigningPublicKey,
@@ -76,6 +119,7 @@ impl Transcript {
         dh2: &[u8; DH_SIZE],
         dh3: &[u8; DH_SIZE],
         pq_ss: &[u8; PQ_SS_SIZE],
+        flags: SessionFlags,
     ) -> Self {
         Self {
             alice_identity_hash: hash_identity(alice_identity),
@@ -85,6 +129,7 @@ impl Transcript {
             dh2: *dh2,
             dh3: *dh3,
             pq_ss: *pq_ss,
+            flags,
         }
     }
 
@@ -98,8 +143,12 @@ impl Transcript {
     /// 5. DH2 - 56 bytes
     /// 6. DH3 - 56 bytes
     /// 7. PQ_ss - 32 bytes
+    /// 8. PROTOCOL_VERSION - 1 byte (offset 296)
+    /// 9. CIPHER_SUITE - 1 byte (offset 297)
+    /// 10. SessionFlags - 1 byte (offset 298)
     ///
-    /// Total: 296 bytes.
+    /// Total: 299 bytes (the 296-byte core plus the trailing 3-byte
+    /// `{version ‖ suite-id ‖ SessionFlags}` framing block).
     ///
     /// The output contains DH and PQ shared-secret bytes, so it is wrapped
     /// in `Zeroizing<>` to ensure the intermediate KDF input is zeroized on
@@ -129,6 +178,15 @@ impl Transcript {
 
         // Post-quantum shared secret
         output[offset..offset + PQ_SS_SIZE].copy_from_slice(&self.pq_ss);
+        offset += PQ_SS_SIZE;
+
+        // Trailing framing block: version ‖ suite-id ‖ SessionFlags (F08 + F18).
+        // version/suite come from the wire constants (single source of truth);
+        // the SessionFlags byte is the only per-session input. Any difference on
+        // either side diverges the derived key (fail-closed).
+        output[offset] = PROTOCOL_VERSION;
+        output[offset + 1] = CIPHER_SUITE;
+        output[offset + 2] = self.flags.to_transcript_bytes()[0];
 
         output
     }
@@ -141,7 +199,7 @@ impl Transcript {
     pub fn derive_shared_secret(&self) -> Zeroizing<[u8; HASH_SIZE]> {
         let transcript_bytes = self.to_bytes();
         Zeroizing::new(blake3::derive_key(
-            SESSION_CONTEXT,
+            SESSION_V2_CONTEXT,
             transcript_bytes.as_slice(),
         ))
     }
@@ -202,8 +260,10 @@ mod tests {
 
     #[test]
     fn test_transcript_size() {
-        // 3 hashes + 3 DH + 1 PQ_ss = 3*32 + 3*56 + 32 = 96 + 168 + 32 = 296
-        assert_eq!(TRANSCRIPT_SIZE, 296);
+        // 3 hashes + 3 DH + 1 PQ_ss + 3 framing
+        //   = 3*32 + 3*56 + 32 + 3 = 96 + 168 + 32 + 3 = 299
+        assert_eq!(TRANSCRIPT_SIZE, 299);
+        assert_eq!(FRAMING_SIZE, 3);
     }
 
     #[test]

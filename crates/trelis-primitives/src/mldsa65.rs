@@ -237,15 +237,19 @@ impl MlDsa65SigningKey {
         let mut hasher = blake3::Hasher::new_derive_key(crate::blake3_kdf::MLDSA_HEDGE_CONTEXT);
         hasher.update(&fresh_random);
         hasher.update(message);
-        let hedge_entropy: [u8; 32] = *hasher.finalize().as_bytes();
+        let mut hedge_entropy: [u8; 32] = *hasher.finalize().as_bytes();
 
         // Wipe the fresh_random bytes before the signing call — the hedge
         // entropy is downstream of them and the value is no longer needed.
-        // The hedge_entropy itself is owned by the DeterministicRng below
-        // (which Zeroize-on-drop the seed and per-block state).
         zeroize::Zeroize::zeroize(&mut fresh_random[..]);
 
+        // `DeterministicRng::new` copies the seed into its own `state` field
+        // (`state: *seed`), so the rng Zeroize-on-drops *its* copy of the seed
+        // and per-block state. The `hedge_entropy` stack local is an
+        // independent copy of the signing-RNG seed (key-recovery material),
+        // so it must be wiped separately once the rng has taken its copy.
         let mut rng = DeterministicRng::new(&hedge_entropy);
+        zeroize::Zeroize::zeroize(&mut hedge_entropy[..]);
 
         // self.bytes was validated in the constructor; re-parsing is infallible.
         #[allow(clippy::expect_used)]

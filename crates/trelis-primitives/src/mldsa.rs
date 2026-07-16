@@ -55,6 +55,17 @@ pub trait MlDsaScheme: Sized + Clone + 'static {
     /// Signs a message.
     fn sign(sk: &Self::SigningKey, message: &[u8]) -> Result<Self::Signature>;
 
+    /// Signs a message with hedged per-call entropy (defence-in-depth vs a
+    /// weak or compromised RNG).
+    ///
+    /// The default delegates to [`sign`](MlDsaScheme::sign) — a safe fallback
+    /// that is never weaker than the standard path. Schemes with a native hedge
+    /// (e.g. FIPS 204 ML-DSA-65) override this to bind fresh per-call entropy
+    /// and the message into the signing RNG.
+    fn sign_hedged(sk: &Self::SigningKey, message: &[u8]) -> Result<Self::Signature> {
+        Self::sign(sk, message)
+    }
+
     /// Signs a message with a context string.
     fn sign_with_context(
         sk: &Self::SigningKey,
@@ -139,6 +150,13 @@ impl MlDsaScheme for MlDsa65Fips204 {
 
     fn sign(sk: &Self::SigningKey, message: &[u8]) -> Result<Self::Signature> {
         sk.sign(message)
+    }
+
+    /// Overrides the trait default with the native FIPS 204 hedge
+    /// ([`MlDsa65SigningKey::sign_hedged`]): fresh per-call entropy and the
+    /// message are folded into the ML-DSA-65 signing RNG (see `mldsa65.rs`).
+    fn sign_hedged(sk: &Self::SigningKey, message: &[u8]) -> Result<Self::Signature> {
+        sk.sign_hedged(message)
     }
 
     fn sign_with_context(

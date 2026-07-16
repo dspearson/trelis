@@ -7,18 +7,18 @@
     "description": "Test vectors for X3DH-PQ session establishment protocol"
   },
   "notes": {
-    "session_context": "trelis-session-v1",
-    "transcript_description": "Binds identities and bundle into session key derivation to prevent UKS attacks",
-    "transcript_format": "H(I_a) || H(I_b) || H(bundle) || DH1 || DH2 || DH3 || PQ_ss",
-    "transcript_size": 296,
+    "session_context": "trelis-session-v2",
+    "transcript_description": "Binds identities, bundle, and the trailing {version || suite-id || SessionFlags} framing block into session key derivation to prevent UKS attacks and downgrade/LI-bit tampering",
+    "transcript_format": "H(I_a) || H(I_b) || H(bundle) || DH1 || DH2 || DH3 || PQ_ss || version || suite_id || session_flags",
+    "transcript_size": 299,
     "bundle_domain": "trelis-prekey-bundle-v1"
   },
   "sizes": {
     "hash_size": 32,
     "dh_size": 56,
     "pq_ss_size": 32,
-    "transcript_size": 296,
-    "transcript_calculation": "3 * 32 (hashes) + 3 * 56 (DH outputs) + 32 (PQ_ss) = 96 + 168 + 32 = 296"
+    "transcript_size": 299,
+    "transcript_calculation": "3 * 32 (hashes) + 3 * 56 (DH outputs) + 32 (PQ_ss) + 3 (version, suite_id, session_flags) = 96 + 168 + 32 + 3 = 299"
   },
   "transcript_fields": [
     {"name": "alice_identity_hash", "offset": 0, "size": 32, "description": "BLAKE3 hash of Alice's identity signing public key (2,009 bytes)"},
@@ -27,19 +27,22 @@
     {"name": "dh1", "offset": 96, "size": 56, "description": "X448 DH: Alice identity KEM ↔ Bob OTK"},
     {"name": "dh2", "offset": 152, "size": 56, "description": "X448 DH: Alice ephemeral ↔ Bob identity KEM"},
     {"name": "dh3", "offset": 208, "size": 56, "description": "X448 DH: Alice ephemeral ↔ Bob OTK"},
-    {"name": "pq_ss", "offset": 264, "size": 32, "description": "sntrup761 shared secret from encapsulation to Bob's OTK"}
+    {"name": "pq_ss", "offset": 264, "size": 32, "description": "sntrup761 shared secret from encapsulation to Bob's OTK"},
+    {"name": "version", "offset": 296, "size": 1, "description": "PROTOCOL_VERSION (0x01) from trelis-wire constants — binds the protocol version into the KDF (F08)"},
+    {"name": "suite_id", "offset": 297, "size": 1, "description": "CIPHER_SUITE (0x01) from trelis-wire constants — binds the cipher suite so a downgrade/strip diverges the derived key (F08)"},
+    {"name": "session_flags", "offset": 298, "size": 1, "description": "SessionFlags byte: bit 0 = LI-capability, bits 1..=7 reserved-zero — binds the lawful-intercept capability bit (F18)"}
   ],
   "vectors": [
     {
       "name": "session_context_derivation",
       "description": "Session key derivation with zero transcript",
       "inputs": {
-        "context": "trelis-session-v1",
-        "transcript_hex": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
-        "transcript_size": 296
+        "context": "trelis-session-v2",
+        "transcript_hex": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "transcript_size": 299
       },
       "expected": {
-        "session_shared_secret_hex": "a1b2c3d4e5f60718293a4b5c6d7e8f901234567890abcdef1234567890abcdef",
+        "session_shared_secret_hex": "25a6914e5c26a38622ec176052805b8beaceeda477a2cedad5fe8daaa12cabf4",
         "session_shared_secret_size": 32
       }
     },

@@ -31,12 +31,12 @@
 //! | Type                                            | Crate                | OTK shape                                  | Metadata                       | Total bytes |
 //! |-------------------------------------------------|----------------------|--------------------------------------------|--------------------------------|-------------|
 //! | `trelis_hybrid::HybridPreKeyBundle`             | `trelis-hybrid`      | `HybridOneTimeKey` (wraps KEM + 8B id)     | none                           | 4,445       |
-//! | [`PreKeyBundle`] (and [`SignedPreKeyBundle`])   | `trelis-x3dh-pq` (this crate) | Bare `HybridKemPublicKey` + separate `otk_key_id: u64` | `timestamp`, `expiration` | 4,461 unsigned / 7,884 signed |
+//! | [`PreKeyBundle`] (and [`SignedPreKeyBundle`])   | `trelis-x3dh-pq` (this crate) | Bare `HybridKemPublicKey` + separate `otk_key_id: u64` | `timestamp`, `expiration` | 4,461 unsigned / 7,827 signed |
 //!
 //! **For the X3DH-PQ handshake at the protocol tier, use the types in this
 //! crate** ([`PreKeyBundle`] and [`SignedPreKeyBundle`]). They carry the
 //! timestamp/expiration the server needs to age out stale bundles, and the
-//! signed variant carries the 3,423-byte `HybridSignature` over the bundle
+//! signed variant carries the 3,366-byte `HybridSignature` over the bundle
 //! body for replay protection (using the `trelis-prekey-bundle-v1` BLAKE3
 //! domain separator).
 //!
@@ -99,6 +99,6 @@ pub use responder::Responder;
 #[cfg(any(feature = "std", feature = "wasm"))]
 pub use session_keys::SessionKeys;
 #[cfg(any(feature = "std", feature = "wasm"))]
-pub use transcript::Transcript;
+pub use transcript::{SessionFlags, Transcript};
 
 pub use trelis_error::{CryptoError, Result};

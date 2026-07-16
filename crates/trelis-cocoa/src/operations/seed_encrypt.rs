@@ -8,7 +8,9 @@
 //!
 //! Seeds are encrypted using:
 //! 1. Hybrid KEM (X448 + sntrup761) encapsulation to the recipient's public key
-//! 2. AEAD (XChaCha20-Poly1305) encryption of the seed using the KEM shared secret
+//! 2. Committing AEAD (XChaCha20-Poly1305 + a 32-byte BLAKE3 key-commitment) of
+//!    the seed using the KEM shared secret — so the same seed wrapped to N
+//!    resolution members cannot open under two members' KEM secrets (AEAD-01).
 //!
 //! The AAD (additional authenticated data) includes the tree position
 //! to bind the ciphertext to its intended location.
@@ -18,7 +20,7 @@
 //! ```text
 //! EncryptedSeed {
 //!     encapsulation: [u8; 1095]  // Hybrid KEM encapsulation
-//!     ciphertext: [u8; 48]       // AEAD encrypted seed (32 bytes + 16 byte tag)
+//!     ciphertext: [u8; 80]       // Committing AEAD: seed (32) + Poly1305 tag (16) + key-commitment (32)
 //! }
 //! ```
 
@@ -33,8 +35,9 @@ use trelis_primitives::aead::{self, AeadKey, Nonce, TAG_SIZE as AEAD_TAG_SIZE};
 use crate::operations::seed_chain::{SEED_SIZE, Seed};
 use crate::tree::NodeIndex;
 
-/// Size of the AEAD-encrypted seed including the authentication tag.
-pub const ENCRYPTED_SEED_CIPHERTEXT_SIZE: usize = SEED_SIZE + AEAD_TAG_SIZE;
+/// Size of the committing-AEAD-encrypted seed: the seed plaintext, the Poly1305
+/// authentication tag, and the appended 32-byte BLAKE3 key-commitment (AEAD-01).
+pub const ENCRYPTED_SEED_CIPHERTEXT_SIZE: usize = SEED_SIZE + AEAD_TAG_SIZE + aead::COMMITMENT_SIZE;
 
 /// Size of an encrypted seed in bytes (hybrid encapsulation || AEAD ciphertext).
 pub const ENCRYPTED_SEED_SIZE: usize = HYBRID_ENCAPSULATION_SIZE + ENCRYPTED_SEED_CIPHERTEXT_SIZE;
@@ -121,11 +124,12 @@ pub fn encrypt_seed_to_recipient(
     // Build AAD: tree_position || "cocoa-seed-encrypt"
     let aad = build_seed_aad(*tree_position);
 
-    // Encrypt the seed
-    let ciphertext_vec = aead::encrypt(&aead_key, &nonce, seed, &aad)?;
+    // Encrypt the seed with the committing AEAD (AEAD-01): appends a 32-byte
+    // key-commitment so this wrap cannot open under a second member's KEM secret.
+    let ciphertext_vec = aead::encrypt_committing(&aead_key, &nonce, seed, &aad)?;
 
-    // Convert to fixed-size array
-    // AEAD should always produce SEED_SIZE bytes plaintext + AEAD_TAG_SIZE bytes tag.
+    // Convert to fixed-size array. Committing AEAD produces SEED_SIZE plaintext
+    // + AEAD_TAG_SIZE tag + COMMITMENT_SIZE commitment.
     if ciphertext_vec.len() != ENCRYPTED_SEED_CIPHERTEXT_SIZE {
         return Err(CryptoError::AeadAuthenticationFailed);
     }
@@ -169,8 +173,9 @@ pub fn decrypt_seed(
     // Build AAD (must match encryption)
     let aad = build_seed_aad(*tree_position);
 
-    // Decrypt the seed
-    let plaintext = aead::decrypt(&aead_key, &nonce, &encrypted.ciphertext, &aad)?;
+    // Decrypt the seed. The committing AEAD constant-time-verifies the 32-byte
+    // key-commitment BEFORE the Poly1305 open (AEAD-01).
+    let plaintext = aead::decrypt_committing(&aead_key, &nonce, &encrypted.ciphertext, &aad)?;
 
     // Convert to fixed-size array
     if plaintext.len() != 32 {
@@ -333,6 +338,42 @@ mod tests {
         // Decrypting with wrong keypair should fail
         let result = decrypt_seed(&encrypted, &keypair2, &position);
         assert!(result.is_err());
+    }
+
+    /// AEAD-01 (SC1): the §12 path-seed wrap now carries a DESIGNED
+    /// key-commitment, not merely the incidental wrong-keypair rejection above.
+    /// An honest wrap round-trips at the grown committing size (ciphertext
+    /// 48->80, `EncryptedNodeSeed` 1143->1175); flipping a byte inside the
+    /// appended 32-byte commitment region (the last `COMMITMENT_SIZE` bytes of
+    /// the 80-byte ciphertext) makes `decrypt_seed` reject with the uniform
+    /// authentication failure — the direct F01 "one ciphertext cannot open
+    /// under two keys" guarantee at the wrap level.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_seed_commitment_tamper_rejected() {
+        let seed = [0x42u8; 32];
+        let keypair = test_keypair();
+        let position = NodeIndex::new(2, 3);
+
+        let mut encrypted =
+            encrypt_seed_to_recipient(&seed, keypair.public_key(), &position).unwrap();
+
+        // Committing sizes are pinned (silent-drift guard).
+        assert_eq!(ENCRYPTED_SEED_CIPHERTEXT_SIZE, 80);
+        assert_eq!(ENCRYPTED_SEED_SIZE, 1175);
+        assert_eq!(encrypted.ciphertext.len(), 80);
+        assert_eq!(encrypted.to_bytes().len(), ENCRYPTED_SEED_SIZE);
+
+        // Positive round-trip at the new size.
+        assert_eq!(decrypt_seed(&encrypted, &keypair, &position).unwrap(), seed);
+
+        // Flip a byte inside the trailing 32-byte commitment region.
+        let last = encrypted.ciphertext.len() - 1;
+        encrypted.ciphertext[last] ^= 0xFF;
+        assert!(matches!(
+            decrypt_seed(&encrypted, &keypair, &position),
+            Err(CryptoError::AeadAuthenticationFailed)
+        ));
     }
 
     #[cfg_attr(miri, ignore)]

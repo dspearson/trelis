@@ -3,7 +3,7 @@
 //! This crate provides hybrid cryptographic types that combine classical and
 //! post-quantum algorithms for defence-in-depth security:
 //!
-//! - **Signatures**: Ed448 + ML-DSA-65 (2,009-byte public keys, 3,407-byte signatures)
+//! - **Signatures**: Ed448 + ML-DSA-65 (2,009-byte public keys, 3,366-byte signatures)
 //! - **KEM**: X448 + sntrup761 (1,214-byte public keys, 1,095-byte encapsulations)
 //! - **Identity**: Combined signing and KEM keypairs (3,223-byte public keys)
 //!
@@ -29,7 +29,7 @@
 //! | Type                                            | Crate                | OTK shape                                  | Metadata                       | Total bytes |
 //! |-------------------------------------------------|----------------------|--------------------------------------------|--------------------------------|-------------|
 //! | [`HybridPreKeyBundle`]                          | `trelis-hybrid`      | [`HybridOneTimeKey`] (wraps KEM + 8B id)   | none                           | 4,445       |
-//! | `trelis_x3dh_pq::PreKeyBundle` (and `trelis_x3dh_pq::SignedPreKeyBundle`) | `trelis-x3dh-pq`     | Bare [`HybridKemPublicKey`] + separate `otk_key_id: u64` | `timestamp`, `expiration` | 4,461 unsigned / 7,884 signed |
+//! | `trelis_x3dh_pq::PreKeyBundle` (and `trelis_x3dh_pq::SignedPreKeyBundle`) | `trelis-x3dh-pq`     | Bare [`HybridKemPublicKey`] + separate `otk_key_id: u64` | `timestamp`, `expiration` | 4,461 unsigned / 7,827 signed |
 //!
 //! **When to use [`HybridPreKeyBundle`] (this crate)**: as a self-contained
 //! cryptographic value that bundles an identity public key plus a one-time
@@ -41,7 +41,7 @@
 //! **When to use `trelis_x3dh_pq::PreKeyBundle` / `SignedPreKeyBundle`**:
 //! as the protocol-level object published to a server for the X3DH-PQ
 //! handshake. It carries the timestamp + expiration the server needs to
-//! age out stale bundles, and the signed variant carries the 3,423-byte
+//! age out stale bundles, and the signed variant carries the 3,366-byte
 //! `HybridSignature` over the bundle body for replay protection (using
 //! the `trelis-prekey-bundle-v1` BLAKE3-derive_key domain separator).
 //!
@@ -118,7 +118,7 @@ pub use recovery::derive_recovery_keypair;
 #[cfg(feature = "alloc")]
 pub use recovery::{
     CompromiseNotice, CompromiseReason, FINGERPRINT_SIZE, RECOVERY_SEED_SIZE,
-    RecoveryKeyAttestation, key_fingerprint,
+    RecoveryKeyAttestation, USER_ID_SIZE, key_fingerprint,
 };
 #[cfg(any(feature = "std", feature = "wasm"))]
 pub use safety_number::SafetyNumber;

@@ -10,7 +10,7 @@ use trelis_wire::constants::{SNTRUP761_CT_SIZE, X448_PK_SIZE};
 
 use crate::bundle::SignedPreKeyBundle;
 use crate::session_keys::SessionKeys;
-use crate::transcript::{DH_SIZE, PQ_SS_SIZE, Transcript};
+use crate::transcript::{DH_SIZE, PQ_SS_SIZE, SessionFlags, Transcript};
 
 /// Initial message sent from Alice to Bob.
 ///
@@ -89,7 +89,7 @@ impl InitialMessage {
 /// # Example
 ///
 /// ```ignore
-/// let result = Initiator::establish(&our_identity, &their_bundle, timestamp)?;
+/// let result = Initiator::establish(&our_identity, &their_bundle, timestamp, SessionFlags::default())?;
 ///
 /// // Send initial message over the network
 /// network.send(result.initial_message().to_bytes());
@@ -137,6 +137,9 @@ impl Initiator {
     /// * `our_identity` - Our identity keypair
     /// * `their_bundle` - Responder's signed pre-key bundle
     /// * `current_time` - Current Unix timestamp (for bundle validation)
+    /// * `flags` - Per-session capability flags (LI-capability bit). The
+    ///   responder MUST pass the identical value into `Responder::establish`;
+    ///   any mismatch diverges the derived key (fail-closed).
     ///
     /// # Protocol Steps
     ///
@@ -161,6 +164,7 @@ impl Initiator {
         our_identity: &HybridIdentityKeypair,
         their_bundle: &SignedPreKeyBundle,
         current_time: u64,
+        flags: SessionFlags,
     ) -> Result<InitiatorResult> {
         // Step 1: Verify bundle signature (MANDATORY)
         their_bundle.verify()?;
@@ -200,6 +204,7 @@ impl Initiator {
             &dh2_bytes,
             &dh3_bytes,
             &pq_ss_bytes,
+            flags,
         );
 
         let shared_secret = transcript.derive_shared_secret();
@@ -275,7 +280,13 @@ mod tests {
         let signed_bundle = bundle.sign(&bob_signing).unwrap();
 
         // Establish session
-        let result = Initiator::establish(&alice_identity, &signed_bundle, 1500).unwrap();
+        let result = Initiator::establish(
+            &alice_identity,
+            &signed_bundle,
+            1500,
+            SessionFlags::default(),
+        )
+        .unwrap();
 
         // Should have valid session keys
         assert_eq!(result.session_keys().root_key().len(), 32);
@@ -312,7 +323,12 @@ mod tests {
         // Replace identity with original to create mismatch
         signed_bundle.bundle.identity_signing = bob_signing.public_key().clone();
 
-        let result = Initiator::establish(&alice_identity, &signed_bundle, 1500);
+        let result = Initiator::establish(
+            &alice_identity,
+            &signed_bundle,
+            1500,
+            SessionFlags::default(),
+        );
         assert!(matches!(result, Err(CryptoError::InvalidBundleSignature)));
     }
 
@@ -337,7 +353,12 @@ mod tests {
         let signed_bundle = bundle.sign(&bob_signing).unwrap();
 
         // Current time is past expiration
-        let result = Initiator::establish(&alice_identity, &signed_bundle, 3000);
+        let result = Initiator::establish(
+            &alice_identity,
+            &signed_bundle,
+            3000,
+            SessionFlags::default(),
+        );
         assert!(matches!(result, Err(CryptoError::BundleExpired)));
     }
 }

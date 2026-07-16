@@ -2,7 +2,9 @@
 //!
 //! This module provides X448 elliptic curve Diffie-Hellman as specified in
 //! RFC 7748. X448 uses Curve448 (Goldilocks) and provides approximately
-//! 224-bit security (NIST Level 4).
+//! 224-bit CLASSICAL security (ECDH on Curve448, RFC 7748). There is no NIST
+//! PQC category (those are post-quantum-only); X448 has zero quantum security
+//! — broken in polynomial time by Shor's algorithm.
 //!
 //! # Key Sizes
 //!

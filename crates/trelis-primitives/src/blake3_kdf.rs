@@ -10,11 +10,14 @@
 //!
 //! ## Core Protocol Contexts
 //! - `"trelis-hybrid-kem-v1"` - Hybrid KEM shared secret combination
+//! - `"trelis-hybrid-kem-v2"` - Hybrid KEM v2 (binds ct_sntrup, x448_eph, pk_hybrid)
 //! - `"trelis-session-v1"` - X3DH-PQ session key derivation
+//! - `"trelis-session-v2"` - X3DH-PQ session key derivation (binds version/suite/SessionFlags)
 //! - `"trelis-pq-ratchet-root-v1"` - KEM ratchet root key derivation
 //! - `"trelis-pq-ratchet-message-v1"` - KEM ratchet message key derivation
 //! - `"trelis-ratchet-nonce-v1"` - Hedged nonce derivation
 //! - `"trelis-safety-number-v1"` - Safety number fingerprint
+//! - `"trelis-aead-commit-v1"` - Committing-AEAD key-commitment subkey (CMT-4)
 //!
 //! ## Signature Contexts
 //! - `"trelis-sig-prekey-bundle-v1"` - Pre-key bundle signature prehash
@@ -22,6 +25,10 @@
 //! - `"trelis-sig-cocoa-update-v1"` - CoCoA tree update signatures
 //! - `"trelis-sig-safety-number-v1"` - Safety number attestation
 //! - `"trelis-sig-device-attest-v1"` - Device key attestation
+//! - `"trelis-hybrid-sig-bop2-h1-v1"` - Bird-of-Prey-2 H1 (binds full hybrid vk)
+//! - `"trelis-hybrid-sig-bop2-h2-v1"` - Bird-of-Prey-2 H2 (Ed448 challenge from sigma2)
+//! - `"trelis-hybrid-sig-bop2-h1-ctx-v1"` - Bird-of-Prey-2 H1 (explicit-context signing path, WR-03)
+//! - `"trelis-hybrid-sig-bop2-h1-prehash-v1"` - Bird-of-Prey-2 H1 (BLAKE3-prehash signing path, WR-03)
 //!
 //! ## Device Key Contexts
 //! - `"trelis-device-seed-v1"` - Device seed from hardware entropy
@@ -76,8 +83,72 @@ pub const OUTPUT_SIZE: usize = 32;
 /// Context for hybrid KEM shared secret combination.
 pub const HYBRID_KEM_CONTEXT: &str = "trelis-hybrid-kem-v1";
 
+/// Context for the v2 hybrid KEM shared secret combination.
+///
+/// Unlike [`HYBRID_KEM_CONTEXT`] (v1, which binds only `ss_x448 || ss_sntrup`),
+/// the v2 combiner binds the full encapsulation into a fixed 184-byte KDF input:
+/// `H(ct_sntrup) || H(x448_eph) || H(pk_hybrid) || ss_x448 || ss_sntrup`
+/// (X-Wing-shaped; classical-first ordering preserved). This makes
+/// MAL-BIND-K-CT / MAL-BIND-K-PK hold under BLAKE3 collision-resistance alone,
+/// independent of the unproven sntrup761 C2PRI assumption (v1.5 finding F02).
+/// v1 is retained verbatim and stays exercised by its KAT.
+pub const HYBRID_KEM_V2_CONTEXT: &str = "trelis-hybrid-kem-v2";
+
+/// Context for the Bird-of-Prey-2 hybrid signature `H1` hash.
+///
+/// `H1` binds the full hybrid verification key together with the message and
+/// Schnorr commitment (`pkID || pkSig || m || com`), giving BUFF
+/// exclusive-ownership: the whole hybrid vk is committed into the signed body,
+/// so a mixed or forged vk cannot verify. Registered here as the single source
+/// of truth; consumed by the BoP-2 signature combiner (phase 49 plan 03).
+pub const SIG_BOP2_H1_CONTEXT: &str = "trelis-hybrid-sig-bop2-h1-v1";
+
+/// Context for the Bird-of-Prey-2 hybrid signature `H2` hash.
+///
+/// `H2` derives the Ed448 Schnorr challenge from `sigma2` (the ML-DSA-65 half)
+/// via a wide reduction into a scalar, tying the classical response to *this*
+/// `sigma2` and lifting the combiner to strong unforgeability (SUF-CMA).
+/// Registered here as the single source of truth; consumed by the BoP-2
+/// signature combiner (phase 49 plan 03).
+pub const SIG_BOP2_H2_CONTEXT: &str = "trelis-hybrid-sig-bop2-h2-v1";
+
+/// Context for the Bird-of-Prey-2 hybrid signature `H1` hash on the
+/// explicit-context signing path (`sign_with_context` / `verify_with_context`).
+///
+/// Domain-separates the context-signing path from the plain `sign()` path at the
+/// `H1` root (WR-03): `sign_with_context(m, ctx)` derives `m'` under this
+/// context, so it can no longer collide with `sign(ctx_len || ctx || m)` under
+/// [`SIG_BOP2_H1_CONTEXT`]. The plain path ([`SIG_BOP2_H1_CONTEXT`]) is
+/// unchanged. Registered here as the single source of truth; consumed by the
+/// BoP-2 signature combiner (phase 56 plan 01).
+pub const SIG_BOP2_H1_CTX_CONTEXT: &str = "trelis-hybrid-sig-bop2-h1-ctx-v1"; // 32 bytes
+
+/// Context for the Bird-of-Prey-2 hybrid signature `H1` hash on the
+/// BLAKE3-prehash signing path (`sign_prehashed` / `verify_prehashed`).
+///
+/// Domain-separates the prehash-signing path from the plain `sign()` path at the
+/// `H1` root (WR-03): `sign_prehashed(ctx, m)` derives `m'` under this context,
+/// so `sign(derive_key(ctx, m))` can no longer collide with it. The plain path
+/// ([`SIG_BOP2_H1_CONTEXT`]) is unchanged. Registered here as the single source
+/// of truth; consumed by the BoP-2 signature combiner (phase 56 plan 01).
+pub const SIG_BOP2_H1_PREHASH_CONTEXT: &str = "trelis-hybrid-sig-bop2-h1-prehash-v1"; // 36 bytes
+
 /// Context for X3DH-PQ session key derivation.
 pub const SESSION_CONTEXT: &str = "trelis-session-v1";
+
+/// Context for the v2 X3DH-PQ session key derivation.
+///
+/// Unlike [`SESSION_CONTEXT`] (v1, over the 296-byte 7-field transcript), the
+/// v2 context derives over the 299-byte transcript that appends the additive
+/// `{version || suite-id || SessionFlags}` framing block after `pq_ss`. This
+/// closes the Ch17:236 #2 version/suite-binding MUST (F08) and the §22 H.1
+/// LI-capability-bit gap (F18): a downgraded/stripped suite or a toggled LI
+/// bit now diverges the derived key (fail-closed).
+///
+/// v1 is retained verbatim as registry history (additive rule). Unlike the KEM
+/// combiner, there is NO live v1 code path — both X3DH-PQ call sites switch to
+/// v2 (there are no deployed sessions to remain compatible with).
+pub const SESSION_V2_CONTEXT: &str = "trelis-session-v2";
 
 /// Context for double ratchet root key derivation.
 pub const RATCHET_ROOT_CONTEXT: &str = "trelis-pq-ratchet-root-v1";
@@ -114,6 +185,22 @@ pub const RECOVERY_MLDSA_CONTEXT: &str = "trelis-recovery-mldsa-v1";
 /// Used as the domain separator when signing a `CompromiseNotice` message
 /// to announce that a key has been compromised.
 pub const COMPROMISE_NOTICE_CONTEXT: &str = "trelis-compromise-notice-v1";
+
+// ============================================================================
+// Committing AEAD Context (Spec Section 4, Phase 54 AEAD-01)
+// ============================================================================
+
+/// Context for the committing-AEAD key-commitment subkey (Phase 54, AEAD-01).
+///
+/// `K_commit = derive_key(AEAD_COMMIT_CONTEXT, K)` keys the BLAKE3 commitment
+/// that the committing AEAD wrapper (`aead::encrypt_committing`) appends over
+/// the length-framed `(nonce, aad, ciphertext)`. This domain-separates the
+/// commitment MAC from every other `derive_key` use, so a commitment can never
+/// be confused with a wrap, session, or ratchet key. The wrapper gives the
+/// multi-key ("one plaintext, N keys") wraps CMT-4 key commitment: a single
+/// committing ciphertext cannot be opened under two different keys. Additive —
+/// the base XChaCha20-Poly1305 `aead::encrypt`/`decrypt` are unchanged.
+pub const AEAD_COMMIT_CONTEXT: &str = "trelis-aead-commit-v1"; // 21 bytes
 
 // ============================================================================
 // Signature Context Constants (Spec Section 14, Table 14.1)
@@ -429,6 +516,71 @@ mod tests {
             hex::encode(context.as_bytes()),
             "7472656c69732d6879627269642d6b656d2d7631"
         );
+
+        // v2 KEM context (phase 49 CMB-01) — pinned so an accidental edit to the
+        // string fails loudly, exactly like the v1 assertion above.
+        assert_eq!(HYBRID_KEM_V2_CONTEXT, "trelis-hybrid-kem-v2");
+        assert_eq!(HYBRID_KEM_V2_CONTEXT.as_bytes().len(), 20);
+        assert_eq!(
+            hex::encode(HYBRID_KEM_V2_CONTEXT.as_bytes()),
+            "7472656c69732d6879627269642d6b656d2d7632"
+        );
+
+        // BoP-2 signature contexts (single source of truth; consumed by plan 03).
+        assert_eq!(SIG_BOP2_H1_CONTEXT, "trelis-hybrid-sig-bop2-h1-v1");
+        assert_eq!(SIG_BOP2_H1_CONTEXT.as_bytes().len(), 28);
+        assert_eq!(
+            hex::encode(SIG_BOP2_H1_CONTEXT.as_bytes()),
+            "7472656c69732d6879627269642d7369672d626f70322d68312d7631"
+        );
+        assert_eq!(SIG_BOP2_H2_CONTEXT, "trelis-hybrid-sig-bop2-h2-v1");
+        assert_eq!(SIG_BOP2_H2_CONTEXT.as_bytes().len(), 28);
+        assert_eq!(
+            hex::encode(SIG_BOP2_H2_CONTEXT.as_bytes()),
+            "7472656c69732d6879627269642d7369672d626f70322d68322d7631"
+        );
+
+        // WR-03 (phase 56) sibling H1 contexts — byte-pinned so an accidental
+        // edit fails loudly, exactly like the base BoP-2 pins above. The plain
+        // SIG_BOP2_H1_CONTEXT and its pin above stay byte-frozen (unchanged).
+        assert_eq!(SIG_BOP2_H1_CTX_CONTEXT, "trelis-hybrid-sig-bop2-h1-ctx-v1");
+        assert_eq!(SIG_BOP2_H1_CTX_CONTEXT.as_bytes().len(), 32);
+        assert_eq!(
+            hex::encode(SIG_BOP2_H1_CTX_CONTEXT.as_bytes()),
+            "7472656c69732d6879627269642d7369672d626f70322d68312d6374782d7631"
+        );
+        assert_eq!(
+            SIG_BOP2_H1_PREHASH_CONTEXT,
+            "trelis-hybrid-sig-bop2-h1-prehash-v1"
+        );
+        assert_eq!(SIG_BOP2_H1_PREHASH_CONTEXT.as_bytes().len(), 36);
+        assert_eq!(
+            hex::encode(SIG_BOP2_H1_PREHASH_CONTEXT.as_bytes()),
+            "7472656c69732d6879627269642d7369672d626f70322d68312d707265686173682d7631"
+        );
+
+        // v2 session context (phase 50 TXB-01) — byte-pinned so an accidental
+        // edit to the string fails loudly, exactly like the KEM v2 pin above.
+        assert_eq!(SESSION_V2_CONTEXT, "trelis-session-v2");
+        assert_eq!(SESSION_V2_CONTEXT.as_bytes().len(), 17);
+        assert_eq!(
+            hex::encode(SESSION_V2_CONTEXT.as_bytes()),
+            "7472656c69732d73657373696f6e2d7632"
+        );
+
+        // Committing-AEAD context (phase 54 AEAD-01) — byte-pinned so an
+        // accidental edit to the string fails loudly, exactly like the KEM/
+        // session v2 pins above.
+        assert_eq!(AEAD_COMMIT_CONTEXT, "trelis-aead-commit-v1");
+        assert_eq!(AEAD_COMMIT_CONTEXT.as_bytes().len(), 21);
+        assert_eq!(
+            hex::encode(AEAD_COMMIT_CONTEXT.as_bytes()),
+            "7472656c69732d616561642d636f6d6d69742d7631"
+        );
+
+        // v1 context values are unchanged (additive invariant: v1 retained verbatim).
+        assert_eq!(HYBRID_KEM_CONTEXT, "trelis-hybrid-kem-v1");
+        assert_eq!(SESSION_CONTEXT, "trelis-session-v1");
 
         // Different context produces different output
         let other_output = derive_key("trelis-other-context", &input);

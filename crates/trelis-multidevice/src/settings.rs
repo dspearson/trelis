@@ -9,6 +9,8 @@ use alloc::vec::Vec;
 #[cfg(feature = "alloc")]
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
+#[cfg(feature = "alloc")]
+use crate::MAX_RETAINED_KEYS;
 use crate::ThreadId;
 #[cfg(feature = "alloc")]
 use crate::retained_key::RetainedKey;
@@ -118,6 +120,17 @@ impl ThreadKeyStore {
     /// Adds a message key for retention (if history sync is enabled).
     ///
     /// Keys are automatically sorted by sequence number for efficient lookup.
+    ///
+    /// # Retention bound
+    ///
+    /// At most [`MAX_RETAINED_KEYS`](crate::MAX_RETAINED_KEYS) keys are kept.
+    /// Inserting past the cap evicts the oldest key — the lowest `sequence`,
+    /// the front of the sorted vec — after zeroising its secret `message_key`
+    /// in place, so the retained set is always the most-recent
+    /// `MAX_RETAINED_KEYS`. See `enforce_cap`.
+    ///
+    /// Note: direct mutation of the public `keys` field bypasses this bound;
+    /// the cap is enforced only through `retain_key` and [`merge`](Self::merge).
     pub fn retain_key(&mut self, key: RetainedKey) {
         // Insert in sorted order by sequence
         let pos = self
@@ -125,6 +138,30 @@ impl ThreadKeyStore {
             .binary_search_by_key(&key.sequence, |k| k.sequence)
             .unwrap_or_else(|p| p);
         self.keys.insert(pos, key);
+        self.enforce_cap();
+    }
+
+    /// Bounds the store to [`MAX_RETAINED_KEYS`](crate::MAX_RETAINED_KEYS),
+    /// evicting the oldest keys (lowest `sequence`, the front of the
+    /// sequence-sorted vec) first.
+    ///
+    /// Evicted entries hold secret `message_key` material; each is zeroised
+    /// **in place** before the `drain` removes it, mirroring the explicit
+    /// zeroise-on-eviction discipline in `KemRatchet::rotate_keypair`
+    /// (`trelis-ratchet`) and [`clear`](Self::clear). `Vec::drain` bit-copies
+    /// the surviving tail leftward during the shift, so relying on
+    /// `ZeroizeOnDrop` alone would risk leaving evicted secret bytes resident
+    /// in the vacated slots. Because `keys` is sorted ascending by `sequence`,
+    /// dropping the front retains the most-recent `MAX_RETAINED_KEYS`,
+    /// matching [`prune_before`](Self::prune_before)'s drop-oldest intent.
+    fn enforce_cap(&mut self) {
+        if self.keys.len() > MAX_RETAINED_KEYS {
+            let overflow = self.keys.len() - MAX_RETAINED_KEYS;
+            for key in &mut self.keys[..overflow] {
+                key.zeroize();
+            }
+            self.keys.drain(..overflow);
+        }
     }
 
     /// Gets all retained keys for sharing with a new device.
@@ -182,6 +219,14 @@ impl ThreadKeyStore {
     ///
     /// This is used when receiving `HistoryKeyShareMessage` from multiple
     /// devices that may have overlapping key sets.
+    ///
+    /// # Retention bound
+    ///
+    /// As with [`retain_key`](Self::retain_key), at most
+    /// [`MAX_RETAINED_KEYS`](crate::MAX_RETAINED_KEYS) keys are kept: once the
+    /// merged set exceeds the cap, the oldest keys (lowest `sequence`, the
+    /// front of the sorted vec) are zeroised in place and evicted, retaining
+    /// the most-recent `MAX_RETAINED_KEYS`. See `enforce_cap`.
     pub fn merge(&mut self, other_keys: Vec<RetainedKey>) {
         for key in other_keys {
             // Skip if we already have this key
@@ -196,6 +241,7 @@ impl ThreadKeyStore {
                 .unwrap_or_else(|p| p);
             self.keys.insert(pos, key);
         }
+        self.enforce_cap();
     }
 
     /// Returns the sequence number range covered by retained keys.
@@ -280,6 +326,36 @@ mod tests {
 
     #[cfg(feature = "alloc")]
     #[test]
+    fn test_key_store_retain_enforces_cap() {
+        let mut store = ThreadKeyStore::new([0x42u8; 32]);
+
+        // Insert MAX_RETAINED_KEYS + 1 keys in ascending sequence order.
+        // Ascending order keeps each insert at the tail (O(log n) search, no
+        // shift), so the whole fill is O(n); enforce_cap performs a single
+        // front-drain of one on the final over-cap insert.
+        for sequence in 0..=(MAX_RETAINED_KEYS as u64) {
+            let mut message_id = [0u8; 32];
+            message_id[..8].copy_from_slice(&sequence.to_le_bytes());
+            store.retain_key(RetainedKey {
+                message_id,
+                message_key: [0xAAu8; 32],
+                sequence,
+                timestamp: sequence,
+            });
+        }
+
+        // The cap holds and the oldest key (sequence 0) was evicted, leaving
+        // the most-recent MAX_RETAINED_KEYS (sequences 1..=MAX_RETAINED_KEYS).
+        assert_eq!(store.len(), MAX_RETAINED_KEYS);
+        assert_eq!(store.keys[0].sequence, 1);
+        assert_eq!(
+            store.keys.last().unwrap().sequence,
+            MAX_RETAINED_KEYS as u64
+        );
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
     fn test_key_store_get_by_sequence() {
         let mut store = ThreadKeyStore::new([0x42u8; 32]);
 
@@ -324,6 +400,44 @@ mod tests {
 
         // Should have 2 keys (duplicate ignored)
         assert_eq!(store.len(), 2);
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn test_key_store_merge_enforces_cap() {
+        let mut store = ThreadKeyStore::new([0x42u8; 32]);
+
+        // Pre-fill to exactly the cap via retain_key (sequences 1..=MAX).
+        // Pre-filling with retain_key (O(log n) per insert) rather than a
+        // single MAX-element merge avoids merge's per-key O(n) dedup scan.
+        for sequence in 1..=(MAX_RETAINED_KEYS as u64) {
+            let mut message_id = [0u8; 32];
+            message_id[..8].copy_from_slice(&sequence.to_le_bytes());
+            store.retain_key(RetainedKey {
+                message_id,
+                message_key: [0xAAu8; 32],
+                sequence,
+                timestamp: sequence,
+            });
+        }
+        assert_eq!(store.len(), MAX_RETAINED_KEYS);
+
+        // Merge one over-cap key with a fresh, non-colliding message_id.
+        store.merge(vec![RetainedKey {
+            message_id: [0xFFu8; 32],
+            message_key: [0xBBu8; 32],
+            sequence: MAX_RETAINED_KEYS as u64 + 1,
+            timestamp: MAX_RETAINED_KEYS as u64 + 1,
+        }]);
+
+        // merge enforced the cap: the oldest (sequence 1) was evicted and the
+        // newly merged key (sequence MAX_RETAINED_KEYS + 1) retained.
+        assert_eq!(store.len(), MAX_RETAINED_KEYS);
+        assert_eq!(store.keys[0].sequence, 2);
+        assert_eq!(
+            store.keys.last().unwrap().sequence,
+            MAX_RETAINED_KEYS as u64 + 1
+        );
     }
 
     #[cfg(feature = "alloc")]

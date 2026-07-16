@@ -140,6 +140,40 @@ mod context_strings {
     }
 
     #[test]
+    fn verify_hybrid_kem_v2_context() {
+        // Mirrors verify_hybrid_kem_context: the v2 combiner context is a
+        // distinct 20-byte string (additive; v1 is retained above).
+        let file: ContextStringsFile = load_vector_file("context-strings.json");
+        let vector = file
+            .vectors
+            .iter()
+            .find(|v| v.name == "hybrid_kem_v2_context")
+            .expect("hybrid_kem_v2_context vector not found");
+
+        assert_eq!(vector.inputs.context_string, "trelis-hybrid-kem-v2");
+        assert_eq!(vector.inputs.context_string.len(), 20);
+    }
+
+    #[test]
+    fn verify_bop2_signature_contexts() {
+        // The two BoP-2 hybrid-signature domain-separation contexts (H1/H2)
+        // are present and covered by verify_all_context_strings.
+        let file: ContextStringsFile = load_vector_file("context-strings.json");
+        for (name, ctx) in [
+            ("sig_bop2_h1_context", "trelis-hybrid-sig-bop2-h1-v1"),
+            ("sig_bop2_h2_context", "trelis-hybrid-sig-bop2-h2-v1"),
+        ] {
+            let vector = file
+                .vectors
+                .iter()
+                .find(|v| v.name == name)
+                .unwrap_or_else(|| panic!("{name} vector not found"));
+            assert_eq!(vector.inputs.context_string, ctx);
+            assert_eq!(vector.inputs.context_string.len(), 28);
+        }
+    }
+
+    #[test]
     fn verify_session_context() {
         let file: ContextStringsFile = load_vector_file("context-strings.json");
         let vector = file
@@ -149,6 +183,100 @@ mod context_strings {
             .expect("session_context vector not found");
 
         assert_eq!(vector.inputs.context_string, "trelis-session-v1");
+    }
+
+    #[test]
+    fn verify_aead_commit_context() {
+        // The committing-AEAD commitment subkey context (AEAD-01 / F01). Pinned
+        // here (string + 21-byte length) with its derive_key KAT recomputed
+        // directly — a backend-drift guard mirroring the v2/BoP-2 context pins.
+        // verify_all_context_strings also validates it in the bulk sweep.
+        let file: ContextStringsFile = load_vector_file("context-strings.json");
+        let vector = file
+            .vectors
+            .iter()
+            .find(|v| v.name == "aead_commit_context")
+            .expect("aead_commit_context vector not found");
+
+        assert_eq!(vector.inputs.context_string, "trelis-aead-commit-v1");
+        assert_eq!(vector.inputs.context_string.len(), 21);
+
+        // Recompute derive_key("trelis-aead-commit-v1", [0u8; 32]) byte-for-byte.
+        let actual = derive_key(
+            &vector.inputs.context_string,
+            &hex_decode(&vector.inputs.test_input_hex),
+        );
+        assert_eq!(
+            hex::encode(actual.as_slice()),
+            vector.expected.derive_key_output_hex,
+            "aead_commit_context derive_key KAT mismatch"
+        );
+
+        println!("✓ AEAD commit context KAT verified (trelis-aead-commit-v1)");
+    }
+
+    #[test]
+    fn verify_bop2_h1_ctx_context() {
+        // WR-03 explicit-context H1 domain (SIG_BOP2_H1_CTX_CONTEXT). Pinned here
+        // (string + 32-byte length) with its derive_key KAT recomputed directly —
+        // a backend-drift guard mirroring verify_aead_commit_context. Also covered
+        // by verify_all_context_strings in the bulk sweep.
+        let file: ContextStringsFile = load_vector_file("context-strings.json");
+        let vector = file
+            .vectors
+            .iter()
+            .find(|v| v.name == "sig_bop2_h1_ctx_context")
+            .expect("sig_bop2_h1_ctx_context vector not found");
+
+        assert_eq!(
+            vector.inputs.context_string,
+            "trelis-hybrid-sig-bop2-h1-ctx-v1"
+        );
+        assert_eq!(vector.inputs.context_string.len(), 32);
+
+        let actual = derive_key(
+            &vector.inputs.context_string,
+            &hex_decode(&vector.inputs.test_input_hex),
+        );
+        assert_eq!(
+            hex::encode(actual.as_slice()),
+            vector.expected.derive_key_output_hex,
+            "sig_bop2_h1_ctx_context derive_key KAT mismatch"
+        );
+
+        println!("✓ BoP-2 H1 context-path context KAT verified (trelis-hybrid-sig-bop2-h1-ctx-v1)");
+    }
+
+    #[test]
+    fn verify_bop2_h1_prehash_context() {
+        // WR-03 prehash H1 domain (SIG_BOP2_H1_PREHASH_CONTEXT). Pinned here
+        // (string + 36-byte length) with its derive_key KAT recomputed directly.
+        let file: ContextStringsFile = load_vector_file("context-strings.json");
+        let vector = file
+            .vectors
+            .iter()
+            .find(|v| v.name == "sig_bop2_h1_prehash_context")
+            .expect("sig_bop2_h1_prehash_context vector not found");
+
+        assert_eq!(
+            vector.inputs.context_string,
+            "trelis-hybrid-sig-bop2-h1-prehash-v1"
+        );
+        assert_eq!(vector.inputs.context_string.len(), 36);
+
+        let actual = derive_key(
+            &vector.inputs.context_string,
+            &hex_decode(&vector.inputs.test_input_hex),
+        );
+        assert_eq!(
+            hex::encode(actual.as_slice()),
+            vector.expected.derive_key_output_hex,
+            "sig_bop2_h1_prehash_context derive_key KAT mismatch"
+        );
+
+        println!(
+            "✓ BoP-2 H1 prehash-path context KAT verified (trelis-hybrid-sig-bop2-h1-prehash-v1)"
+        );
     }
 
     #[test]
@@ -283,6 +411,91 @@ mod hybrid_kem {
             "All zeros input should be zeros"
         );
     }
+
+    // --- v2 combiner (X-Wing-shaped, binds the full encapsulation) ---
+
+    #[derive(Deserialize)]
+    struct HybridKemV2File {
+        v2_notes: HybridKemV2Notes,
+        v2_vectors: Vec<HybridKemV2Vector>,
+    }
+
+    #[derive(Deserialize)]
+    struct HybridKemV2Notes {
+        context_string: String,
+        output_size: usize,
+    }
+
+    #[derive(Deserialize)]
+    struct HybridKemV2Vector {
+        name: String,
+        inputs: HybridKemV2Inputs,
+        expected: HybridKemV2Expected,
+    }
+
+    #[derive(Deserialize)]
+    struct HybridKemV2Inputs {
+        x448_shared_secret_hex: String,
+        sntrup761_shared_secret_hex: String,
+        x448_ephemeral_hex: String,
+        ct_sntrup_fill: u8,
+        ct_sntrup_size: usize,
+        pk_hybrid_fill: u8,
+        pk_hybrid_size: usize,
+    }
+
+    #[derive(Deserialize)]
+    struct HybridKemV2Expected {
+        hybrid_shared_secret_hex: String,
+        hybrid_shared_secret_size: usize,
+    }
+
+    #[test]
+    fn verify_hybrid_kem_v2_combiner() {
+        use trelis_hybrid::combiner::HybridSharedSecret;
+
+        let file: HybridKemV2File = load_vector_file("hybrid-kem.json");
+
+        // v2 uses a distinct context and the same 32-byte output.
+        assert_eq!(file.v2_notes.context_string, "trelis-hybrid-kem-v2");
+        assert_eq!(file.v2_notes.output_size, 32);
+
+        for vector in &file.v2_vectors {
+            let x448_ss: [u8; 56] = hex_decode(&vector.inputs.x448_shared_secret_hex)
+                .try_into()
+                .expect("x448 shared secret must be 56 bytes");
+            let sntrup_ss: [u8; 32] = hex_decode(&vector.inputs.sntrup761_shared_secret_hex)
+                .try_into()
+                .expect("sntrup761 shared secret must be 32 bytes");
+            let x448_eph = hex_decode(&vector.inputs.x448_ephemeral_hex);
+            // The variable-length wire components are uniform fills, reconstructed
+            // as [fill; size]; combine_v2 hashes each to 32 bytes internally.
+            let ct_sntrup = vec![vector.inputs.ct_sntrup_fill; vector.inputs.ct_sntrup_size];
+            let pk_hybrid = vec![vector.inputs.pk_hybrid_fill; vector.inputs.pk_hybrid_size];
+
+            let actual = HybridSharedSecret::combine_v2(
+                &x448_ss, &sntrup_ss, &ct_sntrup, &x448_eph, &pk_hybrid,
+            );
+            let expected = hex_decode(&vector.expected.hybrid_shared_secret_hex);
+
+            assert_eq!(
+                actual.as_bytes().as_slice(),
+                expected.as_slice(),
+                "Hybrid KEM v2 combiner '{}' produced wrong output.\n\
+                 Expected: {}\n\
+                 Actual:   {}",
+                vector.name,
+                vector.expected.hybrid_shared_secret_hex,
+                hex::encode(actual.as_bytes())
+            );
+            assert_eq!(
+                vector.expected.hybrid_shared_secret_size, 32,
+                "v2 output size must be 32 bytes"
+            );
+        }
+
+        println!("✓ Verified {} hybrid KEM v2 vectors", file.v2_vectors.len());
+    }
 }
 
 // =============================================================================
@@ -293,6 +506,10 @@ mod hybrid_sig {
     use super::*;
     use serde::Deserialize;
     use trelis_hybrid::signature::{PUBLIC_KEY_SIZE, SIGNATURE_SIZE};
+    // Only the default-backend byte-exact BoP-2 KAT below uses blake3_kdf (for H2);
+    // guarded off mldsa-blake3-default so it does not become an unused import there.
+    #[cfg(not(feature = "mldsa-blake3-default"))]
+    use trelis_primitives::blake3_kdf;
 
     #[derive(Deserialize)]
     struct HybridSigFile {
@@ -305,6 +522,7 @@ mod hybrid_sig {
         ed448_signature: usize,
         mldsa65_public_key: usize,
         mldsa65_signature: usize,
+        bop2_response: usize,
         hybrid_public_key: usize,
         hybrid_signature: usize,
     }
@@ -331,10 +549,15 @@ mod hybrid_sig {
             file.sizes.ed448_public_key + file.sizes.mldsa65_public_key,
             "Hybrid public key = Ed448 + ML-DSA-65"
         );
+        // BoP-2: the hybrid signature is the 57-byte Ed448 Schnorr response plus
+        // ML-DSA-65, NOT the 114-byte standalone Ed448 signature. ed448_signature
+        // stays 114 (the standalone primitive size, asserted above); bop2_response
+        // is the combiner's classical half.
+        assert_eq!(file.sizes.bop2_response, 57, "BoP-2 response size");
         assert_eq!(
             file.sizes.hybrid_signature,
-            file.sizes.ed448_signature + file.sizes.mldsa65_signature,
-            "Hybrid signature = Ed448 + ML-DSA-65"
+            file.sizes.bop2_response + file.sizes.mldsa65_signature,
+            "Hybrid signature = BoP-2 response + ML-DSA-65"
         );
 
         // Verify against actual implementation
@@ -372,6 +595,353 @@ mod hybrid_sig {
         );
 
         println!("✓ Verified signature roundtrip");
+    }
+
+    // --- byte-exact BoP-2 signature KATs (regenerated via the deterministic
+    // commit hook; sigma2 is the randomized ML-DSA-65 half, pinned as bytes) ---
+
+    #[cfg(not(feature = "mldsa-blake3-default"))]
+    #[derive(Deserialize)]
+    struct HybridSigKatFile {
+        kat_notes: KatNotes,
+        kat_vectors: Vec<KatVector>,
+    }
+
+    #[cfg(not(feature = "mldsa-blake3-default"))]
+    #[derive(Deserialize)]
+    struct KatNotes {
+        signature_size: usize,
+    }
+
+    #[cfg(not(feature = "mldsa-blake3-default"))]
+    #[derive(Deserialize)]
+    struct KatVector {
+        name: String,
+        keypair_seed_hex: String,
+        nonce_seed_hex: String,
+        message_hex: String,
+        public_key_hex: String,
+        signature_hex: String,
+    }
+
+    /// H2: the 114-byte BLAKE3 XOF over sigma2 keyed by SIG_BOP2_H2_CONTEXT,
+    /// recomputed identically to trelis-hybrid's BoP-2 signature combiner.
+    #[cfg(not(feature = "mldsa-blake3-default"))]
+    fn h2_challenge(sigma2: &[u8]) -> [u8; 114] {
+        let mut hasher = blake3::Hasher::new_derive_key(blake3_kdf::SIG_BOP2_H2_CONTEXT);
+        hasher.update(sigma2);
+        let mut wide = [0u8; 114];
+        hasher.finalize_xof().fill(&mut wide);
+        wide
+    }
+
+    // Byte-exact for the default SHAKE256 ML-DSA-65 backend only: under
+    // mldsa-blake3-default the whole ML-DSA keypair derivation changes, so the
+    // stored public key / signature no longer reproduce (separate blake3 KATs exist).
+    // Guarded to keep the CI `cargo test --workspace --all-features` gate green.
+    #[cfg(not(feature = "mldsa-blake3-default"))]
+    #[test]
+    fn verify_hybrid_sig_kat_vectors() {
+        use trelis_hybrid::HybridSignature;
+
+        let file: HybridSigKatFile = load_vector_file("hybrid-sig.json");
+        assert_eq!(file.kat_notes.signature_size, 3366);
+        assert!(
+            !file.kat_vectors.is_empty(),
+            "at least one BoP-2 signature KAT vector required"
+        );
+
+        for kat in &file.kat_vectors {
+            let seed: [u8; 32] = hex_decode(&kat.keypair_seed_hex)
+                .try_into()
+                .expect("keypair seed must be 32 bytes");
+            let nonce_seed: [u8; 32] = hex_decode(&kat.nonce_seed_hex)
+                .try_into()
+                .expect("nonce seed must be 32 bytes");
+            let message = hex_decode(&kat.message_hex);
+            let stored_pk = hex_decode(&kat.public_key_hex);
+            let stored_sig = hex_decode(&kat.signature_hex);
+            assert_eq!(
+                stored_sig.len(),
+                SIGNATURE_SIZE,
+                "KAT '{}' signature must be {} bytes",
+                kat.name,
+                SIGNATURE_SIZE
+            );
+
+            // The deterministic keypair reproduces the stored public key.
+            let keypair = HybridSigningKeypair::generate_from_seed(&seed).unwrap();
+            assert_eq!(
+                keypair.public_key().to_bytes().as_slice(),
+                stored_pk.as_slice(),
+                "KAT '{}' public key mismatch",
+                kat.name
+            );
+
+            // sigma2 = the ML-DSA-65 half (bytes 57..3366); a randomized signature
+            // pinned as-is.
+            let sigma2 = &stored_sig[57..];
+
+            // Reproduce the 57-byte Ed448 BoP-2 Schnorr response BYTE-FOR-BYTE from
+            // the plan-02 vector-only commit hook + chl = H2(sigma2). This is the
+            // part CMB-02 actually changed; a production CSPRNG signature is NOT used.
+            let (_com, nonce) = keypair
+                .ed448_secret()
+                .bop_commit_deterministic(&nonce_seed)
+                .unwrap();
+            let chl = h2_challenge(sigma2);
+            let rsp = nonce.respond(&chl);
+            assert_eq!(
+                rsp.as_bytes().as_slice(),
+                &stored_sig[..57],
+                "KAT '{}' BoP-2 response did not reproduce byte-for-byte",
+                kat.name
+            );
+
+            // The full signature reconstructs byte-for-byte (rsp || sigma2)...
+            let mut reconstructed = Vec::with_capacity(SIGNATURE_SIZE);
+            reconstructed.extend_from_slice(rsp.as_bytes());
+            reconstructed.extend_from_slice(sigma2);
+            assert_eq!(
+                reconstructed, stored_sig,
+                "KAT '{}' full signature mismatch",
+                kat.name
+            );
+
+            // ...and the stored signature verifies under the derived public key.
+            let sig = HybridSignature::<DefaultMlDsaScheme>::from_bytes(&stored_sig).unwrap();
+            assert!(
+                keypair.public_key().verify(&message, &sig).is_ok(),
+                "KAT '{}' stored signature must verify",
+                kat.name
+            );
+        }
+
+        println!(
+            "✓ Verified {} byte-exact BoP-2 signature KATs",
+            file.kat_vectors.len()
+        );
+    }
+
+    // --- context-mode + prehash-mode byte-exact BoP-2 KATs (WR-03) ---
+    // Guarded off mldsa-blake3-default for the SAME reason as the plain KAT above
+    // (they reproduce the SHAKE256-backend bytes). Each reproduces rsp IDENTICALLY
+    // to the plain KAT — rsp = respond(H2(sigma2)) does not depend on m' — then
+    // verifies under the mode-specific verifier (exercising H1Domain::Context /
+    // ::Prehashed) AND asserts the deterministic baked-in non-collision: the framed
+    // region / prehash digest MUST fail plain verify() (distinct H1 domains).
+    // The plain verify_hybrid_sig_kat_vectors above is left byte-frozen.
+
+    #[cfg(not(feature = "mldsa-blake3-default"))]
+    #[derive(Deserialize)]
+    struct HybridSigContextKatFile {
+        kat_context_vectors: Vec<ContextKatVector>,
+    }
+
+    #[cfg(not(feature = "mldsa-blake3-default"))]
+    #[derive(Deserialize)]
+    struct ContextKatVector {
+        name: String,
+        keypair_seed_hex: String,
+        nonce_seed_hex: String,
+        message_hex: String,
+        context_hex: String,
+        public_key_hex: String,
+        signature_hex: String,
+    }
+
+    #[cfg(not(feature = "mldsa-blake3-default"))]
+    #[derive(Deserialize)]
+    struct HybridSigPrehashKatFile {
+        kat_prehash_vectors: Vec<PrehashKatVector>,
+    }
+
+    #[cfg(not(feature = "mldsa-blake3-default"))]
+    #[derive(Deserialize)]
+    struct PrehashKatVector {
+        name: String,
+        keypair_seed_hex: String,
+        nonce_seed_hex: String,
+        message_hex: String,
+        context_string: String,
+        public_key_hex: String,
+        signature_hex: String,
+    }
+
+    /// Reproduces the 57-byte Ed448 BoP-2 response byte-for-byte (identically to
+    /// the plain KAT: `rsp = respond(H2(sigma2))` is independent of `m'`) and
+    /// returns the reconstructed `rsp || sigma2`, asserting it equals the stored
+    /// signature. Shared by the context- and prehash-mode verifiers.
+    #[cfg(not(feature = "mldsa-blake3-default"))]
+    fn reproduce_kat_signature(
+        keypair: &HybridSigningKeypair,
+        nonce_seed: &[u8; 32],
+        stored_sig: &[u8],
+        name: &str,
+    ) -> Vec<u8> {
+        let sigma2 = &stored_sig[57..];
+        let (_com, nonce) = keypair
+            .ed448_secret()
+            .bop_commit_deterministic(nonce_seed)
+            .unwrap();
+        let chl = h2_challenge(sigma2);
+        let rsp = nonce.respond(&chl);
+        assert_eq!(
+            rsp.as_bytes().as_slice(),
+            &stored_sig[..57],
+            "KAT '{}' BoP-2 response did not reproduce byte-for-byte",
+            name
+        );
+        let mut reconstructed = Vec::with_capacity(SIGNATURE_SIZE);
+        reconstructed.extend_from_slice(rsp.as_bytes());
+        reconstructed.extend_from_slice(sigma2);
+        assert_eq!(
+            reconstructed, stored_sig,
+            "KAT '{}' full signature mismatch",
+            name
+        );
+        reconstructed
+    }
+
+    #[cfg(not(feature = "mldsa-blake3-default"))]
+    #[test]
+    fn verify_hybrid_sig_context_kat_vectors() {
+        use trelis_hybrid::HybridSignature;
+
+        let file: HybridSigContextKatFile = load_vector_file("hybrid-sig.json");
+        assert!(
+            !file.kat_context_vectors.is_empty(),
+            "at least one context-mode BoP-2 signature KAT vector required"
+        );
+
+        for kat in &file.kat_context_vectors {
+            let seed: [u8; 32] = hex_decode(&kat.keypair_seed_hex)
+                .try_into()
+                .expect("keypair seed must be 32 bytes");
+            let nonce_seed: [u8; 32] = hex_decode(&kat.nonce_seed_hex)
+                .try_into()
+                .expect("nonce seed must be 32 bytes");
+            let message = hex_decode(&kat.message_hex);
+            let context = hex_decode(&kat.context_hex);
+            let stored_pk = hex_decode(&kat.public_key_hex);
+            let stored_sig = hex_decode(&kat.signature_hex);
+            assert_eq!(
+                stored_sig.len(),
+                SIGNATURE_SIZE,
+                "KAT '{}' signature must be {} bytes",
+                kat.name,
+                SIGNATURE_SIZE
+            );
+
+            let keypair = HybridSigningKeypair::generate_from_seed(&seed).unwrap();
+            assert_eq!(
+                keypair.public_key().to_bytes().as_slice(),
+                stored_pk.as_slice(),
+                "KAT '{}' public key mismatch",
+                kat.name
+            );
+
+            let reconstructed =
+                reproduce_kat_signature(&keypair, &nonce_seed, &stored_sig, &kat.name);
+            let sig = HybridSignature::<DefaultMlDsaScheme>::from_bytes(&reconstructed).unwrap();
+
+            // Verifies under the context verifier (exercises H1Domain::Context).
+            assert!(
+                keypair
+                    .public_key()
+                    .verify_with_context(&message, &context, &sig)
+                    .is_ok(),
+                "context KAT '{}' must verify under verify_with_context",
+                kat.name
+            );
+
+            // Baked-in non-collision: the framed region ctx_len || ctx || message
+            // does NOT verify as a plain signature (distinct H1 domains, WR-03).
+            let mut framed = Vec::with_capacity(1 + context.len() + message.len());
+            framed.push(u8::try_from(context.len()).unwrap());
+            framed.extend_from_slice(&context);
+            framed.extend_from_slice(&message);
+            assert!(
+                keypair.public_key().verify(&framed, &sig).is_err(),
+                "context KAT '{}' must NOT verify as a plain sig over the framed region",
+                kat.name
+            );
+        }
+
+        println!(
+            "✓ Verified {} context-mode BoP-2 signature KATs",
+            file.kat_context_vectors.len()
+        );
+    }
+
+    #[cfg(not(feature = "mldsa-blake3-default"))]
+    #[test]
+    fn verify_hybrid_sig_prehash_kat_vectors() {
+        use trelis_hybrid::HybridSignature;
+
+        let file: HybridSigPrehashKatFile = load_vector_file("hybrid-sig.json");
+        assert!(
+            !file.kat_prehash_vectors.is_empty(),
+            "at least one prehash-mode BoP-2 signature KAT vector required"
+        );
+
+        for kat in &file.kat_prehash_vectors {
+            let seed: [u8; 32] = hex_decode(&kat.keypair_seed_hex)
+                .try_into()
+                .expect("keypair seed must be 32 bytes");
+            let nonce_seed: [u8; 32] = hex_decode(&kat.nonce_seed_hex)
+                .try_into()
+                .expect("nonce seed must be 32 bytes");
+            let message = hex_decode(&kat.message_hex);
+            let stored_pk = hex_decode(&kat.public_key_hex);
+            let stored_sig = hex_decode(&kat.signature_hex);
+            assert_eq!(
+                stored_sig.len(),
+                SIGNATURE_SIZE,
+                "KAT '{}' signature must be {} bytes",
+                kat.name,
+                SIGNATURE_SIZE
+            );
+
+            let keypair = HybridSigningKeypair::generate_from_seed(&seed).unwrap();
+            assert_eq!(
+                keypair.public_key().to_bytes().as_slice(),
+                stored_pk.as_slice(),
+                "KAT '{}' public key mismatch",
+                kat.name
+            );
+
+            let reconstructed =
+                reproduce_kat_signature(&keypair, &nonce_seed, &stored_sig, &kat.name);
+            let sig = HybridSignature::<DefaultMlDsaScheme>::from_bytes(&reconstructed).unwrap();
+
+            // Verifies under the prehash verifier (exercises H1Domain::Prehashed).
+            assert!(
+                keypair
+                    .public_key()
+                    .verify_prehashed(&kat.context_string, &message, &sig)
+                    .is_ok(),
+                "prehash KAT '{}' must verify under verify_prehashed",
+                kat.name
+            );
+
+            // Baked-in non-collision: the prehash digest derive_key(context, message)
+            // does NOT verify as a plain signature (distinct H1 domains, WR-03).
+            let digest = blake3_kdf::derive_key(&kat.context_string, &message);
+            assert!(
+                keypair
+                    .public_key()
+                    .verify(digest.as_slice(), &sig)
+                    .is_err(),
+                "prehash KAT '{}' must NOT verify as a plain sig over the digest",
+                kat.name
+            );
+        }
+
+        println!(
+            "✓ Verified {} prehash-mode BoP-2 signature KATs",
+            file.kat_prehash_vectors.len()
+        );
     }
 }
 
@@ -636,6 +1206,12 @@ mod wire_format {
         assert_eq!(file.protocol.cipher_suite.name, "TRELIS_HYBRID_V1");
         assert_eq!(file.protocol.header_size.value, 2);
 
+        // Verify the X3DH-PQ transcript size: 299 B after the additive
+        // {version || suite || SessionFlags} framing block (TXB-01 / 50-02).
+        // Regression guard — this MUST track TRANSCRIPT_SIZE in transcript.rs;
+        // without it wire-format.json's transcript_size has zero coverage.
+        assert_eq!(file.x3dh_pq_transcript.transcript_size.value, 299);
+
         println!("✓ Verified protocol info");
     }
 
@@ -659,8 +1235,8 @@ mod wire_format {
 
         // Hybrid signing: Ed448 (57) + ML-DSA-65 (1952) = 2009
         assert_eq!(file.hybrid_keys.signing.public_key_size.value, 2009);
-        // Hybrid signature: Ed448 (114) + ML-DSA-65 (3309) = 3423
-        assert_eq!(file.hybrid_keys.signing.signature_size.value, 3423);
+        // Hybrid signature: BoP-2 rsp (57) + ML-DSA-65 (3309) = 3366
+        assert_eq!(file.hybrid_keys.signing.signature_size.value, 3366);
         // Hybrid KEM public key: X448 (56) + sntrup761 (1158) = 1214
         assert_eq!(file.hybrid_keys.kem.public_key_size.value, 1214);
         // Hybrid encapsulation: X448 (56) + sntrup761 (1039) = 1095
@@ -736,6 +1312,7 @@ mod wire_format {
 mod x3dh_pq {
     use super::*;
     use serde::Deserialize;
+    use trelis_primitives::derive_key;
 
     #[derive(Deserialize)]
     struct X3dhPqFile {
@@ -770,14 +1347,14 @@ mod x3dh_pq {
     fn verify_transcript_structure() {
         let file: X3dhPqFile = load_vector_file("x3dh-pq.json");
 
-        // Verify context string
-        assert_eq!(file.notes.session_context, "trelis-session-v1");
+        // Verify context string (v2: 299-byte transcript binds the framing block)
+        assert_eq!(file.notes.session_context, "trelis-session-v2");
 
         // Verify sizes
         assert_eq!(file.sizes.hash_size, 32);
         assert_eq!(file.sizes.dh_size, 56);
         assert_eq!(file.sizes.pq_ss_size, 32);
-        assert_eq!(file.sizes.transcript_size, 296);
+        assert_eq!(file.sizes.transcript_size, 299);
 
         // Verify transcript layout
         let expected_fields = [
@@ -788,6 +1365,10 @@ mod x3dh_pq {
             ("dh2", 152, 56),
             ("dh3", 208, 56),
             ("pq_ss", 264, 32),
+            // Additive {version || suite_id || SessionFlags} framing block (F08 + F18).
+            ("version", 296, 1),
+            ("suite_id", 297, 1),
+            ("session_flags", 298, 1),
         ];
 
         for (name, offset, size) in &expected_fields {
@@ -803,7 +1384,7 @@ mod x3dh_pq {
 
         // Verify total size matches
         let total: usize = expected_fields.iter().map(|(_, _, s)| s).sum();
-        assert_eq!(total, 296, "Total transcript size");
+        assert_eq!(total, 299, "Total transcript size");
 
         println!("✓ Verified X3DH-PQ transcript structure");
     }
@@ -813,10 +1394,105 @@ mod x3dh_pq {
         let file: X3dhPqFile = load_vector_file("x3dh-pq.json");
 
         // 3 hashes (32 each) + 3 DH outputs (56 each) + 1 PQ shared secret (32)
-        let expected = 3 * file.sizes.hash_size + 3 * file.sizes.dh_size + file.sizes.pq_ss_size;
+        // + 3-byte {version || suite_id || session_flags} framing block (F08 + F18).
+        let expected =
+            3 * file.sizes.hash_size + 3 * file.sizes.dh_size + file.sizes.pq_ss_size + 3;
         assert_eq!(expected, file.sizes.transcript_size);
 
         println!("✓ Verified transcript size calculation");
+    }
+
+    // --- Live v2 session KAT ---
+    //
+    // The `session_context_derivation` vector's expected secret used to be a
+    // fabricated placeholder (`a1b2c3d4…`) that no test consumed, so it looked
+    // like a v2 KAT but was dead, misleading data. These structs deserialise
+    // the `vectors` array and the test below asserts the stored secret is the
+    // byte-exact `derive_key(context, transcript)` output — turning it into a
+    // real, regression-guarded KAT.
+
+    #[derive(Deserialize)]
+    struct X3dhPqVectorsFile {
+        vectors: Vec<X3dhPqVector>,
+    }
+
+    #[derive(Deserialize)]
+    struct X3dhPqVector {
+        name: String,
+        #[serde(default)]
+        inputs: Option<X3dhPqVectorInputs>,
+        #[serde(default)]
+        expected: Option<X3dhPqVectorExpected>,
+    }
+
+    #[derive(Deserialize)]
+    struct X3dhPqVectorInputs {
+        #[serde(default)]
+        context: Option<String>,
+        #[serde(default)]
+        transcript_hex: Option<String>,
+        #[serde(default)]
+        transcript_size: Option<usize>,
+    }
+
+    #[derive(Deserialize)]
+    struct X3dhPqVectorExpected {
+        #[serde(default)]
+        session_shared_secret_hex: Option<String>,
+        #[serde(default)]
+        session_shared_secret_size: Option<usize>,
+    }
+
+    #[test]
+    fn verify_session_context_derivation_kat() {
+        let file: X3dhPqVectorsFile = load_vector_file("x3dh-pq.json");
+        let vector = file
+            .vectors
+            .iter()
+            .find(|v| v.name == "session_context_derivation")
+            .expect("session_context_derivation vector not found");
+
+        let inputs = vector.inputs.as_ref().expect("inputs required");
+        let expected = vector.expected.as_ref().expect("expected required");
+
+        let context = inputs.context.as_ref().expect("context required");
+        let transcript = hex_decode(
+            inputs
+                .transcript_hex
+                .as_ref()
+                .expect("transcript_hex required"),
+        );
+        let expected_secret_hex = expected
+            .session_shared_secret_hex
+            .as_ref()
+            .expect("session_shared_secret_hex required");
+        let expected_secret = hex_decode(expected_secret_hex);
+
+        // v2 context derives over the full 299-byte transcript (with framing block).
+        assert_eq!(context.as_str(), "trelis-session-v2");
+        assert_eq!(transcript.len(), 299, "v2 transcript must be 299 bytes");
+        if let Some(size) = inputs.transcript_size {
+            assert_eq!(size, 299, "declared transcript_size must be 299");
+        }
+
+        // The stored expected secret MUST be the byte-exact derive_key output.
+        // This is what makes the vector a real KAT instead of a placeholder.
+        let actual = derive_key(context, &transcript);
+        assert_eq!(
+            actual.as_slice(),
+            expected_secret.as_slice(),
+            "session_context_derivation KAT mismatch.\n\
+             Expected: {}\n\
+             Actual:   {}",
+            expected_secret_hex,
+            hex::encode(&actual)
+        );
+        assert_eq!(expected_secret.len(), 32, "session secret must be 32 bytes");
+        if let Some(size) = expected.session_shared_secret_size {
+            assert_eq!(size, 32, "declared session_shared_secret_size must be 32");
+        }
+
+        println!("✓ Verified X3DH-PQ session_context_derivation KAT");
     }
 }
 
@@ -1298,6 +1974,22 @@ struct WrapPurposeValue {
     description: String,
 }
 
+/// Deserialises just the `vectors` array of `multidevice.json` so a test can
+/// assert a named vector's `total_size` (e.g. the identity-rooted device
+/// approval certificate). `MultideviceFile` above does NOT read these, so this
+/// is the in-suite guard against the fixture drifting from the real struct.
+#[derive(Debug, Deserialize)]
+struct MultideviceVectorsFile {
+    vectors: Vec<MultideviceVectorEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MultideviceVectorEntry {
+    name: String,
+    #[serde(default)]
+    total_size: Option<usize>,
+}
+
 #[test]
 fn verify_multidevice_sizes() {
     let file: MultideviceFile = load_vector_file("multidevice.json");
@@ -1306,7 +1998,7 @@ fn verify_multidevice_sizes() {
     assert_eq!(file.sizes.thread_id, 32);
     assert_eq!(file.sizes.device_fingerprint, 32);
     assert_eq!(file.sizes.retained_key, 80);
-    assert_eq!(file.sizes.hybrid_signature, 3423);
+    assert_eq!(file.sizes.hybrid_signature, 3366);
     assert_eq!(file.sizes.hybrid_signing_public_key, 2009);
     assert_eq!(file.sizes.hybrid_kem_public_key, 1214);
     assert_eq!(file.sizes.one_time_key, 1222);
@@ -1390,6 +2082,67 @@ fn verify_revocation_reasons() {
 }
 
 #[test]
+fn verify_device_approval_vector_total_size() {
+    // The device-approval certificate is identity-rooted (TRN-01): body 4,138
+    // + 3,366-byte signature = 7,504 B on the wire. This guards the JSON
+    // fixture against silent drift from the real struct's to_bytes().len(),
+    // which verify_device_approval_roundtrip pins independently.
+    let file: MultideviceVectorsFile = load_vector_file("multidevice.json");
+    let vector = file
+        .vectors
+        .iter()
+        .find(|v| v.name == "device_approval_certificate_structure")
+        .expect("device_approval_certificate_structure vector not found");
+    assert_eq!(
+        vector.total_size,
+        Some(7504),
+        "device approval certificate total_size must be 7,504 (identity-rooted body 4,138 + 3,366 signature)"
+    );
+
+    println!("✓ Device approval certificate vector total_size verified (7,504)");
+}
+
+#[test]
+fn verify_device_key_wrap_vector_total_size() {
+    use trelis_hybrid::HybridKemKeypair;
+    use trelis_multidevice::{DeviceKeyWrap, WrapContext, WrapPurpose};
+
+    // JSON side: the fixture's declared committing-AEAD wire size (AEAD-01).
+    let file: MultideviceVectorsFile = load_vector_file("multidevice.json");
+    let vector = file
+        .vectors
+        .iter()
+        .find(|v| v.name == "device_key_wrap_structure")
+        .expect("device_key_wrap_structure vector not found");
+    assert_eq!(
+        vector.total_size,
+        Some(1207),
+        "device key wrap total_size must be 1,207 (encapsulation 1095 + key_id 8 + nonce 24 + committing payload 80)"
+    );
+
+    // Struct side: a real wrap serialises to exactly the JSON total_size, so the
+    // fixture cannot silently drift from the committing-AEAD wire size
+    // (T-54-03-02), mirroring the device-approval recompute guard (50-02/53-01).
+    let keypair = HybridKemKeypair::generate().unwrap();
+    let secret = [0x5Au8; 32];
+    let context = WrapContext::new(
+        [0x11u8; 8],
+        WrapPurpose::HistoryKey,
+        [0x22u8; 32],
+        [0x33u8; 32],
+        1,
+    );
+    let wrap = DeviceKeyWrap::wrap(&secret, keypair.public_key(), &context).unwrap();
+    assert_eq!(
+        wrap.to_bytes().len(),
+        vector.total_size.unwrap(),
+        "DeviceKeyWrap::to_bytes().len() must equal multidevice.json total_size (1,207)"
+    );
+
+    println!("✓ Device key wrap vector total_size verified (1,207)");
+}
+
+#[test]
 fn verify_wrap_purposes() {
     let file: MultideviceFile = load_vector_file("multidevice.json");
 
@@ -1452,6 +2205,8 @@ fn verify_device_approval_roundtrip() {
 
     let approving_device = HybridSigningKeypair::generate().unwrap();
     let new_device = HybridSigningKeypair::generate().unwrap();
+    // Distinct account identity keypair rooting the device graph (TRN-01).
+    let account_identity = HybridSigningKeypair::generate().unwrap();
 
     let new_device_fingerprint = device_fingerprint(&new_device.public_key());
     let device_id = [0x42u8; 16];
@@ -1464,6 +2219,7 @@ fn verify_device_approval_roundtrip() {
         user_id,
         new_device_fingerprint,
         server_nonce,
+        &account_identity.public_key(),
         timestamp,
         &approving_device,
     )
@@ -1471,6 +2227,14 @@ fn verify_device_approval_roundtrip() {
 
     // Verify roundtrip
     let bytes = cert.to_bytes();
+    // Identity-rooted body (4,138) + 3,366-byte signature = 7,504 on the wire.
+    // This pins the real struct's size, which the multidevice.json fixture's
+    // total_size (asserted in verify_device_approval_vector_total_size) tracks.
+    assert_eq!(
+        bytes.len(),
+        7504,
+        "identity-rooted approval cert is 7,504 bytes"
+    );
     let recovered = DeviceApprovalCertificate::from_bytes(&bytes).unwrap();
 
     assert_eq!(recovered.approving_device_id, device_id);
@@ -1482,11 +2246,19 @@ fn verify_device_approval_roundtrip() {
         recovered.approving_device_pk.to_bytes(),
         approving_device.public_key().to_bytes()
     );
+    assert_eq!(
+        recovered.account_identity_pk.to_bytes(),
+        account_identity.public_key().to_bytes()
+    );
 
-    // Verify the embedded-pk self-verifying path (no external pk passed).
+    // Signature self-verifies; identity rooting uses the trusted anchor.
     assert!(
         recovered
-            .verify(timestamp + 30, NonceWindow::DEFAULT)
+            .verify(
+                &account_identity.public_key(),
+                timestamp + 30,
+                NonceWindow::DEFAULT
+            )
             .is_ok()
     );
 

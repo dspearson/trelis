@@ -96,6 +96,15 @@ pub mod key_schedule;
 pub mod operations;
 #[cfg(any(feature = "std", feature = "wasm"))]
 pub mod session;
+// Cross-invocation counter-rollback high-water mark (RBK-01 / GAP-05). Gated
+// behind `session-serialization` AND `std`/`wasm`: `of_session` imports
+// `crate::session::CocoaSession`, which is itself `#[cfg(any(std, wasm))]`, so
+// the bare `session-serialization` gate would break the feature-powerset combo.
+#[cfg(all(
+    feature = "session-serialization",
+    any(feature = "std", feature = "wasm")
+))]
+mod session_watermark;
 #[cfg(any(feature = "std", feature = "wasm"))]
 pub mod tree;
 
@@ -109,6 +118,11 @@ pub use key_schedule::{
 };
 #[cfg(any(feature = "std", feature = "wasm"))]
 pub use session::CocoaSession;
+#[cfg(all(
+    feature = "session-serialization",
+    any(feature = "std", feature = "wasm")
+))]
+pub use session_watermark::SessionWatermark;
 #[cfg(any(feature = "std", feature = "wasm"))]
 pub use tree::{NodeIndex, NodeState, PartialTreeView};
 

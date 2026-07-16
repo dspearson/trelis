@@ -10,7 +10,9 @@ publish = false
 
 [dependencies]
 trelis-error = { workspace = true, features = ["std"] }
-trelis-primitives = { workspace = true, features = ["std"] }
+# expose-internals surfaces the vector-only Ed448 bop_commit_deterministic hook
+# used to reproduce byte-exact BoP-2 signature KATs (hybrid-sig.json).
+trelis-primitives = { workspace = true, features = ["std", "expose-internals"] }
 trelis-hybrid = { workspace = true, features = ["std"] }
 trelis-wire = { workspace = true }
 trelis-x3dh-pq = { workspace = true, features = ["std"] }
@@ -18,10 +20,27 @@ trelis-ratchet = { workspace = true, features = ["std"] }
 trelis-cocoa = { workspace = true, features = ["std"] }
 trelis-multidevice = { workspace = true, features = ["std"] }
 
+[features]
+# ML-DSA BLAKE3-variant passthroughs. CI runs `cargo test --workspace --all-features`,
+# which flips the default ML-DSA backend to BLAKE3 (mldsa-blake3-default) across the
+# whole workspace via feature unification. Declaring the features here lets the
+# byte-exact BoP-2 signature KAT (test_vectors.rs) cfg-guard itself off that backend:
+# its vectors are byte-exact for the default SHAKE256 ML-DSA-65 backend only (the
+# project ships separate blake3-variant KATs, e.g. mldsa65b / blake3_sig-ver.json).
+mldsa-blake3 = ["trelis-primitives/mldsa-blake3", "trelis-hybrid/mldsa-blake3"]
+mldsa-blake3-default = [
+    "mldsa-blake3",
+    "trelis-primitives/mldsa-blake3-default",
+    "trelis-hybrid/mldsa-blake3-default",
+]
+
 [dev-dependencies]
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 hex.workspace = true
+# Used by the hybrid-sig KAT to recompute H2 (the 114-byte BLAKE3 XOF challenge)
+# identically to trelis-hybrid's BoP-2 signature combiner.
+blake3.workspace = true
 
 [lints]
 workspace = true

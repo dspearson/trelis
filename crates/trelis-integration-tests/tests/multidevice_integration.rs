@@ -47,6 +47,9 @@ fn test_complete_device_onboarding_flow() {
     let new_device_fingerprint = device_fingerprint(&new_device_signing_key.public_key());
 
     // === Step 1: Existing device creates approval certificate ===
+    // The account identity keypair roots the device graph — a separate root
+    // from the approving DEVICE key; its public key is the trusted anchor.
+    let account_identity = HybridSigningKeypair::generate().unwrap();
     let approval_timestamp = 1000u64;
     let user_id = [0x99u8; 32];
     let server_nonce = [0xCDu8; 32];
@@ -55,15 +58,17 @@ fn test_complete_device_onboarding_flow() {
         user_id,
         new_device_fingerprint,
         server_nonce,
+        &account_identity.public_key(),
         approval_timestamp,
         &existing_signing_key,
     )
     .expect("Failed to create approval certificate");
 
-    // === Step 2: New device verifies the approval (within window, self-verifying) ===
+    // === Step 2: New device verifies the approval (within window; signature
+    // self-verifying, rooted in the trusted account identity anchor) ===
     let now = approval_timestamp + 30;
     approval
-        .verify(now, NonceWindow::DEFAULT)
+        .verify(&account_identity.public_key(), now, NonceWindow::DEFAULT)
         .expect("New device should be able to verify approval");
 
     // Verify the fingerprint matches
@@ -125,6 +130,7 @@ fn test_approval_verification_rejects_tampered_embedded_pk() {
     let device_id: DeviceId = [0x01u8; 16];
     let signing_key = HybridSigningKeypair::generate().unwrap();
     let other_signing = HybridSigningKeypair::generate().unwrap();
+    let account_identity = HybridSigningKeypair::generate().unwrap();
     let fingerprint = [0xAAu8; FINGERPRINT_SIZE];
     let user_id = [0x99u8; 32];
     let server_nonce = [0xCDu8; 32];
@@ -134,6 +140,7 @@ fn test_approval_verification_rejects_tampered_embedded_pk() {
         user_id,
         fingerprint,
         server_nonce,
+        &account_identity.public_key(),
         1000,
         &signing_key,
     )
@@ -141,10 +148,11 @@ fn test_approval_verification_rejects_tampered_embedded_pk() {
 
     // Tamper: swap the embedded pk to a different key. The signature was made
     // over the original pk's bytes, so verification with the now-mismatched pk
-    // must fail.
+    // must fail. The anchor is the honest account identity key, so the identity
+    // check passes and the signature check is what rejects.
     approval.approving_device_pk = other_signing.public_key().clone();
 
-    let result = approval.verify(1030, NonceWindow::DEFAULT);
+    let result = approval.verify(&account_identity.public_key(), 1030, NonceWindow::DEFAULT);
     assert!(
         matches!(result, Err(CryptoError::SignatureVerificationFailed)),
         "Verification with tampered embedded pk should fail"
@@ -158,17 +166,24 @@ fn test_approval_verification_rejects_tampered_embedded_pk() {
 #[test]
 fn test_approval_certificate_serialisation_roundtrip() {
     let signing_key = HybridSigningKeypair::generate().unwrap();
+    let account_identity = HybridSigningKeypair::generate().unwrap();
     let original = DeviceApprovalCertificate::new(
         [0x42u8; 16],
         [0x99u8; 32],
         [0xAAu8; 32],
         [0xCDu8; 32],
+        &account_identity.public_key(),
         12345,
         &signing_key,
     )
     .unwrap();
 
     let bytes = original.to_bytes();
+    assert_eq!(
+        bytes.len(),
+        7504,
+        "identity-rooted approval cert is 7,504 bytes"
+    );
     let recovered = DeviceApprovalCertificate::from_bytes(&bytes).unwrap();
 
     assert_eq!(recovered.approving_device_id, original.approving_device_id);
@@ -183,9 +198,15 @@ fn test_approval_certificate_serialisation_roundtrip() {
         recovered.approving_device_pk.to_bytes(),
         original.approving_device_pk.to_bytes()
     );
+    assert_eq!(
+        recovered.account_identity_pk.to_bytes(),
+        original.account_identity_pk.to_bytes()
+    );
 
-    // Signature should still verify (self-contained, no external pk needed)
-    recovered.verify(12375, NonceWindow::DEFAULT).unwrap();
+    // Signature self-verifies; identity rooting uses the trusted anchor.
+    recovered
+        .verify(&account_identity.public_key(), 12375, NonceWindow::DEFAULT)
+        .unwrap();
 
     println!("✓ Approval certificate serialisation roundtrip verified");
 }
@@ -599,7 +620,7 @@ fn test_device_key_wrap_serialisation() {
     let original = DeviceKeyWrap::wrap(&secret, keypair.public_key(), &context).unwrap();
 
     let bytes = original.to_bytes();
-    assert_eq!(bytes.len(), 1175, "DeviceKeyWrap should be 1175 bytes");
+    assert_eq!(bytes.len(), 1207, "DeviceKeyWrap should be 1207 bytes");
 
     let recovered = DeviceKeyWrap::from_bytes(&bytes).unwrap();
 
@@ -738,17 +759,21 @@ fn test_onboarding_with_history_sync() {
     let new_fingerprint = device_fingerprint(&new_signing.public_key());
 
     // === Step 1: Create and verify approval ===
+    let account_identity = HybridSigningKeypair::generate().unwrap();
     let approval = DeviceApprovalCertificate::new(
         existing_device_id,
         [0x99u8; 32],
         new_fingerprint,
         [0xCDu8; 32],
+        &account_identity.public_key(),
         5000,
         &existing_signing,
     )
     .unwrap();
 
-    approval.verify(5030, NonceWindow::DEFAULT).unwrap();
+    approval
+        .verify(&account_identity.public_key(), 5030, NonceWindow::DEFAULT)
+        .unwrap();
 
     // === Step 2: Create history share message ===
     let keys_to_share = existing_store.get_all_keys().to_vec();
@@ -791,8 +816,8 @@ fn test_malformed_data_handling() {
     assert!(DeviceKeyWrap::from_bytes(&[0u8; 100]).is_err());
 
     // Wrong size for DeviceKeyWrap
-    assert!(DeviceKeyWrap::from_bytes(&[0u8; 1174]).is_err()); // One byte short
-    assert!(DeviceKeyWrap::from_bytes(&[0u8; 1176]).is_err()); // One byte long
+    assert!(DeviceKeyWrap::from_bytes(&[0u8; 1206]).is_err()); // One byte short
+    assert!(DeviceKeyWrap::from_bytes(&[0u8; 1208]).is_err()); // One byte long
 
     println!("✓ Malformed data handling verified");
 }

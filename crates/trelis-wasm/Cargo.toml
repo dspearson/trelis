@@ -25,7 +25,7 @@ trelis-primitives = { workspace = true, features = ["wasm"] }
 trelis-hybrid = { workspace = true, features = ["wasm"] }
 trelis-x3dh-pq = { workspace = true, features = ["wasm"] }
 trelis-ratchet = { workspace = true, features = ["wasm"] }
-trelis-cocoa = { workspace = true, features = ["wasm"] }
+trelis-cocoa = { workspace = true, features = ["wasm", "session-serialization"] }
 trelis-multidevice = { workspace = true, features = ["wasm"] }
 wasm-bindgen.workspace = true
 js-sys = "0.3"

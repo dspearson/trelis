@@ -73,6 +73,17 @@ impl SafetyNumber {
     ///
     /// The order of keys does not matter - the same safety number is
     /// produced regardless of which key is provided first.
+    ///
+    /// # Recommended default
+    ///
+    /// Per crypto-spec §15.6, [`new_with_device_set`](Self::new_with_device_set)
+    /// is the **recommended default**: binding the current device set makes the
+    /// safety number change whenever either user adds or removes a device, so a
+    /// silent device addition is *cryptographically* detectable rather than only
+    /// UI-notified. This identity-only constructor is the explicit opt-out for
+    /// low-friction / low-security contexts where that detection is not needed.
+    /// The default pairs with the identity-rooted device approval (TRN-01) so a
+    /// device addition is cryptographically detectable, not only UI-notified.
     #[cfg(feature = "alloc")]
     #[must_use]
     pub fn new(key_a: &HybridIdentityPublicKey, key_b: &HybridIdentityPublicKey) -> Self {
@@ -139,11 +150,20 @@ impl SafetyNumber {
 
     /// Creates a safety number bound to the current device set of both users.
     ///
-    /// This is the spec §15.6 device-set-binding construction. The resulting
+    /// This is the spec §15.6 device-set-binding construction and the
+    /// **recommended default** for safety-number verification: the resulting
     /// safety number changes whenever either user adds or removes a device,
-    /// giving cryptographic detection of silent device additions. Each user's
-    /// device set is hashed in canonical (fingerprint-sorted) order so the
-    /// safety number is independent of device insertion order.
+    /// giving cryptographic detection of silent device additions (rather than
+    /// relying only on a UI notification). Each user's device set is hashed in
+    /// canonical (fingerprint-sorted) order so the safety number is independent
+    /// of device insertion order.
+    ///
+    /// Prefer this over [`new`](Self::new) unless you are in a deliberately
+    /// low-friction / low-security context; it pairs with the identity-rooted
+    /// device approval (TRN-01) so a device addition is cryptographically
+    /// detectable, not only UI-notified. (The library keeps both constructors —
+    /// "default" is a protocol-normative statement the application enforces by
+    /// choosing this constructor; `new` is not deprecated.)
     ///
     /// A distinct BLAKE3 context (`SAFETY_NUMBER_DEVICE_SET_CONTEXT`) ensures
     /// device-set-bound safety numbers are not confused with identity-only
