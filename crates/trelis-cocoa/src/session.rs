@@ -526,6 +526,12 @@ impl CocoaSession {
     ) -> Result<Vec<u8>> {
         use crate::epoch::EpochSecrets;
 
+        // DOS-01: reject an oversized ciphertext BEFORE any cryptographic work —
+        // unconditionally before `EpochSecrets::derive` and `aead::decrypt`. The
+        // four structural arguments are 0 on this channel path, so only the
+        // message-size ceiling applies here.
+        check_size_limits(message.ciphertext.len(), 0, 0, 0, 0)?;
+
         // Derive epoch secrets from the raw epoch secret (same as the sender did)
         let secrets = EpochSecrets::derive(epoch_secret);
 
