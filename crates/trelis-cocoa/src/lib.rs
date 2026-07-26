@@ -132,6 +132,23 @@ pub const MAX_GROUP_SIZE: u32 = 1 << 20;
 /// Maximum tree depth for MAX_GROUP_SIZE.
 pub const MAX_TREE_DEPTH: u32 = 20;
 
+/// Maximum permitted size, in bytes, of a single message / ciphertext /
+/// serialised commit (64 MB). The `check_size_limits` DoS gate rejects a larger
+/// input with `CryptoError::MessageTooLarge` before any cryptographic work
+/// (spec §13 `sec:cocoa-dos`).
+pub const MAX_MESSAGE_SIZE: usize = 64 * 1024 * 1024; // 64 MB
+
+/// Maximum permitted Merkle-proof / commit-path depth. The `check_size_limits`
+/// DoS gate rejects a deeper proof with `CryptoError::ProofTooDeep` before any
+/// cryptographic work (spec §13 `sec:cocoa-dos`).
+pub const MAX_MERKLE_PROOF_DEPTH: usize = 20;
+
+/// Maximum permitted total unmerged-leaf count in the ratchet tree. The
+/// `check_size_limits` DoS gate rejects an excess with
+/// `CryptoError::TreeDepthExceeded` before any cryptographic work
+/// (spec §13 `sec:cocoa-dos`).
+pub const MAX_UNMERGED_LEAVES: usize = 100;
+
 /// Initial epoch number for new groups.
 pub const INITIAL_EPOCH: u64 = 0;
 

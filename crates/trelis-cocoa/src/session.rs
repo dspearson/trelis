@@ -919,6 +919,34 @@ mod tests {
         assert!(matches!(result, Err(CryptoError::EpochMismatch { .. })));
     }
 
+    /// DOS-01 ordering proof (reproduce-don't-assert): an `EncryptedMessage`
+    /// whose ciphertext is BOTH oversized (> `MAX_MESSAGE_SIZE`) AND
+    /// crypto-invalid (its AEAD tag cannot authenticate) must be rejected by the
+    /// size gate with `MessageTooLarge` BEFORE `aead::decrypt` runs. Absent the
+    /// gate this exact input returns `AeadAuthenticationFailed`; that
+    /// discrimination is the proof that `check_size_limits` precedes the AEAD
+    /// operation. The epoch is set to the session's own epoch so that, without
+    /// the gate, control flow would reach `aead::decrypt` rather than being
+    /// short-circuited by the epoch check.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_decrypt_rejects_oversized_before_aead() {
+        let session = create_test_session();
+
+        let oversized = EncryptedMessage {
+            epoch: session.epoch_number(),
+            sender_leaf_position: 0,
+            counter: 0,
+            ciphertext: vec![0xFFu8; crate::MAX_MESSAGE_SIZE + 1],
+        };
+
+        let result = session.decrypt(&oversized);
+        assert!(
+            matches!(result, Err(CryptoError::MessageTooLarge)),
+            "size gate MUST fire before AEAD; got {result:?}"
+        );
+    }
+
     #[cfg_attr(miri, ignore)]
     #[test]
     fn test_join_group() {

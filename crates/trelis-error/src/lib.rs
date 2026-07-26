@@ -424,6 +424,42 @@ pub enum CryptoError {
         received: u64,
     },
 
+    // ─── Denial-of-Service / Resource-Limit Errors ──────────────────────────
+    /// Message exceeds the maximum permitted size.
+    ///
+    /// Returned by the CoCoA `check_size_limits` gate when an inbound message /
+    /// ciphertext / serialised commit is larger than `MAX_MESSAGE_SIZE`, rejected
+    /// BEFORE any AEAD, signature verification, or KEM decapsulation runs (the
+    /// spec's "size checks MUST precede crypto" DoS mitigation). Security
+    /// category — an oversized input is an attacker attempting to force expensive
+    /// cryptographic work (CPU amplification), so the session rejects and
+    /// survives rather than treating it as a fatal local condition. Caller logs
+    /// and rejects.
+    MessageTooLarge,
+
+    /// A Merkle proof / commit path exceeds the maximum permitted depth.
+    ///
+    /// Returned by the CoCoA `check_size_limits` gate when an inbound commit's
+    /// path / opening depth is greater than `MAX_MERKLE_PROOF_DEPTH`, rejected
+    /// before any signature verification or decapsulation. Security category — an
+    /// over-deep proof is an attacker attempting to force O(depth) verification
+    /// work; the session rejects and survives. Caller logs and rejects.
+    ProofTooDeep,
+
+    /// A commit would grow the ratchet tree or group past a structural ceiling.
+    ///
+    /// Returned by the CoCoA `check_size_limits` gate when an inbound commit's
+    /// resulting tree depth, group size, or total unmerged-leaf count exceeds
+    /// `MAX_TREE_DEPTH`, `MAX_GROUP_SIZE`, or `MAX_UNMERGED_LEAVES` respectively,
+    /// rejected before any signature verification or decapsulation. Security
+    /// category — reject-and-survive, deliberately NOT Fatal: a Fatal mapping
+    /// would let one malicious over-limit commit destroy the honest session
+    /// (attacker-triggered self-DoS). Distinct from the local-capacity
+    /// `GroupFull` / `InvalidGroupSize` (Fatal), which signal an unrecoverable
+    /// local condition rather than a rejected remote commit. Caller logs and
+    /// rejects the commit.
+    TreeDepthExceeded,
+
     // ─── Rate Limiting ──────────────────────────────────────────────────────
     /// Rate limit exceeded.
     RateLimitExceeded,
@@ -625,6 +661,13 @@ impl fmt::Display for CryptoError {
                 )
             }
 
+            // Denial-of-Service / resource-limit errors (stable, count-free
+            // strings — they must not leak the offending size / depth back to a
+            // probing attacker)
+            Self::MessageTooLarge => write!(f, "message exceeds maximum size"),
+            Self::ProofTooDeep => write!(f, "merkle proof exceeds maximum depth"),
+            Self::TreeDepthExceeded => write!(f, "tree/group size limit exceeded"),
+
             // Rate limiting
             Self::RateLimitExceeded => write!(f, "rate limit exceeded"),
 
@@ -705,6 +748,9 @@ impl CryptoError {
             | Self::ParentHashMismatch
             | Self::RoundHashMismatch
             | Self::IdentityKeyMismatch
+            | Self::MessageTooLarge
+            | Self::ProofTooDeep
+            | Self::TreeDepthExceeded
             | Self::MessageCounterTooFarAhead { .. }
             | Self::TooManySkippedKeys { .. }
             | Self::SkippedKeyExpired
