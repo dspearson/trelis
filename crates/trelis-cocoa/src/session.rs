@@ -986,6 +986,36 @@ mod tests {
         );
     }
 
+    /// DOS-01 (channel, epoch-secret decrypt path) ordering proof
+    /// (reproduce-don't-assert): an `EncryptedMessage` whose ciphertext is BOTH
+    /// oversized (> `MAX_MESSAGE_SIZE`) AND crypto-invalid (its AEAD tag cannot
+    /// authenticate) must be rejected by the size gate with `MessageTooLarge`
+    /// BEFORE `EpochSecrets::derive` / `aead::decrypt` runs. Absent the gate this
+    /// exact input returns `AeadAuthenticationFailed` (the raw 0xFF bytes cannot
+    /// authenticate under the derived key); that discrimination is the proof that
+    /// `check_size_limits` precedes the derive/AEAD path. This path takes no epoch
+    /// check (it uses the supplied raw epoch secret), so absent the gate control
+    /// flow reaches `aead::decrypt` directly.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_decrypt_with_epoch_secret_rejects_oversized_before_aead() {
+        let session = create_test_session();
+        let epoch_secret = [0xABu8; 32];
+
+        let oversized = EncryptedMessage {
+            epoch: session.epoch_number(),
+            sender_leaf_position: 0,
+            counter: 0,
+            ciphertext: vec![0xFFu8; crate::MAX_MESSAGE_SIZE + 1],
+        };
+
+        let result = session.decrypt_with_epoch_secret(&epoch_secret, &oversized);
+        assert!(
+            matches!(result, Err(CryptoError::MessageTooLarge)),
+            "size gate MUST fire before derive/AEAD; got {result:?}"
+        );
+    }
+
     #[cfg_attr(miri, ignore)]
     #[test]
     fn test_join_group() {
