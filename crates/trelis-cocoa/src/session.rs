@@ -954,6 +954,30 @@ mod tests {
         );
     }
 
+    /// DOS-01 (channel, encrypt path): a plaintext larger than
+    /// `MAX_MESSAGE_SIZE` must be rejected by the size gate with
+    /// `MessageTooLarge` BEFORE `aead::encrypt` runs. Encrypt has no failure
+    /// mode on an oversized plaintext absent the gate (AEAD encrypts any
+    /// length), so returning `MessageTooLarge` is itself the proof that
+    /// `check_size_limits` precedes the AEAD op — the uniform pre-crypto entry
+    /// contract, applied as defence-in-depth on the (trusted-plaintext) send
+    /// path. The Ok payload is reduced to a bool in the failure message so a RED
+    /// run never formats the 64 MiB ciphertext.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_encrypt_rejects_oversized() {
+        let mut session = create_test_session();
+
+        let oversized = vec![0u8; crate::MAX_MESSAGE_SIZE + 1];
+        let result = session.encrypt(&oversized);
+        assert!(
+            matches!(result, Err(CryptoError::MessageTooLarge)),
+            "size gate MUST reject oversized plaintext before aead::encrypt \
+             (encrypt returned Ok={})",
+            result.is_ok()
+        );
+    }
+
     #[cfg_attr(miri, ignore)]
     #[test]
     fn test_join_group() {
