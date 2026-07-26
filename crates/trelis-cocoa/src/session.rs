@@ -414,6 +414,14 @@ impl CocoaSession {
     ///
     /// Returns `EncryptionFailed` if AEAD encryption fails.
     pub fn encrypt(&mut self, plaintext: &[u8]) -> Result<EncryptedMessage> {
+        // DOS-01: reject an oversized plaintext BEFORE any cryptographic work —
+        // unconditionally before `aead::encrypt`. The four structural arguments
+        // are 0 on this channel path, so only the message-size ceiling applies.
+        // Encrypt takes local/trusted plaintext, but the gate is spec-mandated on
+        // this path as defence-in-depth and for a uniform pre-crypto entry
+        // contract across every `CocoaSession` channel entry.
+        check_size_limits(plaintext.len(), 0, 0, 0, 0)?;
+
         let our_leaf_position = self.our_leaf_position;
         let message_key = self.epoch.next_message_key(our_leaf_position);
 
