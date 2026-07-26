@@ -16,6 +16,7 @@ use trelis_primitives::aead::{self, AeadKey, Nonce};
 use zeroize::Zeroize;
 
 use crate::epoch::Epoch;
+use crate::limits::check_size_limits;
 use crate::tree::PartialTreeView;
 use crate::{GroupId, UserId};
 
@@ -458,6 +459,12 @@ impl CocoaSession {
     ///   that field is bound into both the KDF inputs and the AAD)
     #[must_use = "the decrypted plaintext must be checked or used"]
     pub fn decrypt(&self, message: &EncryptedMessage) -> Result<Vec<u8>> {
+        // DOS-01: reject an oversized ciphertext BEFORE any cryptographic work —
+        // before the epoch check and unconditionally before `aead::decrypt`. The
+        // four structural arguments are 0 on this channel path, so only the
+        // message-size ceiling applies here.
+        check_size_limits(message.ciphertext.len(), 0, 0, 0, 0)?;
+
         // Verify epoch matches
         if message.epoch != self.epoch.number() {
             return Err(CryptoError::EpochMismatch {

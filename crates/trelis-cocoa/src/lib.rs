@@ -92,6 +92,10 @@ extern crate alloc;
 pub mod epoch;
 #[cfg(any(feature = "std", feature = "wasm"))]
 pub mod key_schedule;
+// Centralised denial-of-service size-limit gate (`check_size_limits`). Gated to
+// match its callers (`session` / `operations`), which are `any(std, wasm)`.
+#[cfg(any(feature = "std", feature = "wasm"))]
+mod limits;
 #[cfg(any(feature = "std", feature = "wasm"))]
 pub mod operations;
 #[cfg(any(feature = "std", feature = "wasm"))]
