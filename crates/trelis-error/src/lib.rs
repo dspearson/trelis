@@ -931,4 +931,44 @@ mod tests {
             "approval nonce does not match issued value"
         );
     }
+
+    /// DOS-01 oversized-message guard (81/E8): `MessageTooLarge` routes through
+    /// the Security category (reject-and-survive — a Fatal mapping would let one
+    /// oversized input destroy the honest session), is non-fatal, and carries a
+    /// stable, side-channel-safe Display string that leaks neither the variant
+    /// name nor the offending size.
+    #[test]
+    fn test_message_too_large_variant_surface() {
+        let v = CryptoError::MessageTooLarge;
+        assert_eq!(v.category(), ErrorCategory::Security);
+        assert!(v.is_security_error());
+        assert!(!v.is_fatal());
+        assert_eq!(v.to_string(), "message exceeds maximum size");
+    }
+
+    /// DOS-02 over-deep-proof guard (81/E8): `ProofTooDeep` routes through the
+    /// Security category, is non-fatal, and carries a stable, side-channel-safe
+    /// Display string.
+    #[test]
+    fn test_proof_too_deep_variant_surface() {
+        let v = CryptoError::ProofTooDeep;
+        assert_eq!(v.category(), ErrorCategory::Security);
+        assert!(v.is_security_error());
+        assert!(!v.is_fatal());
+        assert_eq!(v.to_string(), "merkle proof exceeds maximum depth");
+    }
+
+    /// DOS-03 tree/group/unmerged ceiling guard (81/E8): `TreeDepthExceeded`
+    /// routes through the Security category (reject-and-survive, NOT Fatal), is
+    /// non-fatal, and carries a stable, side-channel-safe Display string. The
+    /// non-Fatal classification is the load-bearing invariant — it prevents an
+    /// attacker-triggered self-DoS via a single over-limit commit.
+    #[test]
+    fn test_tree_depth_exceeded_variant_surface() {
+        let v = CryptoError::TreeDepthExceeded;
+        assert_eq!(v.category(), ErrorCategory::Security);
+        assert!(v.is_security_error());
+        assert!(!v.is_fatal());
+        assert_eq!(v.to_string(), "tree/group size limit exceeded");
+    }
 }

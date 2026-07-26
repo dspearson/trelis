@@ -58,3 +58,54 @@ pub(crate) fn check_size_limits(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Exhaustive strict-`>` boundary proof for all five limits, independent of
+    /// any call-site wiring: each limit's exact value passes and value+1 returns
+    /// the correct variant; an all-zero call passes. This underpins DOS-04 at the
+    /// gate level (the reject-before-crypto ORDERING proofs live on the reachable
+    /// entry paths — Plan 01 wires decrypt, Plan 03 the ingest paths).
+    #[test]
+    fn test_check_size_limits_boundaries() {
+        // A wholly zero call trips nothing (every ceiling is > 0).
+        assert!(check_size_limits(0, 0, 0, 0, 0).is_ok());
+
+        // message_len: at-limit accepted, +1 rejected.
+        assert!(check_size_limits(MAX_MESSAGE_SIZE, 0, 0, 0, 0).is_ok());
+        assert!(matches!(
+            check_size_limits(MAX_MESSAGE_SIZE + 1, 0, 0, 0, 0),
+            Err(CryptoError::MessageTooLarge)
+        ));
+
+        // proof_depth: at-limit accepted, +1 rejected.
+        assert!(check_size_limits(0, MAX_MERKLE_PROOF_DEPTH, 0, 0, 0).is_ok());
+        assert!(matches!(
+            check_size_limits(0, MAX_MERKLE_PROOF_DEPTH + 1, 0, 0, 0),
+            Err(CryptoError::ProofTooDeep)
+        ));
+
+        // tree_depth: at-limit accepted, +1 rejected.
+        assert!(check_size_limits(0, 0, MAX_TREE_DEPTH, 0, 0).is_ok());
+        assert!(matches!(
+            check_size_limits(0, 0, MAX_TREE_DEPTH + 1, 0, 0),
+            Err(CryptoError::TreeDepthExceeded)
+        ));
+
+        // group_size: at-limit accepted, +1 rejected.
+        assert!(check_size_limits(0, 0, 0, MAX_GROUP_SIZE, 0).is_ok());
+        assert!(matches!(
+            check_size_limits(0, 0, 0, MAX_GROUP_SIZE + 1, 0),
+            Err(CryptoError::TreeDepthExceeded)
+        ));
+
+        // unmerged_leaves: at-limit accepted, +1 rejected.
+        assert!(check_size_limits(0, 0, 0, 0, MAX_UNMERGED_LEAVES).is_ok());
+        assert!(matches!(
+            check_size_limits(0, 0, 0, 0, MAX_UNMERGED_LEAVES + 1),
+            Err(CryptoError::TreeDepthExceeded)
+        ));
+    }
+}

@@ -184,6 +184,22 @@ mod tests {
     }
 
     #[test]
+    fn test_max_message_size() {
+        // Spec §13 sec:cocoa-dos: 64 * 1024 * 1024 == 64 MiB.
+        assert_eq!(MAX_MESSAGE_SIZE, 67_108_864);
+    }
+
+    #[test]
+    fn test_max_merkle_proof_depth() {
+        assert_eq!(MAX_MERKLE_PROOF_DEPTH, 20);
+    }
+
+    #[test]
+    fn test_max_unmerged_leaves() {
+        assert_eq!(MAX_UNMERGED_LEAVES, 100);
+    }
+
+    #[test]
     fn test_id_sizes() {
         assert_eq!(GROUP_ID_SIZE, 32);
         assert_eq!(USER_ID_SIZE, 32);
