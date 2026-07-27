@@ -37,7 +37,7 @@ use crate::key_schedule::h3_tree_label;
 use crate::key_schedule::{CONFIRMATION_TAG_CONTEXT, ROOT_LABEL_CONTEXT};
 use crate::key_schedule::{h3_round_hash, h3_transcript_hash};
 #[cfg(feature = "alloc")]
-use crate::limits::check_size_limits;
+use crate::limits::{check_group_growth_limits, check_size_limits};
 use crate::session::CocoaSession;
 use crate::tree::NodeIndex;
 #[cfg(feature = "alloc")]
@@ -136,18 +136,11 @@ pub fn add_member(
     // DoS gate (DOS-03, local-growth defence-in-depth): reject a resulting group
     // that would exceed MAX_GROUP_SIZE / MAX_TREE_DEPTH BEFORE growing the tree.
     // Overflow-safe: `checked_add` so a `member_count` at `u32::MAX` returns Err,
-    // never a panic under overflow-checks (Pitfall 6). No attacker message bytes
-    // on this local build path, so message_len / proof_depth = 0.
+    // never a panic under overflow-checks (Pitfall 6).
     let new_member_count = new_position
         .checked_add(1)
         .ok_or(trelis_error::CryptoError::TreeDepthExceeded)?;
-    check_size_limits(
-        0,
-        0,
-        PartialTreeView::depth_for_members(new_member_count),
-        new_member_count,
-        0,
-    )?;
+    check_group_growth_limits(new_member_count)?;
 
     // Step 2: Check if tree needs to grow and grow it if necessary
     session.tree_mut().grow_if_needed(new_member_count);

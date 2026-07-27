@@ -59,6 +59,29 @@ pub(crate) fn check_size_limits(
     Ok(())
 }
 
+/// DOS-03 local-growth convenience: rejects a resulting `member_count` whose
+/// group size or tree depth would exceed `MAX_GROUP_SIZE` / `MAX_TREE_DEPTH`.
+///
+/// Delegates to [`check_size_limits`] with the message-size and proof-depth
+/// arguments zeroed — a local build path (`create_group` / `add_member`) carries
+/// no attacker-controlled wire bytes, so only the DOS-03 structural ceilings
+/// apply. The resulting tree depth is derived via `depth_for_members` so the
+/// same geometry the caller is about to build is what gets bounded.
+///
+/// # Errors
+///
+/// [`CryptoError::TreeDepthExceeded`] if the resulting group size or tree depth
+/// exceeds its ceiling.
+pub(crate) fn check_group_growth_limits(member_count: u32) -> Result<()> {
+    check_size_limits(
+        0,
+        0,
+        crate::tree::PartialTreeView::depth_for_members(member_count),
+        member_count,
+        0,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -26,7 +26,7 @@ use trelis_primitives::aead::{self, AeadKey, Nonce};
 use trelis_primitives::random::generate_bytes;
 
 #[cfg(all(feature = "alloc", any(feature = "std", feature = "wasm")))]
-use crate::limits::check_size_limits;
+use crate::limits::{check_group_growth_limits, check_size_limits};
 use crate::session::CocoaSession;
 use crate::{GroupId, UserId};
 
@@ -161,16 +161,9 @@ pub fn create_group(
     // whose size / resulting depth would exceed MAX_GROUP_SIZE / MAX_TREE_DEPTH
     // BEFORE any key material is generated. `saturating_add` keeps a pathological
     // bundle count from panicking under overflow-checks (Pitfall 6);
-    // `check_size_limits` maps the excess to `TreeDepthExceeded` (no attacker
-    // message bytes on this local build path, so message_len / proof_depth = 0). ──
+    // `check_group_growth_limits` maps the excess to `TreeDepthExceeded`. ──
     let total_members = (member_bundles.len() as u32).saturating_add(1);
-    check_size_limits(
-        0,
-        0,
-        crate::tree::PartialTreeView::depth_for_members(total_members),
-        total_members,
-        0,
-    )?;
+    check_group_growth_limits(total_members)?;
 
     // Generate group ID
     let group_id: GroupId = generate_bytes()?;
