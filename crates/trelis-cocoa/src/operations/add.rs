@@ -36,10 +36,12 @@ use trelis_hybrid::{
 use crate::key_schedule::h3_tree_label;
 use crate::key_schedule::{CONFIRMATION_TAG_CONTEXT, ROOT_LABEL_CONTEXT};
 use crate::key_schedule::{h3_round_hash, h3_transcript_hash};
+#[cfg(feature = "alloc")]
+use crate::limits::check_size_limits;
 use crate::session::CocoaSession;
 use crate::tree::NodeIndex;
 #[cfg(feature = "alloc")]
-use crate::tree::{compute_lj, path_to_root};
+use crate::tree::{PartialTreeView, compute_lj, path_to_root};
 use crate::{GroupId, UserId};
 
 use super::Welcome;
@@ -600,6 +602,30 @@ fn serialise_path_updates(updates: &[PathUpdate]) -> Vec<u8> {
     bytes
 }
 
+/// Measures the attacker-controlled wire size of a commit's path updates for the
+/// DOS-01 message-size gate (`MAX_MESSAGE_SIZE`): the sum, over every path update
+/// and within each over every encrypted seed, of `encapsulation.len() +
+/// ciphertext.len()` — the dominant attacker-controlled bytes.
+///
+/// Every addition is `saturating_add`, so a maliciously large commit yields a
+/// saturated `usize` (which the gate then rejects) rather than panicking under
+/// the workspace `overflow-checks = true` profile (DoS-gate Pitfall 5/6). This
+/// measures already-in-memory `Vec` lengths in O(len) — it does NOT re-run
+/// `serialise_path_updates` (no double-serialisation). Shared by
+/// `process_add` / `process_update` / `process_remove` (all carry
+/// `Vec<PathUpdate>`).
+#[cfg(feature = "alloc")]
+pub(crate) fn path_updates_wire_len(path_updates: &[PathUpdate]) -> usize {
+    let mut total = 0usize;
+    for update in path_updates {
+        for seed in &update.encrypted_seeds {
+            total = total.saturating_add(seed.encapsulation.len());
+            total = total.saturating_add(seed.ciphertext.len());
+        }
+    }
+    total
+}
+
 /// Processes an add commit from another member.
 ///
 /// This function verifies the commit and processes the path updates to derive
@@ -635,6 +661,27 @@ pub fn process_add(
     commit: &AddCommit,
     adder_identity: &HybridIdentityPublicKey,
 ) -> Result<()> {
+    // ── DoS size gate (DOS-01/02/03) — the FIRST statement, before every
+    // existing check and unconditionally before `verify_commit_signature`
+    // (§13 "resource-limit checks MUST precede cryptographic operations"). ──
+    //
+    // CR-02: compute the resulting member count with CHECKED arithmetic first.
+    // `new_leaf_position` is an unbounded wire `u32`; `+ 1` under the workspace
+    // `overflow-checks = true` release/WASM profile would otherwise trap on
+    // `u32::MAX` before the gate could reject (Pitfall 6). The tree is NOT grown
+    // here: WR-03 defers ALL mutation until every integrity check has passed.
+    let new_member_count = commit
+        .new_leaf_position
+        .checked_add(1)
+        .ok_or(trelis_error::CryptoError::InvalidLeafPosition)?;
+    check_size_limits(
+        path_updates_wire_len(&commit.path_updates),
+        commit.path_updates.len().saturating_sub(1),
+        PartialTreeView::depth_for_members(new_member_count),
+        new_member_count,
+        session.tree().total_unmerged_leaves(),
+    )?;
+
     // Verify the commit is for our group
     if commit.group_id != *session.group_id() {
         return Err(trelis_error::CryptoError::GroupIdMismatch);
@@ -647,18 +694,6 @@ pub fn process_add(
             received: commit.epoch,
         });
     }
-
-    // CR-02: compute the new member count with CHECKED arithmetic — a
-    // non-mutating bound check. `new_leaf_position` is an unbounded wire `u32`,
-    // and `+ 1` under the workspace `overflow-checks = true` release/WASM
-    // profile would otherwise trap on `u32::MAX` before any authentication (a
-    // pre-auth WASM DoS an insider/server could trigger with only a matching
-    // group_id + epoch). The tree is NOT grown here: WR-03 defers ALL mutation
-    // until every integrity check has passed.
-    let new_member_count = commit
-        .new_leaf_position
-        .checked_add(1)
-        .ok_or(trelis_error::CryptoError::InvalidLeafPosition)?;
 
     // Serialise and verify path updates hash
     let path_updates_bytes = serialise_path_updates(&commit.path_updates);
@@ -1840,6 +1875,200 @@ mod tests {
         assert!(
             !session.is_member(&[0x02u8; 32]),
             "the rejected member must NOT be recorded"
+        );
+    }
+
+    // ─── DOS-01/02/03: check_size_limits gate on the process_add ingest path ──
+
+    /// DOS-01 ordering proof (reproduce-don't-assert): an add commit whose
+    /// measured message size exceeds `MAX_MESSAGE_SIZE` AND whose signature is
+    /// invalid returns `MessageTooLarge`, NOT `SignatureVerificationFailed` — the
+    /// size gate fires before `verify_commit_signature`. The group_id and epoch
+    /// are valid so, absent the gate, control flow would reach verify.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_process_add_rejects_oversized_message_before_verify() {
+        let mut session = create_test_session();
+        let adder = create_test_identity();
+
+        // One path update carrying a ciphertext larger than MAX_MESSAGE_SIZE.
+        let oversized = PathUpdate {
+            node_index: NodeIndex::leaf(1, 0),
+            new_public_key: Vec::new(),
+            parent_hash: ([0u8; 32], [0u8; 32]),
+            encrypted_seeds: vec![EncryptedSeed {
+                recipient_position: 0,
+                encapsulation: Vec::new(),
+                ciphertext: vec![0u8; crate::MAX_MESSAGE_SIZE + 1],
+            }],
+        };
+        let signature =
+            HybridSignature::from_bytes(&[0u8; trelis_hybrid::signature::SIGNATURE_SIZE]).unwrap();
+        let commit = AddCommit {
+            group_id: *session.group_id(),
+            new_member_id: [0x02u8; 32],
+            new_leaf_position: 1,
+            committer_leaf_position: 0,
+            epoch: 1,
+            path_updates: vec![oversized],
+            signature,
+            round_hash: [0u8; 32],
+            confirmation_tag: [0u8; 32],
+        };
+        let result = process_add(&mut session, &commit, adder.public_key());
+        assert!(
+            matches!(result, Err(trelis_error::CryptoError::MessageTooLarge)),
+            "size gate MUST fire before verify; got {result:?}"
+        );
+    }
+
+    /// DOS-02 ordering proof: an add commit with more than 21 path updates
+    /// (proof_depth > 20) AND an invalid signature returns `ProofTooDeep`, not
+    /// `SignatureVerificationFailed`.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_process_add_rejects_overdeep_proof_before_verify() {
+        let mut session = create_test_session();
+        let adder = create_test_identity();
+
+        // 22 path updates -> proof_depth = 22 - 1 = 21 > MAX_MERKLE_PROOF_DEPTH(20).
+        let path_updates: Vec<PathUpdate> = (0..22)
+            .map(|_| PathUpdate {
+                node_index: NodeIndex::new(0, 0),
+                new_public_key: Vec::new(),
+                parent_hash: ([0u8; 32], [0u8; 32]),
+                encrypted_seeds: Vec::new(),
+            })
+            .collect();
+        let signature =
+            HybridSignature::from_bytes(&[0u8; trelis_hybrid::signature::SIGNATURE_SIZE]).unwrap();
+        let commit = AddCommit {
+            group_id: *session.group_id(),
+            new_member_id: [0x02u8; 32],
+            new_leaf_position: 1,
+            committer_leaf_position: 0,
+            epoch: 1,
+            path_updates,
+            signature,
+            round_hash: [0u8; 32],
+            confirmation_tag: [0u8; 32],
+        };
+        let result = process_add(&mut session, &commit, adder.public_key());
+        assert!(
+            matches!(result, Err(trelis_error::CryptoError::ProofTooDeep)),
+            "size gate MUST fire before verify; got {result:?}"
+        );
+    }
+
+    /// DOS-02 off-by-one guard: an HONEST maximal depth-20 commit carries 21
+    /// path updates (`path_to_root` returns depth+1 nodes), mapping to proof_depth
+    /// 20 — which is NOT `> MAX_MERKLE_PROOF_DEPTH(20)`. It must NOT be rejected
+    /// as `ProofTooDeep` (it may fail later for unrelated reasons, never here).
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_process_add_accepts_max_depth_proof() {
+        let mut session = create_test_session();
+        let adder = create_test_identity();
+
+        // 21 path updates -> proof_depth = 21 - 1 = 20 == MAX_MERKLE_PROOF_DEPTH.
+        let path_updates: Vec<PathUpdate> = (0..21)
+            .map(|_| PathUpdate {
+                node_index: NodeIndex::new(0, 0),
+                new_public_key: Vec::new(),
+                parent_hash: ([0u8; 32], [0u8; 32]),
+                encrypted_seeds: Vec::new(),
+            })
+            .collect();
+        let signature =
+            HybridSignature::from_bytes(&[0u8; trelis_hybrid::signature::SIGNATURE_SIZE]).unwrap();
+        let commit = AddCommit {
+            group_id: *session.group_id(),
+            new_member_id: [0x02u8; 32],
+            new_leaf_position: 1,
+            committer_leaf_position: 0,
+            epoch: 1,
+            path_updates,
+            signature,
+            round_hash: [0u8; 32],
+            confirmation_tag: [0u8; 32],
+        };
+        let result = process_add(&mut session, &commit, adder.public_key());
+        assert!(
+            !matches!(result, Err(trelis_error::CryptoError::ProofTooDeep)),
+            "honest depth-20 (21 path_updates) commit must NOT be ProofTooDeep; got {result:?}"
+        );
+    }
+
+    /// DOS-03 (group) ordering proof: an add whose resulting member count exceeds
+    /// `MAX_GROUP_SIZE` AND with an invalid signature returns `TreeDepthExceeded`,
+    /// not `SignatureVerificationFailed`.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_process_add_rejects_oversized_group_before_verify() {
+        let mut session = create_test_session();
+        let adder = create_test_identity();
+
+        // new_leaf_position = MAX_GROUP_SIZE -> new_member_count = MAX_GROUP_SIZE
+        // + 1 > MAX_GROUP_SIZE (also depth 21 > MAX_TREE_DEPTH).
+        let signature =
+            HybridSignature::from_bytes(&[0u8; trelis_hybrid::signature::SIGNATURE_SIZE]).unwrap();
+        let commit = AddCommit {
+            group_id: *session.group_id(),
+            new_member_id: [0x02u8; 32],
+            new_leaf_position: crate::MAX_GROUP_SIZE,
+            committer_leaf_position: 0,
+            epoch: 1,
+            path_updates: Vec::new(),
+            signature,
+            round_hash: [0u8; 32],
+            confirmation_tag: [0u8; 32],
+        };
+        let result = process_add(&mut session, &commit, adder.public_key());
+        assert!(
+            matches!(result, Err(trelis_error::CryptoError::TreeDepthExceeded)),
+            "size gate MUST fire before verify; got {result:?}"
+        );
+    }
+
+    /// DOS-03 (unmerged) ordering proof: a crypto-invalid add into a session
+    /// whose tree already carries more than `MAX_UNMERGED_LEAVES` unmerged leaves
+    /// returns `TreeDepthExceeded`, not `SignatureVerificationFailed` — proving
+    /// `total_unmerged_leaves()` feeds the gate ahead of verify.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_process_add_rejects_excess_unmerged_before_verify() {
+        let mut session = create_test_session();
+        let adder = create_test_identity();
+
+        // Flood a blank node with > MAX_UNMERGED_LEAVES distinct unmerged leaf
+        // positions (0..=MAX_UNMERGED_LEAVES is 101 distinct positions).
+        session
+            .tree_mut()
+            .insert(crate::tree::TreeNode::new_blank(NodeIndex::new(1, 1)));
+        for pos in 0..=(crate::MAX_UNMERGED_LEAVES as u32) {
+            session
+                .tree_mut()
+                .add_unmerged_leaf(&NodeIndex::new(1, 1), pos);
+        }
+        assert!(session.tree().total_unmerged_leaves() > crate::MAX_UNMERGED_LEAVES);
+
+        let signature =
+            HybridSignature::from_bytes(&[0u8; trelis_hybrid::signature::SIGNATURE_SIZE]).unwrap();
+        let commit = AddCommit {
+            group_id: *session.group_id(),
+            new_member_id: [0x02u8; 32],
+            new_leaf_position: 1,
+            committer_leaf_position: 0,
+            epoch: 1,
+            path_updates: Vec::new(),
+            signature,
+            round_hash: [0u8; 32],
+            confirmation_tag: [0u8; 32],
+        };
+        let result = process_add(&mut session, &commit, adder.public_key());
+        assert!(
+            matches!(result, Err(trelis_error::CryptoError::TreeDepthExceeded)),
+            "size gate MUST fire before verify; got {result:?}"
         );
     }
 }

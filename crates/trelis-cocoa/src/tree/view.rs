@@ -156,6 +156,23 @@ impl PartialTreeView {
         }
     }
 
+    /// Returns the total number of unmerged leaf positions across every blank
+    /// node in this view.
+    ///
+    /// Unmerged leaves accumulate on blank nodes as members join; the DoS gate
+    /// ([`crate::limits::check_size_limits`]) bounds this tree-wide total against
+    /// `MAX_UNMERGED_LEAVES`. Populated nodes hold no unmerged list and
+    /// contribute nothing. The sum is `saturating_add` so a pathologically large
+    /// tree can never overflow `usize` (DoS-gate Pitfall 4/6).
+    #[must_use]
+    pub(crate) fn total_unmerged_leaves(&self) -> usize {
+        self.nodes.values().fold(0usize, |acc, node| {
+            node.state
+                .unmerged_leaves()
+                .map_or(acc, |leaves| acc.saturating_add(leaves.len()))
+        })
+    }
+
     /// Calculates the required tree depth for a given member count.
     #[must_use]
     pub fn depth_for_members(count: u32) -> u32 {
@@ -716,5 +733,24 @@ mod tests {
         let leaves = moved_node.state.unmerged_leaves().unwrap();
         assert_eq!(leaves.len(), 1);
         assert!(leaves.contains(&3));
+    }
+
+    #[test]
+    fn test_total_unmerged_leaves_counts_blank_nodes() {
+        let mut view = PartialTreeView::new(0, 2);
+
+        // No blank nodes yet -> zero.
+        assert_eq!(view.total_unmerged_leaves(), 0);
+
+        // Two blank nodes carrying distinct unmerged leaf positions.
+        view.insert(TreeNode::new_blank(NodeIndex::new(1, 0)));
+        view.insert(TreeNode::new_blank(NodeIndex::new(1, 1)));
+        view.add_unmerged_leaf(&NodeIndex::new(1, 0), 0);
+        view.add_unmerged_leaf(&NodeIndex::new(1, 0), 1);
+        view.add_unmerged_leaf(&NodeIndex::new(1, 0), 2);
+        view.add_unmerged_leaf(&NodeIndex::new(1, 1), 5);
+
+        // 3 (node (1,0)) + 1 (node (1,1)) = 4 unmerged leaves across blank nodes.
+        assert_eq!(view.total_unmerged_leaves(), 4);
     }
 }
