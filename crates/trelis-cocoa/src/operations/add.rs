@@ -611,9 +611,12 @@ fn serialise_path_updates(updates: &[PathUpdate]) -> Vec<u8> {
 }
 
 /// Measures the attacker-controlled wire size of a commit's path updates for the
-/// DOS-01 message-size gate (`MAX_MESSAGE_SIZE`): the sum, over every path update
-/// and within each over every encrypted seed, of `encapsulation.len() +
-/// ciphertext.len()` — the dominant attacker-controlled bytes.
+/// DOS-01 message-size gate (`MAX_MESSAGE_SIZE`): the sum, over every path update,
+/// of `new_public_key.len()` plus — within each, over every encrypted seed —
+/// `encapsulation.len() + ciphertext.len()`: every attacker-controlled
+/// variable-length byte of the commit's path (a commit with tiny seeds but large
+/// `new_public_key` blobs must not slip past the ceiling and reach the BLAKE3
+/// path-hash before the size check — M-01).
 ///
 /// Every addition is `saturating_add`, so a maliciously large commit yields a
 /// saturated `usize` (which the gate then rejects) rather than panicking under
@@ -626,6 +629,7 @@ fn serialise_path_updates(updates: &[PathUpdate]) -> Vec<u8> {
 pub(crate) fn path_updates_wire_len(path_updates: &[PathUpdate]) -> usize {
     let mut total = 0usize;
     for update in path_updates {
+        total = total.saturating_add(update.new_public_key.len());
         for seed in &update.encrypted_seeds {
             total = total.saturating_add(seed.encapsulation.len());
             total = total.saturating_add(seed.ciphertext.len());
