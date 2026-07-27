@@ -15,10 +15,12 @@ pub const KDF_ROOT: &str = "trelis-pq-ratchet-root-v1";
 pub const KDF_MESSAGE: &str = "trelis-pq-ratchet-message-v1";
 
 /// Context string for the initial root key derivation (`derive_initial_root_key`).
-///
-/// Promoted from an inline literal so it appears in the central
-/// `derive_key` context registry alongside `KDF_ROOT`/`KDF_MESSAGE`.
-pub const KDF_INIT: &str = "trelis-ratchet-init-v1";
+/// Re-exported from the central
+/// `trelis_primitives::blake3_kdf::RATCHET_INIT_CONTEXT` registry and aliased to
+/// `KDF_INIT` to preserve the downstream-visible name. Single-sourcing the string
+/// there means `KDF_INIT` and `RATCHET_INIT_CONTEXT` are the same symbol and
+/// cannot drift; the value is byte-unchanged (`trelis-ratchet-init-v1`).
+pub use trelis_primitives::RATCHET_INIT_CONTEXT as KDF_INIT;
 
 /// Size of the root key in bytes.
 pub const ROOT_KEY_SIZE: usize = 32;
@@ -169,6 +171,16 @@ mod tests {
     fn test_kdf_context_strings() {
         assert_eq!(KDF_ROOT, "trelis-pq-ratchet-root-v1");
         assert_eq!(KDF_MESSAGE, "trelis-pq-ratchet-message-v1");
+
+        // KDF_INIT is a re-export of the central-registry constant
+        // (HARD-02): pin its byte value and its byte-for-byte identity with
+        // trelis-primitives' RATCHET_INIT_CONTEXT so an edit to either side
+        // cannot silently diverge the initial-root context string.
+        assert_eq!(KDF_INIT, "trelis-ratchet-init-v1");
+        assert_eq!(
+            KDF_INIT,
+            trelis_primitives::blake3_kdf::RATCHET_INIT_CONTEXT
+        );
     }
 
     #[test]

@@ -13,6 +13,7 @@
 //! - `"trelis-hybrid-kem-v2"` - Hybrid KEM v2 (binds ct_sntrup, x448_eph, pk_hybrid)
 //! - `"trelis-session-v1"` - X3DH-PQ session key derivation
 //! - `"trelis-session-v2"` - X3DH-PQ session key derivation (binds version/suite/SessionFlags)
+//! - `"trelis-ratchet-init-v1"` - KEM ratchet initial root key derivation
 //! - `"trelis-pq-ratchet-root-v1"` - KEM ratchet root key derivation
 //! - `"trelis-pq-ratchet-message-v1"` - KEM ratchet message key derivation
 //! - `"trelis-ratchet-nonce-v1"` - Hedged nonce derivation
@@ -158,6 +159,17 @@ pub const RATCHET_MESSAGE_CONTEXT: &str = "trelis-pq-ratchet-message-v1";
 
 /// Context for hedged nonce derivation.
 pub const RATCHET_NONCE_CONTEXT: &str = "trelis-ratchet-nonce-v1";
+
+/// Context for the initial KEM-ratchet root key derivation
+/// (`derive_initial_root_key` in `trelis-ratchet`).
+///
+/// Registry-completeness entry so the `trelis-ratchet-init-v1` string sits in
+/// the central catalogue alongside its sibling ratchet contexts
+/// ([`RATCHET_ROOT_CONTEXT`], [`RATCHET_MESSAGE_CONTEXT`],
+/// [`RATCHET_NONCE_CONTEXT`]). `trelis-ratchet`'s `KDF_INIT` re-exports this
+/// constant (single source of truth), so the two cannot drift; the value is
+/// byte-unchanged.
+pub const RATCHET_INIT_CONTEXT: &str = "trelis-ratchet-init-v1";
 
 /// Context for safety number fingerprint.
 pub const SAFETY_NUMBER_CONTEXT: &str = "trelis-safety-number-v1";
