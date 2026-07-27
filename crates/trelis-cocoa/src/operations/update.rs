@@ -35,6 +35,8 @@ use trelis_hybrid::{HybridIdentityKeypair, HybridIdentityPublicKey, HybridSignat
 use crate::GroupId;
 use crate::key_schedule::{CONFIRMATION_TAG_CONTEXT, ROOT_LABEL_CONTEXT, USER_ID_CONTEXT};
 use crate::key_schedule::{h3_round_hash, h3_transcript_hash};
+#[cfg(feature = "alloc")]
+use crate::limits::check_size_limits;
 use crate::session::CocoaSession;
 #[cfg(feature = "alloc")]
 use crate::tree::{NodeIndex, compute_lj, path_to_root};
@@ -405,6 +407,19 @@ pub fn process_update(
     commit: &UpdateCommit,
     updater_identity: &HybridIdentityPublicKey,
 ) -> Result<()> {
+    // ── DoS size gate (DOS-01/02/03) — the FIRST statement, before every
+    // existing check and unconditionally before `verify_commit_signature` (§13).
+    // Update does not grow the group, so the tree/group/unmerged arguments are
+    // the CURRENT resulting geometry (defence-in-depth); proof-depth and
+    // message-size are the primary attacker-controlled vectors on this path. ──
+    check_size_limits(
+        super::add::path_updates_wire_len(&commit.path_updates),
+        commit.path_updates.len().saturating_sub(1),
+        session.tree().tree_depth(),
+        session.member_count(),
+        session.tree().total_unmerged_leaves(),
+    )?;
+
     // Verify the commit is for our group
     if commit.group_id != *session.group_id() {
         return Err(trelis_error::CryptoError::GroupIdMismatch);
