@@ -16,10 +16,22 @@ pub const STATE_VERSION: u16 = 1;
 pub const FLAG_HAS_PEER: u16 = 0x0001;
 
 /// Flag indicating skipped keys section is present.
+///
+/// **Reserved / vestigial.** The reference implementation is a
+/// single-per-message KEM ratchet (F12) with no skipped-key cache, so this
+/// flag is never set by the current serialisation path. It is kept public and
+/// reserved for wire-format and interface stability (Phase 80 Open-Q3 / F12),
+/// and is exercised by `test_header_round_trip`; do not remove.
 pub const FLAG_HAS_SKIPPED: u16 = 0x0002;
 
 /// Size of skipped key entry in serialised form.
 /// sender_key_hash (32) + message_number (8) + message_key (32) + created_at (8) = 80
+///
+/// **Reserved / vestigial.** No skipped-key entry is ever produced — the
+/// single-per-message KEM ratchet (F12) keeps no skipped-key cache — so this
+/// size is reserved for wire-format and interface stability (Phase 80
+/// Open-Q3 / F12). Its value (80) is pinned by `test_skipped_key_entry_size`;
+/// kept public, do not remove.
 pub const SKIPPED_KEY_ENTRY_SIZE: usize = 80;
 
 /// Serialised state header.
@@ -119,6 +131,13 @@ impl StateHeader {
     }
 
     /// Checks if the skipped keys flag is set.
+    ///
+    /// **Reserved / vestigial.** `FLAG_HAS_SKIPPED` is never set by the current
+    /// serialisation path (single-per-message KEM ratchet, F12, no skipped-key
+    /// cache), so this returns `false` for every state blob the reference
+    /// implementation writes. Kept public and reserved for wire-format and
+    /// interface stability (Phase 80 Open-Q3 / F12); exercised by
+    /// `test_header_round_trip`.
     #[must_use]
     pub fn has_skipped(&self) -> bool {
         self.flags & FLAG_HAS_SKIPPED != 0

@@ -210,6 +210,13 @@ pub enum CryptoError {
     ///
     /// Reserved for sync-loss detection. Caller logs the gap and either
     /// re-establishes the session or drops the message.
+    ///
+    /// **Vestigial by design.** The reference implementation is a
+    /// single-per-message KEM ratchet (F12) with no skipped-key cache, so no
+    /// live code path compares a counter gap against `MAX_SKIP`; this variant
+    /// is never produced by the current implementation. It is kept as a public
+    /// `CryptoError` variant, reserved for wire-format and interface stability
+    /// (Phase 80 Open-Q3 / F12); do not remove.
     MessageCounterTooFarAhead {
         /// Maximum allowed skip.
         max_skip: u64,

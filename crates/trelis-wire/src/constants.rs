@@ -127,6 +127,12 @@ pub const DEVICE_KEY_WRAP_SIZE: usize = KEY_ID_SIZE
 pub const MAX_SKIPPED_KEYS: usize = 2000;
 
 /// Maximum messages to skip within a single chain.
+///
+/// **Reserved / vestigial.** The reference implementation is a
+/// single-per-message KEM ratchet (F12) with no skipped-key cache, so no skip
+/// counter is ever compared against this bound. It is kept public (glob
+/// re-exported as `trelis_wire::MAX_SKIP`) and reserved for wire-format and
+/// interface stability (Phase 80 Open-Q3 / F12); do not remove.
 pub const MAX_SKIP: u64 = 1000;
 
 /// Maximum chain lookahead for out-of-order messages.
