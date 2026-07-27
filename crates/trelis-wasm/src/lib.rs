@@ -4099,6 +4099,12 @@ mod native_tests {
     fn ratchet_state_out_of_range_send_count_is_rejected_without_hanging() {
         use super::*;
 
+        // Offset of the little-endian send_count field within the serialised
+        // ratchet state = our_keypair(1819) + root_key(32) + has_their_pk(1)
+        // + their_pk(1214). Declared before any statement to satisfy
+        // clippy::items_after_statements.
+        const SEND_COUNT_OFFSET: usize = 1819 + 32 + 1 + 1214;
+
         let session_key: [u8; 32] = trelis_primitives::generate_bytes().unwrap();
         let their_keypair = trelis_hybrid::HybridKemKeypair::generate().unwrap();
         let state = trelis_ratchet::KemRatchet::init_initiator(
@@ -4112,9 +4118,7 @@ mod native_tests {
         let mut blob = serialize_ratchet_state(&state);
         assert_eq!(blob[1851], 1, "fixture should have their_public_key set");
 
-        // Overwrite the little-endian send_count field with u64::MAX. Offset =
-        // our_keypair(1819) + root_key(32) + has_their_pk(1) + their_pk(1214).
-        const SEND_COUNT_OFFSET: usize = 1819 + 32 + 1 + 1214;
+        // Overwrite the little-endian send_count field with u64::MAX.
         blob[SEND_COUNT_OFFSET..SEND_COUNT_OFFSET + 8].copy_from_slice(&u64::MAX.to_le_bytes());
 
         assert!(deserialize_ratchet_state(&blob).is_err());
