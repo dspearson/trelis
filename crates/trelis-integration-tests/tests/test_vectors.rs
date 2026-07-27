@@ -299,6 +299,61 @@ mod context_strings {
             .expect("pq_ratchet_message_context not found");
         assert_eq!(msg.inputs.context_string, "trelis-pq-ratchet-message-v1");
     }
+
+    #[test]
+    fn verify_session_key_family_code_anchored() {
+        // Code-anchored cross-check (HARD-01 recurrence guard). The bulk
+        // verify_all_context_strings sweep derives from the JSON string and
+        // compares to a hex computed from that same string — so a row whose
+        // string never matched any code constant (the 3 stale
+        // trelis-{root-key,send-chain,recv-chain}-v1 rows this phase reconciled)
+        // could pass while testing nothing real. This test pins the session-key
+        // family and the ratchet-init row to the LIVE code constants: a future
+        // rename of a constant breaks THIS test's compilation, and a value
+        // change breaks its assert. A string-literal fallback is deliberately
+        // NOT used — that would reproduce the self-testing bug.
+        use trelis_primitives::blake3_kdf::RATCHET_INIT_CONTEXT;
+        use trelis_x3dh_pq::session_keys::{
+            RECV_CHAIN_CONTEXT, ROOT_KEY_CONTEXT, SEND_CHAIN_CONTEXT,
+        };
+
+        let file: ContextStringsFile = load_vector_file("context-strings.json");
+
+        // (JSON row name, LIVE code constant) — the string comes from code.
+        let anchored: [(&str, &str); 4] = [
+            ("root_key_context", ROOT_KEY_CONTEXT),
+            ("send_chain_context", SEND_CHAIN_CONTEXT),
+            ("recv_chain_context", RECV_CHAIN_CONTEXT),
+            ("ratchet_init_context", RATCHET_INIT_CONTEXT),
+        ];
+
+        for (name, code_const) in anchored {
+            let vector = file
+                .vectors
+                .iter()
+                .find(|v| v.name == name)
+                .unwrap_or_else(|| panic!("{name} vector not found"));
+
+            // 1. The JSON context_string MUST equal the live code constant,
+            //    not a hand-typed literal — pins the string to code.
+            assert_eq!(
+                vector.inputs.context_string, code_const,
+                "{name}: JSON context_string drifted from the live code constant"
+            );
+
+            // 2. The stored expected hex MUST be derive_key(<live const>, input),
+            //    recomputed here directly from the code constant.
+            let input = hex_decode(&vector.inputs.test_input_hex);
+            let actual = derive_key(code_const, &input);
+            assert_eq!(
+                hex::encode(actual.as_slice()),
+                vector.expected.derive_key_output_hex,
+                "{name}: derive_key over the live code constant does not match the stored KAT hex"
+            );
+        }
+
+        println!("✓ Session-key family + ratchet-init rows pinned to live code constants");
+    }
 }
 
 // =============================================================================

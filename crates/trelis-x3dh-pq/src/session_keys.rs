@@ -13,18 +13,24 @@ use crate::transcript::HASH_SIZE;
 
 /// Context for deriving the root key.
 ///
-/// Per spec Section 14, Table 14.1: `trelis-session-root-v1`
-const ROOT_KEY_CONTEXT: &str = "trelis-session-root-v1";
+/// Per spec Section 14, Table 14.1: `trelis-session-root-v1`.
+/// Public so the `context-strings.json` KAT can code-anchor its row to this
+/// live constant (additive visibility widening; value byte-unchanged).
+pub const ROOT_KEY_CONTEXT: &str = "trelis-session-root-v1";
 
 /// Context for deriving the send chain key (for initiator).
 ///
-/// Per spec Section 14, Table 14.1: `trelis-session-send-v1`
-const SEND_CHAIN_CONTEXT: &str = "trelis-session-send-v1";
+/// Per spec Section 14, Table 14.1: `trelis-session-send-v1`.
+/// Public so the `context-strings.json` KAT can code-anchor its row to this
+/// live constant (additive visibility widening; value byte-unchanged).
+pub const SEND_CHAIN_CONTEXT: &str = "trelis-session-send-v1";
 
 /// Context for deriving the receive chain key (for initiator).
 ///
-/// Per spec Section 14, Table 14.1: `trelis-session-recv-v1`
-const RECV_CHAIN_CONTEXT: &str = "trelis-session-recv-v1";
+/// Per spec Section 14, Table 14.1: `trelis-session-recv-v1`.
+/// Public so the `context-strings.json` KAT can code-anchor its row to this
+/// live constant (additive visibility widening; value byte-unchanged).
+pub const RECV_CHAIN_CONTEXT: &str = "trelis-session-recv-v1";
 
 /// Session keys derived from X3DH-PQ handshake.
 ///
