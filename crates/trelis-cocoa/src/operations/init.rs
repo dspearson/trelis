@@ -1141,4 +1141,65 @@ mod tests {
             Err(CryptoError::AeadAuthenticationFailed)
         ));
     }
+
+    // ─── DOS-01/03: check_size_limits gate on the welcome + create_group paths ─
+
+    /// DOS-01 ordering proof (reproduce-don't-assert): a welcome whose measured
+    /// message size (encrypted_info + encapsulation) exceeds `MAX_MESSAGE_SIZE`
+    /// AND whose committer signature is invalid returns `MessageTooLarge`, NOT
+    /// `SignatureVerificationFailed` — the size gate precedes
+    /// `verify_with_context` (and the subsequent decapsulation / AEAD).
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_process_welcome_rejects_oversized_before_verify() {
+        let member_identity = HybridIdentityKeypair::generate().unwrap();
+        let member_kem =
+            HybridKemKeypair::from_bytes(&member_identity.kem().to_bytes()[..]).unwrap();
+        let committer = HybridIdentityKeypair::generate().unwrap();
+
+        let welcome = Welcome {
+            group_id: [0x42u8; 32],
+            epoch: 0,
+            leaf_position: 1,
+            tree_depth: 1,
+            member_count: 2,
+            encrypted_info: vec![0u8; crate::MAX_MESSAGE_SIZE + 1],
+            encapsulation: Vec::new(),
+            signature: HybridSignature::from_bytes(
+                &[0u8; trelis_hybrid::signature::SIGNATURE_SIZE],
+            )
+            .unwrap(),
+        };
+
+        let result = process_welcome([0x02u8; 32], member_kem, &welcome, committer.public_key());
+        assert!(
+            matches!(&result, Err(CryptoError::MessageTooLarge)),
+            "size gate MUST fire before verify_with_context (is_err={})",
+            result.is_err()
+        );
+    }
+
+    /// DOS-03 (local-growth defence-in-depth): a create_group whose member list
+    /// would make the group exceed `MAX_GROUP_SIZE` is rejected with
+    /// `TreeDepthExceeded` before any key material is generated. The gate reads
+    /// only `member_bundles.len()` and rejects BEFORE the per-member
+    /// encapsulation loop, so one repeated bundle reference exercises it without
+    /// allocating a million distinct bundles.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_create_group_rejects_oversized_group() {
+        let identity = HybridIdentityKeypair::generate().unwrap();
+        let kem = HybridKemKeypair::generate().unwrap();
+        let member_identity = HybridIdentityKeypair::generate().unwrap();
+        let bundle = create_test_bundle(&member_identity);
+
+        // creator + MAX_GROUP_SIZE others = MAX_GROUP_SIZE + 1 > MAX_GROUP_SIZE.
+        let bundles: Vec<&HybridPreKeyBundle> = vec![&bundle; crate::MAX_GROUP_SIZE as usize];
+        let result = create_group(&identity, kem, [0x01u8; 32], &bundles);
+        assert!(
+            matches!(&result, Err(CryptoError::TreeDepthExceeded)),
+            "create_group must reject an oversized group before crypto (is_err={})",
+            result.is_err()
+        );
+    }
 }

@@ -2071,4 +2071,31 @@ mod tests {
             "size gate MUST fire before verify; got {result:?}"
         );
     }
+
+    /// DOS-03 (local-growth defence-in-depth): `add_member` into a group already
+    /// at `MAX_GROUP_SIZE` is rejected with `TreeDepthExceeded` (the resulting
+    /// member count would exceed the ceiling) before the tree is grown; a
+    /// `member_count` at `u32::MAX` returns `Err` (checked_add), never a panic.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_add_member_rejects_oversized_group() {
+        let our_identity = create_test_identity();
+        let new_identity = create_test_identity();
+        let new_bundle = create_test_bundle(&new_identity);
+
+        // Group at the ceiling: the next add would make member_count
+        // MAX_GROUP_SIZE + 1 > MAX_GROUP_SIZE.
+        let mut session = create_test_session();
+        session.tree_mut().set_member_count(crate::MAX_GROUP_SIZE);
+        assert!(matches!(
+            add_member(&mut session, &our_identity, &new_bundle, [0x02u8; 32]),
+            Err(trelis_error::CryptoError::TreeDepthExceeded)
+        ));
+
+        // Overflow-safe: a member_count at u32::MAX returns Err (checked_add),
+        // never panics under the workspace overflow-checks profile.
+        let mut session2 = create_test_session();
+        session2.tree_mut().set_member_count(u32::MAX);
+        assert!(add_member(&mut session2, &our_identity, &new_bundle, [0x03u8; 32]).is_err());
+    }
 }
