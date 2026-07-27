@@ -133,8 +133,23 @@ pub fn add_member(
     // Step 1: Find next available leaf position
     let new_position = session.member_count();
 
+    // DoS gate (DOS-03, local-growth defence-in-depth): reject a resulting group
+    // that would exceed MAX_GROUP_SIZE / MAX_TREE_DEPTH BEFORE growing the tree.
+    // Overflow-safe: `checked_add` so a `member_count` at `u32::MAX` returns Err,
+    // never a panic under overflow-checks (Pitfall 6). No attacker message bytes
+    // on this local build path, so message_len / proof_depth = 0.
+    let new_member_count = new_position
+        .checked_add(1)
+        .ok_or(trelis_error::CryptoError::TreeDepthExceeded)?;
+    check_size_limits(
+        0,
+        0,
+        PartialTreeView::depth_for_members(new_member_count),
+        new_member_count,
+        0,
+    )?;
+
     // Step 2: Check if tree needs to grow and grow it if necessary
-    let new_member_count = new_position + 1;
     session.tree_mut().grow_if_needed(new_member_count);
     let tree_depth = session.tree().tree_depth();
 

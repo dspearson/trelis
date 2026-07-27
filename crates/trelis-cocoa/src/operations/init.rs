@@ -25,6 +25,8 @@ use trelis_hybrid::{
 use trelis_primitives::aead::{self, AeadKey, Nonce};
 use trelis_primitives::random::generate_bytes;
 
+#[cfg(all(feature = "alloc", any(feature = "std", feature = "wasm")))]
+use crate::limits::check_size_limits;
 use crate::session::CocoaSession;
 use crate::{GroupId, UserId};
 
@@ -155,11 +157,23 @@ pub fn create_group(
     creator_user_id: UserId,
     member_bundles: &[&HybridPreKeyBundle],
 ) -> Result<(CocoaSession, Vec<Welcome>)> {
+    // ── DoS size gate (DOS-03, local-growth defence-in-depth) — reject a group
+    // whose size / resulting depth would exceed MAX_GROUP_SIZE / MAX_TREE_DEPTH
+    // BEFORE any key material is generated. `saturating_add` keeps a pathological
+    // bundle count from panicking under overflow-checks (Pitfall 6);
+    // `check_size_limits` maps the excess to `TreeDepthExceeded` (no attacker
+    // message bytes on this local build path, so message_len / proof_depth = 0). ──
+    let total_members = (member_bundles.len() as u32).saturating_add(1);
+    check_size_limits(
+        0,
+        0,
+        crate::tree::PartialTreeView::depth_for_members(total_members),
+        total_members,
+        0,
+    )?;
+
     // Generate group ID
     let group_id: GroupId = generate_bytes()?;
-
-    // Total members = creator + others
-    let total_members = 1 + member_bundles.len() as u32;
 
     // Generate initial epoch secret
     let epoch_secret: [u8; 32] = generate_bytes()?;
@@ -379,6 +393,24 @@ pub fn process_welcome(
     welcome: &Welcome,
     committer_identity: &HybridIdentityPublicKey,
 ) -> Result<CocoaSession> {
+    // ── DoS size gate (DOS-01) — the FIRST statement, before verify_with_context
+    // / decapsulate / AEAD (§13). The PROVEN welcome guarantee is DOS-01: bound
+    // the welcome message size (encrypted_info + encapsulation) and reject an
+    // oversized welcome with MessageTooLarge before any crypto. The resulting-
+    // tree geometry (tree_depth, member_count) is passed as best-effort DOS-03
+    // defence-in-depth — the attacker-controlled DOS-03 vectors are ordering-
+    // proven on the add/update/remove ingest paths (Tasks 1-2), not here. ──
+    check_size_limits(
+        welcome
+            .encrypted_info
+            .len()
+            .saturating_add(welcome.encapsulation.len()),
+        0,
+        welcome.tree_depth,
+        welcome.member_count,
+        0,
+    )?;
+
     // GAP-01 (Insider-A): verify the committer's signature over the canonical
     // welcome body BEFORE adopting ANY group state — before the KEM/AEAD work and
     // before `join_group`. This rejects an unsigned, forged, wrong-key, or
