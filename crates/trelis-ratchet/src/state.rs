@@ -302,7 +302,21 @@ impl KemRatchet {
     /// message-number `+1` offset. Copying `set_recv_count`'s `+1` here would
     /// leave every restored session's send counter off by one.
     ///
+    /// The counter is **monotonic-forward**: a `count` below the current
+    /// `send_count` is a rewind and is rejected with
+    /// [`CryptoError::MessageCounterTooOld`] before any mutation — an
+    /// anti-rewind guard mirroring the `set_message_counter` pattern (RBK-01).
+    /// Rejecting a rewind closes the theoretical counter-regression /
+    /// nonce-reuse path at the input boundary (validate-before-mutate). The
+    /// fresh-state restore path only ever forward-sets from `0`, so live
+    /// callers never trip the guard; the bounded-restore / exhaustion
+    /// semantics below are unchanged.
+    ///
     /// # Errors
+    ///
+    /// Returns [`CryptoError::MessageCounterTooOld`] if `count` is strictly
+    /// less than the current `send_count` (a rewind); `send_count` is left
+    /// unchanged.
     ///
     /// Returns [`CryptoError::SessionExhausted`] if `count` is at or beyond
     /// `SESSION_EXHAUSTION_THRESHOLD`. A live ratchet can never reach that
@@ -311,6 +325,14 @@ impl KemRatchet {
     /// that range denotes a corrupt or hostile state blob and is rejected
     /// rather than replayed. `send_count` is left unchanged on rejection.
     pub fn set_send_count(&mut self, count: u64) -> Result<()> {
+        if count < self.send_count {
+            // Reject a rewind (80/Open-Q1, HARD-04): a count below the current
+            // send_count would move the send counter backwards. Reuse the
+            // existing MessageCounterTooOld variant (mirrors set_message_counter
+            // / RBK-01) — no new error variant. The early return leaves
+            // send_count unchanged.
+            return Err(CryptoError::MessageCounterTooOld);
+        }
         if count >= SESSION_EXHAUSTION_THRESHOLD {
             return Err(CryptoError::SessionExhausted {
                 current: count,
