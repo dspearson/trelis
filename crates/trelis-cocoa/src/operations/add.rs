@@ -1529,6 +1529,127 @@ mod tests {
         ));
     }
 
+    /// HARD-07 (81/OQ-3): the INGEST path `process_add` rejects a double-join at
+    /// an already-occupied leaf through the STRUCTURAL occupied-leaf arm
+    /// (`scratch.get(new_leaf).is_populated()`) — the arm that survives
+    /// (de)serialisation — even when the `members` registry cannot help.
+    ///
+    /// This is DISTINCT from `test_double_join_add_member_rejected`, which drives
+    /// the LOCAL `add_member` and is caught by the registry arm (`is_member`).
+    /// Here we reproduce the post-(de)serialisation state OQ-3 describes:
+    /// `join_group` (exactly like `restore_session`) seeds ONLY `our_user_id`
+    /// into the `members` registry, so a peer already seated in the tree is
+    /// absent from the registry. We ASSERT that absence (neutralising the
+    /// registry arm), then re-add that peer at its occupied leaf and show
+    /// `process_add` still returns `DuplicateMember` — a rejection that can ONLY
+    /// come from the structural occupied-leaf arm, because `is_member` is
+    /// provably false.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_process_add_double_join_structural_arm_rejects() {
+        use crate::tree::{TreeNode, UpdateOrigin};
+
+        let group_id = [0x42u8; 32];
+        let epoch_secret = [0xABu8; 32];
+        let our_user_id = [0x02u8; 32]; // us — member at leaf 1
+        let seated_user_id = [0x01u8; 32]; // peer already seated at leaf 0
+
+        // Our ingesting session, reconstructed as a 2-member group at depth 1.
+        // Like `restore_session`, `join_group` seeds ONLY `our_user_id` into the
+        // members registry — exactly OQ-3's post-(de)serialisation state.
+        let our_keypair = HybridKemKeypair::generate().unwrap();
+        let mut session = CocoaSession::join_group(
+            group_id,
+            our_user_id,
+            our_keypair,
+            1, // our position
+            1, // depth 1 (2 members)
+            2, // member count
+            &epoch_secret,
+            [0u8; 32], // initial transcript
+        );
+        let start_epoch = session.epoch_number();
+
+        // Seat the peer at leaf 0 in our tree view: the leaf is now POPULATED
+        // (this is what survives (de)serialisation), yet the peer is NOT in our
+        // members registry.
+        let seated_keypair = HybridKemKeypair::generate().unwrap();
+        let seated_identity = create_test_identity();
+        {
+            let seated_leaf = crate::tree::NodeIndex::leaf(1, 0);
+            let node = TreeNode::new_populated(
+                seated_leaf,
+                seated_keypair.public_key().clone(),
+                None,
+                ([0u8; 32], [0u8; 32]),
+                seated_user_id,
+                seated_identity.sign(b"init").unwrap(),
+                [0u8; 32],
+                [0u8; 32],
+                UpdateOrigin {
+                    epoch: 0,
+                    sequence: 0,
+                    timestamp: 0,
+                },
+            );
+            session.tree_mut().insert(node);
+        }
+
+        // Registry arm is provably neutralised: the seated peer is absent from
+        // `members` (only `our_user_id` survived restore/join), so `is_member`
+        // is false and cannot be what rejects the re-add below.
+        assert!(
+            !session.is_member(&seated_user_id),
+            "OQ-3 precondition: the seated peer must be absent from the registry \
+             so only the structural occupied-leaf arm can reject"
+        );
+
+        // A well-formed add commit that re-adds the seated peer at its
+        // ALREADY-OCCUPIED leaf 0. Epoch, signature and committer-leaf checks all
+        // pass, so control reaches the double-join guard; the confirmation tag /
+        // round hash are never consulted (the guard fires first).
+        let adder = create_test_identity();
+        let epoch = start_epoch + 1;
+        let round_hash = [0x11u8; 32];
+        let path_updates: Vec<PathUpdate> = Vec::new();
+        let path_updates_hash = hash_path_updates(&serialise_path_updates(&path_updates));
+        let commit_content = CommitContent::new_add(
+            group_id,
+            epoch,
+            round_hash,
+            path_updates_hash,
+            0, // committer sits at the occupied leaf 0 (in range, not blank)
+            derive_user_id_from_identity(adder.public_key()),
+        );
+        let signature = sign_commit(&adder, &commit_content).unwrap();
+
+        let commit = AddCommit {
+            group_id,
+            new_member_id: seated_user_id, // re-add of the already-seated peer
+            new_leaf_position: 0,          // targets the occupied leaf
+            committer_leaf_position: 0,
+            epoch,
+            path_updates,
+            signature,
+            round_hash,
+            confirmation_tag: [0u8; 32], // never reached — the guard rejects first
+        };
+
+        // The re-add is rejected. Because `is_member(seated_user_id)` is false
+        // (asserted above), the ONLY guard that can fire is the structural
+        // occupied-leaf arm — this is precisely OQ-3's point.
+        let result = process_add(&mut session, &commit, adder.public_key());
+        assert!(
+            matches!(result, Err(trelis_error::CryptoError::DuplicateMember)),
+            "ingest process_add must reject a re-add at an occupied leaf via the \
+             structural arm; got {result:?}"
+        );
+
+        // Validate-before-mutate (WR-03): a rejected commit changes nothing.
+        assert_eq!(session.epoch_number(), start_epoch);
+        assert_eq!(session.member_count(), 2);
+    }
+
     // ─── GAP-03: commit authority (signer ↔ body ↔ leaf) ────────────────────
 
     /// A commit whose signed body claims `committer_user_id = derive(B)` but is
