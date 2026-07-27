@@ -731,6 +731,38 @@ mod tests {
         );
     }
 
+    /// HARD-03: hedged ML-DSA-65 signing fails closed on an RNG fault. With the
+    /// CSPRNG forced to fail, `sign_hedged` must return `RngFailure` and produce
+    /// no signature — it never silently falls back to deterministic signing.
+    /// Disarming restores the happy path (the fault hook is not sticky). The
+    /// fault flag is thread-local under `cfg(test)`, so this KAT is safe under
+    /// cargo's parallel test runner.
+    #[test]
+    fn test_sign_hedged_fails_closed_on_rng_fault() {
+        let signing_key = MlDsa65SigningKey::generate().unwrap();
+        let message = b"hedged signing must fail closed when the CSPRNG fails";
+
+        // Arm the fault on this thread, then attempt a hedged signature. Disarm
+        // immediately so the happy-path assertion below is unaffected even if
+        // the assertion between them were to panic.
+        crate::random::set_force_rng_failure(true);
+        let armed_result = signing_key.sign_hedged(message);
+        crate::random::set_force_rng_failure(false);
+
+        assert!(
+            matches!(armed_result, Err(CryptoError::RngFailure)),
+            "hedged signing must fail closed with RngFailure, never fall back \
+             to deterministic signing"
+        );
+
+        // The hook is not sticky: once disarmed, hedged signing succeeds again.
+        let recovered = signing_key.sign_hedged(message);
+        assert!(
+            recovered.is_ok(),
+            "hedged signing must succeed after the forced fault is cleared"
+        );
+    }
+
     #[test]
     fn test_context_string() {
         let signing_key = MlDsa65SigningKey::generate().unwrap();

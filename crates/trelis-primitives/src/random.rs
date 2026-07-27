@@ -47,6 +47,13 @@ pub fn fill_bytes(dest: &mut [u8]) -> Result<()> {
     getrandom::getrandom(dest).map_err(|_| CryptoError::RngFailure)
 }
 
+/// Test-only seam to force a CSPRNG failure so the hedged-signing fail-closed
+/// path (HARD-03) can be exercised. Compiled out of the default build.
+#[cfg(any(test, feature = "expose-internals"))]
+pub fn set_force_rng_failure(_on: bool) {
+    // Stub: wired into `fill_bytes` in the GREEN step.
+}
+
 /// Generates a fixed-size array of cryptographically secure random bytes.
 ///
 /// # Type Parameters
