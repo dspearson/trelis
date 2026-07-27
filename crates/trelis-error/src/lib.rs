@@ -368,7 +368,7 @@ pub enum CryptoError {
 
     /// Member is already in the group (double-join / ghost-member guard).
     ///
-    /// Returned by the CoCoA add path when a commit attempts to re-add an
+    /// Returned by the `CoCoA` add path when a commit attempts to re-add an
     /// already-present member or to target an already-occupied leaf. Security
     /// category — a duplicate join is a potential elevation-of-privilege /
     /// ghost-member attempt, not a benign protocol slip. Caller logs and
@@ -377,7 +377,7 @@ pub enum CryptoError {
 
     /// Parent-hash verification failed (tampered tree structure).
     ///
-    /// Returned by the CoCoA parent-hash verifier (`PHash.Ver`) when a
+    /// Returned by the `CoCoA` parent-hash verifier (`PHash.Ver`) when a
     /// commit's recomputed non-leaf `h1` (sibling binding) — or an
     /// enforceable `h2` (predecessor/resolution binding) — does not match the
     /// wire value, or when a leaf node carries a non-zero parent hash. Security
@@ -389,7 +389,7 @@ pub enum CryptoError {
 
     /// Round-hash verification failed (divergent / forged commit round hash).
     ///
-    /// Returned by the CoCoA mandatory round-hash check (`GAP-04c` / F07) when a
+    /// Returned by the `CoCoA` mandatory round-hash check (`GAP-04c` / F07) when a
     /// commit's independently-recomputed round hash — derived from the
     /// receiver's LOCAL `delta_root` plus the commit's added/removed member set —
     /// does not match the `round_hash` carried on the wire. Security category —
@@ -427,10 +427,10 @@ pub enum CryptoError {
     // ─── Denial-of-Service / Resource-Limit Errors ──────────────────────────
     /// Message exceeds the maximum permitted size.
     ///
-    /// Returned by the CoCoA `check_size_limits` gate when an inbound message /
+    /// Returned by the `CoCoA` `check_size_limits` gate when an inbound message /
     /// ciphertext / serialised commit is larger than `MAX_MESSAGE_SIZE`, rejected
     /// BEFORE any AEAD, signature verification, or KEM decapsulation runs (the
-    /// spec's "size checks MUST precede crypto" DoS mitigation). Security
+    /// spec's "size checks MUST precede crypto" `DoS` mitigation). Security
     /// category — an oversized input is an attacker attempting to force expensive
     /// cryptographic work (CPU amplification), so the session rejects and
     /// survives rather than treating it as a fatal local condition. Caller logs
@@ -439,7 +439,7 @@ pub enum CryptoError {
 
     /// A Merkle proof / commit path exceeds the maximum permitted depth.
     ///
-    /// Returned by the CoCoA `check_size_limits` gate when an inbound commit's
+    /// Returned by the `CoCoA` `check_size_limits` gate when an inbound commit's
     /// path / opening depth is greater than `MAX_MERKLE_PROOF_DEPTH`, rejected
     /// before any signature verification or decapsulation. Security category — an
     /// over-deep proof is an attacker attempting to force O(depth) verification
@@ -448,7 +448,7 @@ pub enum CryptoError {
 
     /// A commit would grow the ratchet tree or group past a structural ceiling.
     ///
-    /// Returned by the CoCoA `check_size_limits` gate when an inbound commit's
+    /// Returned by the `CoCoA` `check_size_limits` gate when an inbound commit's
     /// resulting tree depth, group size, or total unmerged-leaf count exceeds
     /// `MAX_TREE_DEPTH`, `MAX_GROUP_SIZE`, or `MAX_UNMERGED_LEAVES` respectively,
     /// rejected before any signature verification or decapsulation. Security
