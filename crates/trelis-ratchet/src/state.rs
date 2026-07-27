@@ -705,6 +705,34 @@ mod tests {
     }
 
     #[test]
+    fn test_set_send_count_rejects_rewind() {
+        let session_key = [0x42u8; 32];
+        let their_keypair = HybridKemKeypair::generate().unwrap();
+
+        let mut state =
+            KemRatchet::init_initiator(&session_key, their_keypair.public_key().clone(), 1000)
+                .unwrap();
+
+        // Forward moves are accepted: 0 -> 5.
+        state.set_send_count(5).unwrap();
+        assert_eq!(state.send_count(), 5);
+
+        // A rewind (count < the current send_count) is rejected with the
+        // EXISTING MessageCounterTooOld variant — an anti-rewind guard
+        // mirroring set_message_counter (RBK-01). send_count is left
+        // unchanged on rejection (the guard returns before the assignment).
+        assert!(matches!(
+            state.set_send_count(3),
+            Err(CryptoError::MessageCounterTooOld)
+        ));
+        assert_eq!(state.send_count(), 5);
+
+        // Forward is still allowed after a rejected rewind: 5 -> 6.
+        state.set_send_count(6).unwrap();
+        assert_eq!(state.send_count(), 6);
+    }
+
+    #[test]
     fn test_set_their_public_key() {
         let session_key = [0x42u8; 32];
         let our_keypair = HybridKemKeypair::generate().unwrap();
