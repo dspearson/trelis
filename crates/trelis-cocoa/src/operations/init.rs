@@ -317,6 +317,14 @@ pub trait WelcomeInfoSerialise {
 /// # Returns
 ///
 /// The decrypted plaintext bytes.
+///
+/// # Internal primitive
+///
+/// Low-level decap primitive. Application code MUST reach it through the gated
+/// entry point `process_welcome` (which verifies the committer signature BEFORE
+/// this decap runs), never by calling this directly — there is no live bypass
+/// caller. It stays `pub` for internal cross-module reuse and is not part of the
+/// intended external surface (LOW-01, doc-only: symbol unchanged).
 #[cfg(all(feature = "alloc", any(feature = "std", feature = "wasm")))]
 #[must_use = "the decrypted plaintext must be checked or used"]
 pub fn decrypt_welcome_info(

@@ -157,6 +157,14 @@ pub fn encrypt_seed_to_recipient(
 /// # Errors
 ///
 /// Returns an error if decapsulation or AEAD decryption fails.
+///
+/// # Internal primitive
+///
+/// Low-level decap primitive. Callers MUST use the gated entry points that own
+/// the surrounding integrity checks (`apply_path_updates` / `process_add` /
+/// `process_update`), never invoke this directly — there is no live bypass
+/// caller. It stays `pub` for internal cross-module reuse and is not part of the
+/// intended external surface (LOW-01, doc-only: symbol unchanged).
 #[must_use = "the decrypted seed must be checked or used"]
 pub fn decrypt_seed(
     encrypted: &EncryptedNodeSeed,

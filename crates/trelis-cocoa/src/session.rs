@@ -165,6 +165,22 @@ impl CocoaSession {
     /// The message counter starts at 0; the caller restores it via
     /// [`set_message_counter`](Self::set_message_counter). Like `join_group`,
     /// only `our_user_id` is seeded into the member registry (OQ-3 residual).
+    ///
+    /// # Rollback safety — watermark-caller-owned
+    ///
+    /// This raw door runs NO rollback/watermark check before reconstruction:
+    /// the only rollback guard on this path is the in-object
+    /// [`set_message_counter`](Self::set_message_counter) / 52-05 (E4) check,
+    /// which fires AFTER the object exists and rejects a same-identity counter
+    /// rewind but does NOT gate an `(epoch, counter)` rollback of the whole
+    /// restored session. The caller therefore OWNS the rollback/watermark duty
+    /// on this door. Durable-storage loads MUST route through
+    /// [`restore_session_checked`](Self::restore_session_checked) — the
+    /// RBK-01 / GAP-05 safe door, which runs the `SessionWatermark` check
+    /// BEFORE any reconstruction. This raw entry stays `pub` only for the
+    /// `trelis-wasm` unchecked deserialiser (which supplies the equivalent
+    /// guard at its own boundary); do not reach for it on a fresh
+    /// durable-storage load unless you own the watermark yourself.
     #[cfg(feature = "session-serialization")]
     #[allow(clippy::too_many_arguments)]
     #[must_use]
