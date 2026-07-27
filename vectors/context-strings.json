@@ -126,43 +126,43 @@
     },
     {
       "name": "root_key_context",
-      "description": "Context for deriving initial root key from X3DH-PQ shared secret",
+      "description": "Context for deriving the session root key from the X3DH-PQ shared secret (reconciled to the code/App-C trelis-session-root-v1 string; vector currency, not a protocol change)",
       "inputs": {
-        "context_string": "trelis-root-key-v1",
-        "context_hex": "7472656c69732d726f6f742d6b65792d7631",
-        "context_length": 18,
+        "context_string": "trelis-session-root-v1",
+        "context_hex": "7472656c69732d73657373696f6e2d726f6f742d7631",
+        "context_length": 22,
         "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
       },
       "expected": {
-        "derive_key_output_hex": "8045402ab96e4d2e335702f92cd3bc4b765a014596526511d21f1a61b3023e8e"
+        "derive_key_output_hex": "2538120d41531568d781fcb5181120a475f10d906da0f5a88ea3d1192993e528"
       },
       "usage": "Used in trelis-x3dh-pq/src/session_keys.rs (ROOT_KEY_CONTEXT) for session key derivation"
     },
     {
       "name": "send_chain_context",
-      "description": "Context for deriving initial send chain key",
+      "description": "Context for deriving the initial send chain key (reconciled to the code/App-C trelis-session-send-v1 string; vector currency, not a protocol change)",
       "inputs": {
-        "context_string": "trelis-send-chain-v1",
-        "context_hex": "7472656c69732d73656e642d636861696e2d7631",
-        "context_length": 20,
+        "context_string": "trelis-session-send-v1",
+        "context_hex": "7472656c69732d73657373696f6e2d73656e642d7631",
+        "context_length": 22,
         "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
       },
       "expected": {
-        "derive_key_output_hex": "4cd4c9f922194e3748ec2eb95f14aa77985a74eb7b91cc8402a3dc7203eae0ee"
+        "derive_key_output_hex": "02209dbd5ad90be12178e58f1d6560b437fb3bfd76eaeac73d5bfc672f7a3361"
       },
       "usage": "Used in trelis-x3dh-pq/src/session_keys.rs (SEND_CHAIN_CONTEXT) for session key derivation"
     },
     {
       "name": "recv_chain_context",
-      "description": "Context for deriving initial receive chain key",
+      "description": "Context for deriving the initial receive chain key (reconciled to the code/App-C trelis-session-recv-v1 string; vector currency, not a protocol change)",
       "inputs": {
-        "context_string": "trelis-recv-chain-v1",
-        "context_hex": "7472656c69732d726563762d636861696e2d7631",
-        "context_length": 20,
+        "context_string": "trelis-session-recv-v1",
+        "context_hex": "7472656c69732d73657373696f6e2d726563762d7631",
+        "context_length": 22,
         "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
       },
       "expected": {
-        "derive_key_output_hex": "10d569f637fa01e9cc2a758ee186cd679178637c1165f29767199eb204c8fbc7"
+        "derive_key_output_hex": "41d2e5b2bdc17201d5c3dc4d5dbd0bf2f0fc5c1bc2f1b8d12d0505d119aa15a9"
       },
       "usage": "Used in trelis-x3dh-pq/src/session_keys.rs (RECV_CHAIN_CONTEXT) for session key derivation"
     },
@@ -333,6 +333,636 @@
         "derive_key_output_hex": "ff59102918f7a497cf50b5fca376910da0732906519b6746c9894546f48ffef5"
       },
       "usage": "Used in trelis-hybrid/src/signature.rs (SIG_BOP2_H1_PREHASH_CONTEXT via H1Domain::Prehashed) to derive m' on the prehash signing path. The base sig_bop2_h1_context (plain path) is unchanged."
+    },
+    {
+      "name": "mldsa_hedge_context",
+      "description": "Context for hedged ML-DSA-65 signing",
+      "inputs": {
+        "context_string": "trelis-mldsa-hedge-v1",
+        "context_hex": "7472656c69732d6d6c6473612d68656467652d7631",
+        "context_length": 21,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "5891c78aa41bf4a9a956d29daf769f9c62347ba1186f67b862abd58604b7e77b"
+      },
+      "usage": "Used in trelis-primitives/src/blake3_kdf.rs (MLDSA_HEDGE_CONTEXT) to combine fresh entropy with the message hash"
+    },
+    {
+      "name": "sig_ratchet_message_context",
+      "description": "Context for per-message ratchet signatures",
+      "inputs": {
+        "context_string": "trelis-sig-ratchet-message-v1",
+        "context_hex": "7472656c69732d7369672d726174636865742d6d6573736167652d7631",
+        "context_length": 29,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "c045a9a9e72e7181000b3c2e13d04fa73ed30def98ab9c5244d687761b242bbe"
+      },
+      "usage": "Used in trelis-primitives/src/blake3_kdf.rs (SIG_RATCHET_MESSAGE_CONTEXT)"
+    },
+    {
+      "name": "sig_cocoa_update_context",
+      "description": "Context for CoCoA tree update signatures",
+      "inputs": {
+        "context_string": "trelis-sig-cocoa-update-v1",
+        "context_hex": "7472656c69732d7369672d636f636f612d7570646174652d7631",
+        "context_length": 26,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "f02ed6adee84828587fc896cff0642dbc1770108079def1465e4326c736044da"
+      },
+      "usage": "Used in trelis-primitives/src/blake3_kdf.rs (SIG_COCOA_UPDATE_CONTEXT)"
+    },
+    {
+      "name": "sig_safety_number_context",
+      "description": "Context for safety number attestation signatures",
+      "inputs": {
+        "context_string": "trelis-sig-safety-number-v1",
+        "context_hex": "7472656c69732d7369672d7361666574792d6e756d6265722d7631",
+        "context_length": 27,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "6768370765d1bb3a15aa6236ea2bc3c11885a8f33e08b8aef87e2a243910d781"
+      },
+      "usage": "Used in trelis-primitives/src/blake3_kdf.rs (SIG_SAFETY_NUMBER_CONTEXT)"
+    },
+    {
+      "name": "sig_device_attest_context",
+      "description": "Context for device key attestation signatures",
+      "inputs": {
+        "context_string": "trelis-sig-device-attest-v1",
+        "context_hex": "7472656c69732d7369672d6465766963652d6174746573742d7631",
+        "context_length": 27,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "803aa59760d875a071c9cc491d9b0bf2f78d96e9cbd5d5bd81c37d12ab2ea313"
+      },
+      "usage": "Used in trelis-primitives/src/blake3_kdf.rs (SIG_DEVICE_ATTEST_CONTEXT)"
+    },
+    {
+      "name": "hybrid_signing_ed448_context",
+      "description": "Ed448 signing sub-seed derivation (part 1)",
+      "inputs": {
+        "context_string": "trelis-hybrid-signing-ed448-v1",
+        "context_hex": "7472656c69732d6879627269642d7369676e696e672d65643434382d7631",
+        "context_length": 30,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "211e7f6c551d152f99e8d1147cfd5d1c697ce4738377dc82084c5268cb28acf7"
+      },
+      "usage": "Used in trelis-hybrid/src/signature.rs (HYBRID_SIGNING_ED448_SEED_CONTEXT) in generate_from_seed"
+    },
+    {
+      "name": "hybrid_signing_ed448_context_2",
+      "description": "Ed448 signing sub-seed derivation (part 2)",
+      "inputs": {
+        "context_string": "trelis-hybrid-signing-ed448-v1-2",
+        "context_hex": "7472656c69732d6879627269642d7369676e696e672d65643434382d76312d32",
+        "context_length": 32,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "16a5345b336c50d379121010baa56d941109166c2d017c55fee2e9d16af7bf3b"
+      },
+      "usage": "Used in trelis-hybrid/src/signature.rs (HYBRID_SIGNING_ED448_SEED_CONTEXT_2) in generate_from_seed"
+    },
+    {
+      "name": "hybrid_signing_mldsa_context",
+      "description": "ML-DSA-65 signing sub-seed derivation",
+      "inputs": {
+        "context_string": "trelis-hybrid-signing-mldsa-v1",
+        "context_hex": "7472656c69732d6879627269642d7369676e696e672d6d6c6473612d7631",
+        "context_length": 30,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "685878e7d6e4e4adf4528d453f00933b4d3cfa29fa196a27f3843e87c794a8c3"
+      },
+      "usage": "Used in trelis-hybrid/src/signature.rs (HYBRID_SIGNING_MLDSA_SEED_CONTEXT) in generate_from_seed"
+    },
+    {
+      "name": "hybrid_kem_x448_context",
+      "description": "X448 KEM sub-seed derivation",
+      "inputs": {
+        "context_string": "trelis-hybrid-x448",
+        "context_hex": "7472656c69732d6879627269642d78343438",
+        "context_length": 18,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "84419becb15e484359037ac61752a2dca77a101d6455ad7b36660c930841ffd0"
+      },
+      "usage": "Used in trelis-hybrid/src/kem.rs (HYBRID_KEM_X448_SEED_CONTEXT) in generate_from_seed"
+    },
+    {
+      "name": "hybrid_kem_sntrup_context",
+      "description": "sntrup761 KEM sub-seed derivation",
+      "inputs": {
+        "context_string": "trelis-hybrid-sntrup761",
+        "context_hex": "7472656c69732d6879627269642d736e74727570373631",
+        "context_length": 23,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "a2313ac7aadd506597510ebd82a764fd69a1b0540c3b6dfb26e50f758039584d"
+      },
+      "usage": "Used in trelis-hybrid/src/kem.rs (HYBRID_KEM_SNTRUP_SEED_CONTEXT) in generate_from_seed"
+    },
+    {
+      "name": "cocoa_seed_derive_context",
+      "description": "CoCoA H1: seed derivation",
+      "inputs": {
+        "context_string": "cocoa-sa-seed-derive-v1",
+        "context_hex": "636f636f612d73612d736565642d6465726976652d7631",
+        "context_length": 23,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "6a0c5575d94b3f9ade09ae71b1d1cfee88abd7d4564bd0e9640a29f2f11fbe31"
+      },
+      "usage": "Used in trelis-cocoa/src/key_schedule.rs (H1_CONTEXT)"
+    },
+    {
+      "name": "cocoa_keygen_x448_context",
+      "description": "CoCoA H2: X448 keygen",
+      "inputs": {
+        "context_string": "cocoa-sa-keygen-x448-v1",
+        "context_hex": "636f636f612d73612d6b657967656e2d783434382d7631",
+        "context_length": 23,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "3a6b2a2a21825aee185c3729fb31f4b0aa72a60c6ce18b6333971f91d67fe7a1"
+      },
+      "usage": "Used in trelis-cocoa/src/key_schedule.rs (H2_CONTEXT_X448)"
+    },
+    {
+      "name": "cocoa_keygen_sntrup_context",
+      "description": "CoCoA H2: sntrup keygen",
+      "inputs": {
+        "context_string": "cocoa-sa-keygen-sntrup-v1",
+        "context_hex": "636f636f612d73612d6b657967656e2d736e747275702d7631",
+        "context_length": 25,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "6d26ac5d0a2d016db6127463444e7d1eadc34d2027d82fbc4eb3a0f089281c37"
+      },
+      "usage": "Used in trelis-cocoa/src/key_schedule.rs (H2_CONTEXT_SNTRUP)"
+    },
+    {
+      "name": "cocoa_tree_label_context",
+      "description": "CoCoA H3: tree labels",
+      "inputs": {
+        "context_string": "cocoa-sa-tree-label-v1",
+        "context_hex": "636f636f612d73612d747265652d6c6162656c2d7631",
+        "context_length": 22,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "d876545215ec9c49b88844bbc477df2cb5bb9b4a2ccc92a0504cbe30108f8fab"
+      },
+      "usage": "Used in trelis-cocoa/src/key_schedule.rs (H3_CONTEXT)"
+    },
+    {
+      "name": "cocoa_parent_hash_context",
+      "description": "CoCoA H4: parent hash",
+      "inputs": {
+        "context_string": "cocoa-sa-parent-hash-v1",
+        "context_hex": "636f636f612d73612d706172656e742d686173682d7631",
+        "context_length": 23,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "7a0cd68d04554f67244de6c3add09b58af5fa0761cf6b169f26d27fbec597ee8"
+      },
+      "usage": "Used in trelis-cocoa/src/key_schedule.rs (H4_CONTEXT)"
+    },
+    {
+      "name": "cocoa_epoch_secret_context",
+      "description": "CoCoA H5: epoch secret",
+      "inputs": {
+        "context_string": "cocoa-sa-epoch-secret-v1",
+        "context_hex": "636f636f612d73612d65706f63682d7365637265742d7631",
+        "context_length": 24,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "1576b892fcb70f41b98d2987b02b66a22799a4b8322460b56e4995f75e605966"
+      },
+      "usage": "Used in trelis-cocoa/src/key_schedule.rs (H5_CONTEXT)"
+    },
+    {
+      "name": "cocoa_app_secret_context",
+      "description": "CoCoA application secret",
+      "inputs": {
+        "context_string": "cocoa-sa-app-secret-v1",
+        "context_hex": "636f636f612d73612d6170702d7365637265742d7631",
+        "context_length": 22,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "0dde35b9e67a85c9ad74fb48669356a4cae7fa885c8fe24894471e84b944d2f6"
+      },
+      "usage": "Used in trelis-cocoa/src/key_schedule.rs (APP_SECRET_CONTEXT)"
+    },
+    {
+      "name": "cocoa_conf_key_context",
+      "description": "CoCoA confirmation key",
+      "inputs": {
+        "context_string": "cocoa-sa-conf-key-v1",
+        "context_hex": "636f636f612d73612d636f6e662d6b65792d7631",
+        "context_length": 20,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "c791c4296307e633642ab5836c423b9487aab6f6b9e87698f2c98c516031eda1"
+      },
+      "usage": "Used in trelis-cocoa/src/key_schedule.rs (CONF_KEY_CONTEXT)"
+    },
+    {
+      "name": "cocoa_init_secret_context",
+      "description": "CoCoA init secret",
+      "inputs": {
+        "context_string": "cocoa-sa-init-secret-v1",
+        "context_hex": "636f636f612d73612d696e69742d7365637265742d7631",
+        "context_length": 23,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "b2302ee42021954fa227ab68d467c2138629c71d08a962823b50a26f34ea5f01"
+      },
+      "usage": "Used in trelis-cocoa/src/key_schedule.rs (INIT_SECRET_CONTEXT)"
+    },
+    {
+      "name": "cocoa_message_key_context",
+      "description": "CoCoA message key",
+      "inputs": {
+        "context_string": "cocoa-sa-message-key-v1",
+        "context_hex": "636f636f612d73612d6d6573736167652d6b65792d7631",
+        "context_length": 23,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "1ae15a304ea816de08202b61552260e248cdb5854ad03c7bb135a4798794c3ba"
+      },
+      "usage": "Used in trelis-cocoa/src/key_schedule.rs (MESSAGE_KEY_CONTEXT)"
+    },
+    {
+      "name": "cocoa_message_nonce_context",
+      "description": "CoCoA message nonce",
+      "inputs": {
+        "context_string": "cocoa-sa-message-nonce-v1",
+        "context_hex": "636f636f612d73612d6d6573736167652d6e6f6e63652d7631",
+        "context_length": 25,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "bfd4701e93d55923228f34641d601a6fbcdb843b889b34550c4d9dcf2c6d63d6"
+      },
+      "usage": "Used in trelis-cocoa/src/key_schedule.rs (MESSAGE_NONCE_CONTEXT)"
+    },
+    {
+      "name": "cocoa_root_label_context",
+      "description": "CoCoA root label",
+      "inputs": {
+        "context_string": "cocoa-sa-root-label-v1",
+        "context_hex": "636f636f612d73612d726f6f742d6c6162656c2d7631",
+        "context_length": 22,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "be961c88dcfa0aeb31de4ad131de3722497ca6250c9057d7d246b9836da9d112"
+      },
+      "usage": "Used in trelis-cocoa/src/key_schedule.rs (ROOT_LABEL_CONTEXT)"
+    },
+    {
+      "name": "cocoa_confirmation_tag_context",
+      "description": "CoCoA confirmation tag",
+      "inputs": {
+        "context_string": "cocoa-sa-confirmation-tag-v1",
+        "context_hex": "636f636f612d73612d636f6e6669726d6174696f6e2d7461672d7631",
+        "context_length": 28,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "01a4c9e4b397b13c6ba793135c90d4ce841ef8952d8b4fe5ad0d645fe1db12f6"
+      },
+      "usage": "Used in trelis-cocoa/src/key_schedule.rs (CONFIRMATION_TAG_CONTEXT)"
+    },
+    {
+      "name": "cocoa_user_id_context",
+      "description": "CoCoA user-ID derivation",
+      "inputs": {
+        "context_string": "cocoa-sa-user-id-v1",
+        "context_hex": "636f636f612d73612d757365722d69642d7631",
+        "context_length": 19,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "5652d5d68d9802511f6831308f0a694c1a5bf5e7eb4c56433fa2558546509582"
+      },
+      "usage": "Used in trelis-cocoa/src/key_schedule.rs (USER_ID_CONTEXT)"
+    },
+    {
+      "name": "cocoa_round_hash_context",
+      "description": "CoCoA round hash",
+      "inputs": {
+        "context_string": "cocoa-sa-round-hash-v1",
+        "context_hex": "636f636f612d73612d726f756e642d686173682d7631",
+        "context_length": 22,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "d5514590c0e87ba7a09f568231a47b5f3c1b07e827728fb592e65a9a3998568d"
+      },
+      "usage": "Used in trelis-cocoa/src/key_schedule.rs (ROUND_HASH_CONTEXT)"
+    },
+    {
+      "name": "cocoa_transcript_hash_context",
+      "description": "CoCoA transcript hash",
+      "inputs": {
+        "context_string": "cocoa-sa-transcript-hash-v1",
+        "context_hex": "636f636f612d73612d7472616e7363726970742d686173682d7631",
+        "context_length": 27,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "5829896f988926a7786f5e24063e0405b1233f0656ab5569e0946841de00f3d9"
+      },
+      "usage": "Used in trelis-cocoa/src/key_schedule.rs (TRANSCRIPT_HASH_CONTEXT)"
+    },
+    {
+      "name": "cocoa_commit_sign_context",
+      "description": "CoCoA commit signature prehash (used as bytes, not derive_key)",
+      "inputs": {
+        "context_string": "cocoa-sa-commit-sign-v1",
+        "context_hex": "636f636f612d73612d636f6d6d69742d7369676e2d7631",
+        "context_length": 23,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "1770eb5617cd0307c3ebeba01a1d990a6b5045379c7be8928e78e43d02110298"
+      },
+      "usage": "Used in trelis-cocoa/src/operations/commit_sign.rs (COMMIT_SIGN_CONTEXT). derive_key KAT over 32 zero bytes pins the string."
+    },
+    {
+      "name": "cocoa_path_updates_hash_context",
+      "description": "CoCoA path-updates digest",
+      "inputs": {
+        "context_string": "cocoa-sa-path-updates-hash-v1",
+        "context_hex": "636f636f612d73612d706174682d757064617465732d686173682d7631",
+        "context_length": 29,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "18208637728ce40be3b694cb36319431062b52bfe0267cca87cc519b2237e412"
+      },
+      "usage": "Used in trelis-cocoa/src/operations/commit_sign.rs (path_updates_hash) as a derive_key context"
+    },
+    {
+      "name": "cocoa_welcome_key_context",
+      "description": "CoCoA Welcome key",
+      "inputs": {
+        "context_string": "cocoa-sa-welcome-key-v1",
+        "context_hex": "636f636f612d73612d77656c636f6d652d6b65792d7631",
+        "context_length": 23,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "eb927df85e1aa25845fb2ecad6048e5076e59cbad1dec1bb81912e521b214fe0"
+      },
+      "usage": "Used in trelis-cocoa/src/operations/init.rs (WELCOME_KEY_CONTEXT)"
+    },
+    {
+      "name": "safety_number_sync_context",
+      "description": "Context for safety number sync across devices",
+      "inputs": {
+        "context_string": "trelis-safety-number-sync-v1",
+        "context_hex": "7472656c69732d7361666574792d6e756d6265722d73796e632d7631",
+        "context_length": 28,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "83f086a1ab6e26541d979f0a0f109f0174bb6aacb4ae5bf0db46c057e7ebf982"
+      },
+      "usage": "Used in trelis-primitives/src/blake3_kdf.rs (SAFETY_NUMBER_SYNC_CONTEXT)"
+    },
+    {
+      "name": "identity_cert_context",
+      "description": "Context for identity-certificate signatures",
+      "inputs": {
+        "context_string": "trelis-identity-cert-v1",
+        "context_hex": "7472656c69732d6964656e746974792d636572742d7631",
+        "context_length": 23,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "914697ac5d5603ba48d2bac0975155cbfa3e281908c8c29b3591485c94f8e200"
+      },
+      "usage": "Used in trelis-primitives/src/blake3_kdf.rs (IDENTITY_CERT_CONTEXT)"
+    },
+    {
+      "name": "safety_number_device_set_context",
+      "description": "Context for device-set-bound safety numbers",
+      "inputs": {
+        "context_string": "trelis-safety-number-device-set-v1",
+        "context_hex": "7472656c69732d7361666574792d6e756d6265722d6465766963652d7365742d7631",
+        "context_length": 34,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "aaeb11564a748e5e8dcd52c82f7fce44fcfa9f47f565fab88522b94a5117b732"
+      },
+      "usage": "Used in trelis-primitives/src/blake3_kdf.rs (SAFETY_NUMBER_DEVICE_SET_CONTEXT)"
+    },
+    {
+      "name": "certified_safety_number_context",
+      "description": "Context for certified safety numbers",
+      "inputs": {
+        "context_string": "trelis-certified-safety-number-v1",
+        "context_hex": "7472656c69732d6365727469666965642d7361666574792d6e756d6265722d7631",
+        "context_length": 33,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "812d8a2383cd0fca9886c32074ef90be1a04374e5ccadb919698b6e9275742f4"
+      },
+      "usage": "Used in trelis-hybrid/src/identity_cert.rs (CERTIFIED_SAFETY_NUMBER_CONTEXT)"
+    },
+    {
+      "name": "history_sync_context",
+      "description": "Context for history sync threads",
+      "inputs": {
+        "context_string": "trelis-history-sync-v1",
+        "context_hex": "7472656c69732d686973746f72792d73796e632d7631",
+        "context_length": 22,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "b9a14e3bca0392599d0cb91cd0145bd532e2527f54a736fc8115eaf126b828b0"
+      },
+      "usage": "Used in trelis-primitives/src/blake3_kdf.rs (HISTORY_SYNC_CONTEXT)"
+    },
+    {
+      "name": "device_approval_context",
+      "description": "Context for device approval certificate signing",
+      "inputs": {
+        "context_string": "trelis-device-approval-v1",
+        "context_hex": "7472656c69732d6465766963652d617070726f76616c2d7631",
+        "context_length": 25,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "96d4d047debcff639e3667a76d871dc2b67c32e3f2cd95101afc5fbc39d3dbae"
+      },
+      "usage": "Used in trelis-multidevice/src/approval.rs (APPROVAL_CONTEXT)"
+    },
+    {
+      "name": "warrant_auth_context",
+      "description": "Context for lawful-intercept warrant authorisation",
+      "inputs": {
+        "context_string": "trelis-warrant-auth-v1",
+        "context_hex": "7472656c69732d77617272616e742d617574682d7631",
+        "context_length": 22,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "5f428f674259835cd3c0c140c4e7a47da96009feab2f907367ed6e927c3a5279"
+      },
+      "usage": "Used in trelis-primitives/src/blake3_kdf.rs (WARRANT_AUTH_CONTEXT)"
+    },
+    {
+      "name": "recovery_ed448_context",
+      "description": "Recovery keypair Ed448 component (part 1)",
+      "inputs": {
+        "context_string": "trelis-recovery-ed448-v1",
+        "context_hex": "7472656c69732d7265636f766572792d65643434382d7631",
+        "context_length": 24,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "af6ead8091925fb8b76a9bfbd51898df20667271267da1453545900d26177a61"
+      },
+      "usage": "Used in trelis-primitives/src/blake3_kdf.rs (RECOVERY_ED448_CONTEXT)"
+    },
+    {
+      "name": "recovery_ed448_context_2",
+      "description": "Recovery keypair Ed448 component (part 2)",
+      "inputs": {
+        "context_string": "trelis-recovery-ed448-v1-2",
+        "context_hex": "7472656c69732d7265636f766572792d65643434382d76312d32",
+        "context_length": 26,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "92321dc5f5b78cf901c42818581dd01d003df5913264ba3f05427d1889ec02a9"
+      },
+      "usage": "Used in trelis-hybrid/src/recovery.rs (ED448_CONTEXT_2) to fill the remaining Ed448 secret bytes"
+    },
+    {
+      "name": "recovery_mldsa_context",
+      "description": "Recovery keypair ML-DSA-65 component",
+      "inputs": {
+        "context_string": "trelis-recovery-mldsa-v1",
+        "context_hex": "7472656c69732d7265636f766572792d6d6c6473612d7631",
+        "context_length": 24,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "0c04f82b02cded366dd87e58d0a9bfb37dfb716a3eb91c6c9102bc01e56ba229"
+      },
+      "usage": "Used in trelis-primitives/src/blake3_kdf.rs (RECOVERY_MLDSA_CONTEXT)"
+    },
+    {
+      "name": "recovery_key_attest_context",
+      "description": "Context for recovery key attestation",
+      "inputs": {
+        "context_string": "trelis-recovery-key-attest-v1",
+        "context_hex": "7472656c69732d7265636f766572792d6b65792d6174746573742d7631",
+        "context_length": 29,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "41c1142789bc4663a49287e04b06d4e847318a99ac4882507d82d1872e9e44c3"
+      },
+      "usage": "Used in trelis-primitives/src/blake3_kdf.rs (RECOVERY_KEY_ATTEST_CONTEXT)"
+    },
+    {
+      "name": "compromise_notice_context",
+      "description": "Context for compromise notice signatures",
+      "inputs": {
+        "context_string": "trelis-compromise-notice-v1",
+        "context_hex": "7472656c69732d636f6d70726f6d6973652d6e6f746963652d7631",
+        "context_length": 27,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "bb4bbafdcf7c17ae78dd29b241de7d058c35950279a73f8f641d4a95b3ff0eed"
+      },
+      "usage": "Used in trelis-primitives/src/blake3_kdf.rs (COMPROMISE_NOTICE_CONTEXT)"
+    },
+    {
+      "name": "recovery_notice_context",
+      "description": "Context for recovery notice signatures",
+      "inputs": {
+        "context_string": "trelis-recovery-notice-v1",
+        "context_hex": "7472656c69732d7265636f766572792d6e6f746963652d7631",
+        "context_length": 25,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "46346f0946de6cb2081ec9e06f9a96e5691629c77fb1cac57d3462aaa88a782d"
+      },
+      "usage": "Used in trelis-primitives/src/blake3_kdf.rs (RECOVERY_NOTICE_CONTEXT)"
+    },
+    {
+      "name": "device_seed_context",
+      "description": "Context for device seed derivation from hardware entropy",
+      "inputs": {
+        "context_string": "trelis-device-seed-v1",
+        "context_hex": "7472656c69732d6465766963652d736565642d7631",
+        "context_length": 21,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "8830aa1e11a9b9d8dde55a2da5688449b1565e48a6940914289ce353bde3005d"
+      },
+      "usage": "Used in trelis-primitives/src/blake3_kdf.rs (DEVICE_SEED_CONTEXT)"
+    },
+    {
+      "name": "device_identity_key_context",
+      "description": "Context for device identity key derivation",
+      "inputs": {
+        "context_string": "trelis-device-identity-key-v1",
+        "context_hex": "7472656c69732d6465766963652d6964656e746974792d6b65792d7631",
+        "context_length": 29,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "bc86289c7c7c09e9c70d93e41c10c69b2f14dbd31c07a70dec3aa176714b93ba"
+      },
+      "usage": "Used in trelis-primitives/src/blake3_kdf.rs (DEVICE_IDENTITY_KEY_CONTEXT)"
+    },
+    {
+      "name": "device_signing_key_context",
+      "description": "Context for device signing key derivation",
+      "inputs": {
+        "context_string": "trelis-device-signing-key-v1",
+        "context_hex": "7472656c69732d6465766963652d7369676e696e672d6b65792d7631",
+        "context_length": 28,
+        "test_input_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "derive_key_output_hex": "8e4a4db8819c69efea4203e9fe5123e4557209c3dd08cb97dc8d749cabb523f0"
+      },
+      "usage": "Used in trelis-primitives/src/blake3_kdf.rs (DEVICE_SIGNING_KEY_CONTEXT)"
     }
   ]
 }
