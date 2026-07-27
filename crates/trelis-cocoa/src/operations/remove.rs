@@ -1093,4 +1093,84 @@ mod tests {
             "removed leaf must NOT be blanked before the round-hash check"
         );
     }
+
+    // ─── DOS-01/02: check_size_limits gate on the process_remove ingest path ──
+
+    /// DOS-02 ordering proof (reproduce-don't-assert): a remove commit with more
+    /// than 21 path updates (proof_depth > 20) AND an invalid signature returns
+    /// `ProofTooDeep`, not `SignatureVerificationFailed` — the size gate precedes
+    /// `verify_commit_signature`.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_process_remove_rejects_overdeep_proof_before_verify() {
+        let (mut session, _) = create_test_session_with_members(3);
+        let remover = create_test_identity();
+
+        // 22 path updates -> proof_depth = 22 - 1 = 21 > MAX_MERKLE_PROOF_DEPTH(20).
+        let path_updates: Vec<PathUpdate> = (0..22)
+            .map(|_| PathUpdate {
+                node_index: NodeIndex::new(0, 0),
+                new_public_key: Vec::new(),
+                parent_hash: ([0u8; 32], [0u8; 32]),
+                encrypted_seeds: Vec::new(),
+            })
+            .collect();
+        let signature =
+            HybridSignature::from_bytes(&[0u8; trelis_hybrid::signature::SIGNATURE_SIZE]).unwrap();
+        let commit = RemoveCommit {
+            group_id: *session.group_id(),
+            removed_member_id: [0x02u8; 32],
+            removed_leaf_position: 2,
+            committer_leaf_position: 0,
+            epoch: session.epoch_number() + 1,
+            path_updates,
+            signature,
+            round_hash: [0u8; 32],
+            confirmation_tag: [0u8; 32],
+        };
+        let result = process_remove(&mut session, &commit, remover.public_key());
+        assert!(
+            matches!(result, Err(trelis_error::CryptoError::ProofTooDeep)),
+            "size gate MUST fire before verify; got {result:?}"
+        );
+    }
+
+    /// DOS-01 ordering proof: a remove commit whose measured message size exceeds
+    /// `MAX_MESSAGE_SIZE` AND with an invalid signature returns `MessageTooLarge`,
+    /// not `SignatureVerificationFailed`.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_process_remove_rejects_oversized_message_before_verify() {
+        let (mut session, _) = create_test_session_with_members(3);
+        let remover = create_test_identity();
+
+        let oversized = PathUpdate {
+            node_index: NodeIndex::new(0, 0),
+            new_public_key: Vec::new(),
+            parent_hash: ([0u8; 32], [0u8; 32]),
+            encrypted_seeds: vec![EncryptedSeed {
+                recipient_position: 0,
+                encapsulation: Vec::new(),
+                ciphertext: vec![0u8; crate::MAX_MESSAGE_SIZE + 1],
+            }],
+        };
+        let signature =
+            HybridSignature::from_bytes(&[0u8; trelis_hybrid::signature::SIGNATURE_SIZE]).unwrap();
+        let commit = RemoveCommit {
+            group_id: *session.group_id(),
+            removed_member_id: [0x02u8; 32],
+            removed_leaf_position: 2,
+            committer_leaf_position: 0,
+            epoch: session.epoch_number() + 1,
+            path_updates: vec![oversized],
+            signature,
+            round_hash: [0u8; 32],
+            confirmation_tag: [0u8; 32],
+        };
+        let result = process_remove(&mut session, &commit, remover.public_key());
+        assert!(
+            matches!(result, Err(trelis_error::CryptoError::MessageTooLarge)),
+            "size gate MUST fire before verify; got {result:?}"
+        );
+    }
 }

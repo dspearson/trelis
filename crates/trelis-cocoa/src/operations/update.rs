@@ -1317,4 +1317,80 @@ mod tests {
             Err(trelis_error::CryptoError::ParentHashMismatch)
         ));
     }
+
+    // ─── DOS-01/02: check_size_limits gate on the process_update ingest path ──
+
+    /// DOS-02 ordering proof (reproduce-don't-assert): an update commit with more
+    /// than 21 path updates (proof_depth > 20) AND an invalid signature returns
+    /// `ProofTooDeep`, not `SignatureVerificationFailed` — the size gate precedes
+    /// `verify_commit_signature`.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_process_update_rejects_overdeep_proof_before_verify() {
+        let mut session = create_test_session();
+        let updater = create_test_identity();
+
+        // 22 path updates -> proof_depth = 22 - 1 = 21 > MAX_MERKLE_PROOF_DEPTH(20).
+        let path_updates: Vec<PathUpdate> = (0..22)
+            .map(|_| PathUpdate {
+                node_index: NodeIndex::new(0, 0),
+                new_public_key: Vec::new(),
+                parent_hash: ([0u8; 32], [0u8; 32]),
+                encrypted_seeds: Vec::new(),
+            })
+            .collect();
+        let signature =
+            HybridSignature::from_bytes(&[0u8; trelis_hybrid::signature::SIGNATURE_SIZE]).unwrap();
+        let commit = UpdateCommit {
+            group_id: *session.group_id(),
+            updater_leaf_position: 0,
+            epoch: 1,
+            path_updates,
+            signature,
+            round_hash: [0u8; 32],
+            confirmation_tag: [0u8; 32],
+        };
+        let result = process_update(&mut session, &commit, updater.public_key());
+        assert!(
+            matches!(result, Err(trelis_error::CryptoError::ProofTooDeep)),
+            "size gate MUST fire before verify; got {result:?}"
+        );
+    }
+
+    /// DOS-01 ordering proof: an update commit whose measured message size
+    /// exceeds `MAX_MESSAGE_SIZE` AND with an invalid signature returns
+    /// `MessageTooLarge`, not `SignatureVerificationFailed`.
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_process_update_rejects_oversized_message_before_verify() {
+        let mut session = create_test_session();
+        let updater = create_test_identity();
+
+        let oversized = PathUpdate {
+            node_index: NodeIndex::new(0, 0),
+            new_public_key: Vec::new(),
+            parent_hash: ([0u8; 32], [0u8; 32]),
+            encrypted_seeds: vec![crate::operations::add::EncryptedSeed {
+                recipient_position: 0,
+                encapsulation: Vec::new(),
+                ciphertext: vec![0u8; crate::MAX_MESSAGE_SIZE + 1],
+            }],
+        };
+        let signature =
+            HybridSignature::from_bytes(&[0u8; trelis_hybrid::signature::SIGNATURE_SIZE]).unwrap();
+        let commit = UpdateCommit {
+            group_id: *session.group_id(),
+            updater_leaf_position: 0,
+            epoch: 1,
+            path_updates: vec![oversized],
+            signature,
+            round_hash: [0u8; 32],
+            confirmation_tag: [0u8; 32],
+        };
+        let result = process_update(&mut session, &commit, updater.public_key());
+        assert!(
+            matches!(result, Err(trelis_error::CryptoError::MessageTooLarge)),
+            "size gate MUST fire before verify; got {result:?}"
+        );
+    }
 }
