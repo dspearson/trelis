@@ -94,9 +94,25 @@ pub(crate) fn welcome_sign_body(
     body.extend_from_slice(&tree_depth.to_le_bytes());
     body.extend_from_slice(&member_count.to_le_bytes());
     // WR-05: u32 LE length prefix before each variable field pins the boundary.
-    body.extend_from_slice(&(encapsulation.len() as u32).to_le_bytes());
+    // LOW-02 (defense-in-depth): saturating usize->u32 so a pathological
+    // >4 GiB field would clamp to u32::MAX rather than silently TRUNCATE (wrap)
+    // and forge a shorter boundary in the signed body. Cannot trigger in
+    // practice — group size is gated by MAX_GROUP_SIZE (1<<20) and Phase-87
+    // `check_size_limits`, and the KEM/AEAD fields are fixed-size — so the byte
+    // output is unchanged on every reachable input. `welcome_sign_body` returns
+    // `Vec<u8>` (no `Result`), so a saturating clamp is the clean fit; no new
+    // `CryptoError` variant.
+    body.extend_from_slice(
+        &u32::try_from(encapsulation.len())
+            .unwrap_or(u32::MAX)
+            .to_le_bytes(),
+    );
     body.extend_from_slice(encapsulation);
-    body.extend_from_slice(&(encrypted_info.len() as u32).to_le_bytes());
+    body.extend_from_slice(
+        &u32::try_from(encrypted_info.len())
+            .unwrap_or(u32::MAX)
+            .to_le_bytes(),
+    );
     body.extend_from_slice(encrypted_info);
     body
 }
