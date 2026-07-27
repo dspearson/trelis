@@ -72,7 +72,11 @@
 // `format!("{:?}", x)` dominates; not worth churning the corpus).
 #![cfg_attr(test, allow(clippy::pedantic))]
 
-#[cfg(feature = "alloc")]
+// `extern crate alloc` is unconditional: the always-public `signature` module
+// (and its unconditional re-exports) use `alloc::vec::Vec`, so the crate
+// requires `alloc` in every configuration that compiles. Gating this behind
+// `feature = "alloc"` left the `--no-default-features` build unable to resolve
+// `alloc` (E0433). No previously-buildable configuration is lost.
 extern crate alloc;
 
 #[cfg(feature = "std")]
