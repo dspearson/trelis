@@ -44,14 +44,61 @@ use trelis_error::{CryptoError, Result};
 /// This function blocks until sufficient entropy is available. It will not
 /// return until the buffer is filled with high-quality random bytes.
 pub fn fill_bytes(dest: &mut [u8]) -> Result<()> {
+    // Test-only fail-closed seam (HARD-03): when armed, abort before touching
+    // the OS CSPRNG so the hedged signer's error path can be exercised. Both
+    // branches are compiled out of the default (non-test, no-feature) build, so
+    // production behaviour is byte-identical to the plain getrandom call below.
+    #[cfg(test)]
+    if FORCE_RNG_FAILURE.with(|flag| flag.get()) {
+        return Err(CryptoError::RngFailure);
+    }
+    #[cfg(all(feature = "expose-internals", not(test)))]
+    if FORCE_RNG_FAILURE.load(core::sync::atomic::Ordering::SeqCst) {
+        return Err(CryptoError::RngFailure);
+    }
     getrandom::getrandom(dest).map_err(|_| CryptoError::RngFailure)
 }
 
-/// Test-only seam to force a CSPRNG failure so the hedged-signing fail-closed
-/// path (HARD-03) can be exercised. Compiled out of the default build.
-#[cfg(any(test, feature = "expose-internals"))]
-pub fn set_force_rng_failure(_on: bool) {
-    // Stub: wired into `fill_bytes` in the GREEN step.
+// Test-only CSPRNG fault-injection seam (HARD-03), compiled out of the default
+// build (present only under `cfg(test)` or the `expose-internals` feature). It
+// lets a test force `fill_bytes` to fail so the hedged ML-DSA signer's
+// fail-closed path can be exercised. Under `cfg(test)` the armed state is a
+// `thread_local!` flag, so cargo's parallel runner cannot let one test's forced
+// failure perturb another test's entropy draw (mirrors the PRF-02 counter in
+// trelis-cocoa's path_update.rs; no `serial_test`/`--test-threads=1` needed).
+// Under `feature = "expose-internals"` without `test` (e.g. a cross-crate KAT,
+// including no_std powerset combos) a `core::sync::atomic::AtomicBool` is used
+// instead, since `thread_local!` requires std. A `//` comment (not `///`):
+// rustdoc does not document a `thread_local!` macro invocation, which would
+// trip `unused_doc_comments` under `-D warnings`.
+// `std::thread_local!` (path-qualified): this crate is unconditionally
+// `#![no_std]`, so the bare macro is not in the prelude. `std` is linked here
+// via `#[cfg(feature = "std")] extern crate std;` and every test gate runs with
+// the (default) `std` feature on.
+#[cfg(test)]
+std::thread_local! {
+    static FORCE_RNG_FAILURE: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+}
+
+#[cfg(all(feature = "expose-internals", not(test)))]
+static FORCE_RNG_FAILURE: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
+
+/// Test-only: arm (`true`) or disarm (`false`) a forced `RngFailure` for
+/// subsequent `fill_bytes` calls, so the hedged-signing fail-closed path
+/// (HARD-03) can be exercised. Compiled out of the default build. Under
+/// `cfg(test)` the flag is thread-local, isolated to the arming thread.
+#[cfg(test)]
+pub fn set_force_rng_failure(on: bool) {
+    FORCE_RNG_FAILURE.with(|flag| flag.set(on));
+}
+
+/// Test-only: arm (`true`) or disarm (`false`) a forced `RngFailure` for
+/// subsequent `fill_bytes` calls — the `expose-internals` variant for
+/// cross-crate tests. Compiled out of the default build.
+#[cfg(all(feature = "expose-internals", not(test)))]
+pub fn set_force_rng_failure(on: bool) {
+    FORCE_RNG_FAILURE.store(on, core::sync::atomic::Ordering::SeqCst);
 }
 
 /// Generates a fixed-size array of cryptographically secure random bytes.
