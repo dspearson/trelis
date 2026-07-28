@@ -1,7 +1,6 @@
 use dudect_bencher::{ctbench_main, BenchRng, Class, CtRunner};
 use rand::{Rng, RngCore};
-use trelis_primitives::sntrup761::{Sntrup761Ciphertext, Sntrup761SecretKey};
-use trelis_primitives::sntrup761::ffi::CIPHERTEXT_SIZE;
+use trelis_primitives::sntrup761::{CIPHERTEXT_SIZE, Sntrup761Ciphertext, Sntrup761SecretKey};
 
 fn ct_sntrup761_decap(runner: &mut CtRunner, rng: &mut BenchRng) {
     let seed: [u8; 32] = rng.gen();

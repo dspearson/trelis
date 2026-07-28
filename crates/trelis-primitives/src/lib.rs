@@ -6,7 +6,7 @@
 //! - **AEAD**: XChaCha20-Poly1305 authenticated encryption
 //! - **KDF**: BLAKE3-based key derivation with domain separation
 //! - **Random**: Cryptographically secure random number generation
-//! - **sntrup761**: Post-quantum KEM (C FFI or pure Rust depending on features)
+//! - **sntrup761**: Post-quantum KEM (pure Rust on all targets)
 //!
 //! # Security
 //!
@@ -74,27 +74,20 @@
 //!
 //! This crate supports `no_std` environments with the `alloc` feature.
 //!
-//! # sntrup761 Backend Selection
+//! # sntrup761 Backend
 //!
-//! The sntrup761 KEM has two implementations:
+//! The sntrup761 KEM has a single pure Rust implementation (`ntrulp` with
+//! in-tree encoding), used uniformly on native, Windows, WASM and `no_std`
+//! targets. It needs no C toolchain, so there is no backend to select and no
+//! platform-dependent behaviour to reason about.
 //!
-//! - **C FFI backend** (`std` feature): Uses `pqcrypto-ntruprime` for native builds.
-//!   This is faster but requires a C compiler and `std`.
+//! A C FFI backend binding the PQClean reference (`pqcrypto-ntruprime`) was
+//! previously used on native Unix. It was removed when PQClean was archived
+//! (RUSTSEC-2026-0162, RUSTSEC-2026-0163). Its outputs were captured
+//! beforehand and are enforced as frozen known-answer tests, so equivalence
+//! with the canonical reference remains under test.
 //!
-//! - **Pure Rust backend** (`wasm` feature): Uses `ntrulp` with custom encoding.
-//!   This works in `no_std` and WASM environments.
-//!
-//! Both backends produce **byte-for-byte identical outputs** and are fully interoperable.
-//!
-//! ## Feature Selection
-//!
-//! | Features | Backend Used | Use Case |
-//! |----------|--------------|----------|
-//! | `std` only | C FFI | Native server/desktop |
-//! | `wasm` only | Pure Rust | Browser WASM |
-//! | `std` + `wasm` | C FFI (testing) | Cross-validation testing |
-//!
-//! The unified `Sntrup761*` types are always available when either feature is enabled.
+//! The unified `Sntrup761*` types are always available.
 //!
 //! # Memory Locking (Optional)
 //!
@@ -195,7 +188,7 @@ pub mod memlock;
 /// sntrup761 post-quantum KEM (NTRU Prime).
 ///
 /// Contains submodules for encoding, field arithmetic, polynomial arithmetic,
-/// and both C FFI and pure Rust backends. See [`sntrup761`] module docs for details.
+/// and the pure Rust implementation. See [`sntrup761`] module docs for details.
 pub mod sntrup761;
 
 // Re-export key types for convenience
@@ -254,29 +247,8 @@ pub use memlock::{
     page_size, protect_noaccess, protect_readonly, protect_readwrite, unlock_memory,
 };
 
-// Unified sntrup761 API — re-exported from sntrup761::mod.rs based on platform.
+// Unified sntrup761 API. Size constants stay module-scoped (`sntrup761::…`)
+// to avoid colliding with the other primitives' size constants at crate root.
 pub use sntrup761::{
     Sntrup761Ciphertext, Sntrup761PublicKey, Sntrup761SecretKey, Sntrup761SharedSecret,
 };
-
-// Additional exports for cross-validation testing (both backends available on native Unix/Linux)
-#[cfg(all(
-    feature = "std",
-    feature = "wasm",
-    not(target_os = "windows"),
-    not(target_arch = "wasm32")
-))]
-pub mod sntrup761_pure_rust {
-    //! Pure Rust sntrup761 types for cross-validation testing.
-    //!
-    //! Only available when both `std` and `wasm` features are enabled on native Unix/Linux.
-    //! This module re-exports the pure Rust implementation with prefixed names
-    //! to allow comparing outputs between C FFI and pure Rust backends.
-    pub use crate::sntrup761::pure_rust::{
-        CIPHERTEXT_SIZE, PUBLIC_KEY_SIZE, SECRET_KEY_SIZE, SHARED_SECRET_SIZE,
-        Sntrup761Ciphertext as PureRustSntrup761Ciphertext,
-        Sntrup761PublicKey as PureRustSntrup761PublicKey,
-        Sntrup761SecretKey as PureRustSntrup761SecretKey,
-        Sntrup761SharedSecret as PureRustSntrup761SharedSecret,
-    };
-}

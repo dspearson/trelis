@@ -26,25 +26,29 @@
 //! - Ciphertext: 1,039 bytes
 //! - Shared secret: 32 bytes
 //!
-//! # Backend Selection
+//! # Backend
 //!
-//! The sntrup761 KEM has two implementations:
+//! There is a single implementation: the pure Rust backend (`pure_rust`),
+//! built on `ntrulp` with in-tree encoding. It is used uniformly on every
+//! target — native, Windows, WASM and `no_std`.
 //!
-//! - **C FFI backend** (`ffi`): Uses `pqcrypto-ntruprime` for native builds.
-//!   Available on Unix/Linux with the `std` feature.
+//! A second backend previously bound the PQClean C reference via
+//! `pqcrypto-ntruprime` on native Unix. PQClean is being archived
+//! (RUSTSEC-2026-0162, RUSTSEC-2026-0163), so that backend was removed rather
+//! than carry an unmaintained C dependency under the post-quantum KEM.
 //!
-//! - **Pure Rust backend** (`pure_rust`): Uses `ntrulp` with custom encoding.
-//!   Works in `no_std` and WASM environments.
-//!
-//! Both backends produce **byte-for-byte identical outputs** and are fully interoperable.
+//! Equivalence with the C reference is not lost: its outputs were captured
+//! before removal and are enforced as frozen known-answer tests in
+//! `tests/sntrup761_kat.rs` against `tests/vectors/sntrup761_pqclean-kat.json`.
+//! Wire format and shared secrets remain byte-for-byte interoperable with any
+//! conforming sntrup761 implementation.
 //!
 //! # Submodules
 //!
-//! - `encoding` — Wire format encoding/decoding (shared by both backends)
+//! - `encoding` — Wire format encoding/decoding
 //! - `fq` — Optimised field arithmetic for Fq = Z/4591Z
 //! - `poly` — Polynomial arithmetic (Karatsuba, NTT)
-//! - `ffi` — C FFI backend (native Unix/Linux only)
-//! - `pure_rust` — Pure Rust backend (WASM, Windows, no-std)
+//! - `pure_rust` — The sntrup761 implementation
 
 /// Wire format encoding/decoding for sntrup761 keys and ciphertexts.
 pub mod encoding;
@@ -57,28 +61,12 @@ pub mod fq;
 /// Polynomial arithmetic for sntrup761 (Karatsuba, NTT).
 pub mod poly;
 
-/// C FFI sntrup761 KEM using pqcrypto-ntruprime (native Unix/Linux only).
-#[cfg(all(not(target_os = "windows"), not(target_arch = "wasm32")))]
-pub mod ffi;
-
-/// Pure Rust sntrup761 KEM (always included for deterministic keygen).
+/// Pure Rust sntrup761 KEM.
 pub mod pure_rust;
 
-// Re-export unified types based on platform
-//
-// - Native Unix/Linux with std: C FFI backend
-// - Windows / WASM / no-std: Pure Rust backend
-
-/// sntrup761 types using the C FFI backend (native Unix/Linux with std).
-#[cfg(all(
-    feature = "std",
-    not(target_os = "windows"),
-    not(target_arch = "wasm32")
-))]
-pub use ffi::{Sntrup761Ciphertext, Sntrup761PublicKey, Sntrup761SecretKey, Sntrup761SharedSecret};
-
-/// sntrup761 types using the pure Rust backend (Windows, WASM, or no-std).
-#[cfg(any(target_os = "windows", target_arch = "wasm32", not(feature = "std")))]
+// Unified sntrup761 API. Single backend, so no platform dispatch: the same
+// implementation is used on every target.
 pub use pure_rust::{
-    Sntrup761Ciphertext, Sntrup761PublicKey, Sntrup761SecretKey, Sntrup761SharedSecret,
+    CIPHERTEXT_SIZE, PUBLIC_KEY_SIZE, SECRET_KEY_SIZE, SHARED_SECRET_SIZE, Sntrup761Ciphertext,
+    Sntrup761PublicKey, Sntrup761SecretKey, Sntrup761SharedSecret,
 };

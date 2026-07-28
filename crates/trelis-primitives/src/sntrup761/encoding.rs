@@ -875,21 +875,18 @@ mod tests {
     }
 }
 
-// C FFI comparison tests - only on platforms with C implementation
-#[cfg(all(
-    test,
-    feature = "std",
-    not(target_os = "windows"),
-    not(target_arch = "wasm32")
-))]
-mod c_comparison_tests {
+// Encoding tests driven by real generated keys (rather than synthetic
+// coefficient patterns). These previously ran against the C FFI backend; the
+// canonical C reference outputs are now pinned as frozen vectors in
+// `tests/sntrup761_kat.rs`.
+#[cfg(all(test, feature = "std"))]
+mod generated_key_encoding_tests {
     use super::*;
-    use crate::sntrup761::ffi::Sntrup761SecretKey;
+    use crate::sntrup761::pure_rust::Sntrup761SecretKey;
 
     #[cfg_attr(miri, ignore)]
     #[test]
-    fn test_rq_encode_matches_c() {
-        // Generate a keypair using C FFI
+    fn test_rq_encode_roundtrips_generated_key() {
         let sk = Sntrup761SecretKey::generate().unwrap();
         let pk = sk.public_key();
         let pk_bytes = pk.as_bytes();

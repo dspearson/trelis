@@ -10,12 +10,10 @@ description = "Cryptographic primitives for the Trelis protocol"
 [features]
 default = ["std"]
 # std feature: enables standard library support
-# On Unix/Linux: uses C FFI sntrup761 (pqcrypto-ntruprime) for performance
-# On Windows: uses pure Rust sntrup761 (ntrulp) since pqcrypto C code doesn't compile with MSVC
-std = ["alloc", "trelis-error/std", "blake3/std", "blake3/rayon", "chacha20poly1305/std", "getrandom/std"]
+# sntrup761 is pure Rust (ntrulp) on every target — no C toolchain required
+std =["alloc", "trelis-error/std", "blake3/std", "blake3/rayon", "chacha20poly1305/std", "getrandom/std"]
 alloc = ["trelis-error/alloc", "chacha20poly1305/alloc"]
 # WASM target support (browser environment)
-# Uses ntrulp (pure Rust) with custom encoding to match standard wire format
 # Enables BLAKE3 WASM SIMD for faster hashing in browsers with SIMD support
 # `getrandom_v04/wasm_js` activates the wasm_js backend on the transitive
 # getrandom 0.4.x pulled in via ntrulp 0.2.5 -> rand 0.10.1. Without this,
@@ -65,16 +63,6 @@ ntrulp = { workspace = true }
 libc = { workspace = true, optional = true }
 windows-sys = { workspace = true, optional = true }
 
-# Post-quantum KEM - C FFI (native Unix/Linux only)
-# Excluded on Windows (MSVC issues) and WASM (no C FFI)
-[target.'cfg(all(not(target_os = "windows"), not(target_arch = "wasm32")))'.dependencies]
-pqcrypto-ntruprime = { workspace = true }
-pqcrypto-traits = { workspace = true }
-
-# On Windows and WASM, use pure Rust sntrup761 instead of C FFI
-[target.'cfg(any(target_os = "windows", target_arch = "wasm32"))'.dependencies]
-ntrulp = { workspace = true }
-
 [dev-dependencies]
 hex = { workspace = true, features = ["serde"] }
 hex-literal = "1.1"
@@ -88,7 +76,7 @@ serde_json.workspace = true
 [[bench]]
 name = "sntrup761_benchmark"
 harness = false
-required-features = ["std", "wasm"]
+required-features = ["std"]
 
 [[bench]]
 name = "signature_benchmark"
