@@ -4,7 +4,7 @@ use trelis_primitives::aead::{AeadKey, Nonce, Tag, encrypt_in_place};
 use subtle::ConstantTimeEq;
 
 fn ct_aead_tag(runner: &mut CtRunner, rng: &mut BenchRng) {
-    let key = AeadKey::from_bytes(rng.gen::<[u8; 32]>());
+    let key = AeadKey::from_bytes(rng.r#gen::<[u8; 32]>());
     let nonce = Nonce::from_bytes([0u8; 24]);
     let plaintext = b"benchmark plaintext data!";
 
@@ -21,7 +21,7 @@ fn ct_aead_tag(runner: &mut CtRunner, rng: &mut BenchRng) {
     let mut classes = Vec::with_capacity(n);
 
     for _ in 0..n {
-        if rng.gen::<bool>() {
+        if rng.r#gen::<bool>() {
             inputs.push(valid_tag);
             classes.push(Class::Left);
         } else {

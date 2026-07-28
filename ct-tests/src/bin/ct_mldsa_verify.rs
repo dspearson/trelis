@@ -15,7 +15,7 @@ fn ct_mldsa_verify(runner: &mut CtRunner, rng: &mut BenchRng) {
     let mut classes = Vec::with_capacity(n);
 
     for _ in 0..n {
-        if rng.gen::<bool>() {
+        if rng.r#gen::<bool>() {
             classes.push(Class::Left);
         } else {
             classes.push(Class::Right);

@@ -43,11 +43,6 @@
             cargo-hack
             cargo-msrv
 
-            # Build dependencies for pqcrypto-ntruprime (C FFI)
-            clang
-            llvmPackages.libclang
-            pkg-config
-
             # Coverage tools
             grcov
             lcov
@@ -58,9 +53,6 @@
             git
             direnv
           ];
-
-          # Required for pqcrypto C bindings
-          LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
 
           shellHook = ''
             # Rust environment
@@ -89,8 +81,6 @@
           version = "0.1.0";
           src = ./.;
           cargoLock.lockFile = ./Cargo.lock;
-          nativeBuildInputs = with pkgs; [ pkg-config clang ];
-          LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
           doCheck = false;
         };
       }

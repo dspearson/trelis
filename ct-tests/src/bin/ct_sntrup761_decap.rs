@@ -3,7 +3,7 @@ use rand::{Rng, RngCore};
 use trelis_primitives::sntrup761::{CIPHERTEXT_SIZE, Sntrup761Ciphertext, Sntrup761SecretKey};
 
 fn ct_sntrup761_decap(runner: &mut CtRunner, rng: &mut BenchRng) {
-    let seed: [u8; 32] = rng.gen();
+    let seed: [u8; 32] = rng.r#gen();
     let sk = Sntrup761SecretKey::generate_from_seed(&seed).expect("sntrup keygen");
     let pk = sk.public_key();
 
@@ -20,7 +20,7 @@ fn ct_sntrup761_decap(runner: &mut CtRunner, rng: &mut BenchRng) {
     let mut classes = Vec::with_capacity(n);
 
     for _ in 0..n {
-        if rng.gen::<bool>() {
+        if rng.r#gen::<bool>() {
             inputs.push(true);   // use valid_ct
             classes.push(Class::Left);
         } else {
