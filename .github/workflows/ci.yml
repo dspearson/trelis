@@ -189,6 +189,36 @@ jobs:
       - name: cargo hack check --feature-powerset
         run: cargo hack check --workspace --feature-powerset
 
+  msrv:
+    name: MSRV
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # Read the declared MSRV rather than hardcoding it, so this job cannot
+      # drift away from workspace.package.rust-version in Cargo.toml.
+      - name: Read MSRV from Cargo.toml
+        id: msrv
+        run: |
+          version="$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml | head -1)"
+          if [ -z "$version" ]; then
+            echo "::error::could not parse rust-version from Cargo.toml"
+            exit 1
+          fi
+          echo "Declared MSRV: $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust ${{ steps.msrv.outputs.version }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: cargo check under declared MSRV
+        run: cargo check --workspace --all-features
+
   auxiliary-crates:
     name: Auxiliary Crates Build Smoke
     runs-on: ubuntu-latest

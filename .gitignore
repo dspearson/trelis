@@ -1,7 +1,17 @@
 # Rust build artefacts
 /target/
 **/*.rs.bk
+
+# Auxiliary crates (fuzz/, ct-tests/) keep their lockfiles untracked: their
+# manifests deliberately float (`version = "0.2"`, not a pin) so resolution
+# stays aligned with the workspace's own graph.
 Cargo.lock
+# The workspace lockfile IS tracked. flake.nix's packages.default reads it
+# (cargoLock.lockFile = ./Cargo.lock), so without it `nix build` fails on a
+# clean checkout; it also makes CI advisory scans reproducible instead of
+# re-resolving on every run. Committing a lockfile does not constrain
+# downstream consumers of these library crates.
+!/Cargo.lock
 
 # IDE and editor files
 .idea/
@@ -32,6 +42,10 @@ criterion/
 
 # Direnv
 .direnv/
+
+# Nix build output symlinks (`nix build` -> ./result)
+/result
+/result-*
 
 # Fuzz build artefacts and generated corpora (harness sources are committed)
 fuzz/target/

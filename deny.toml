@@ -3,20 +3,16 @@
 # Schema: cargo-deny 0.18.x (post-PR-611 format)
 
 [advisories]
-# Deny known vulnerabilities (severity = vulnerability in advisory-db).
-# Unsound and yanked advisories are documented inline below; this is a
-# baseline documentation run, not a strict CI gate.
-ignore = [
-    # RUSTSEC-2026-0012: Unsound ARMv8 asm backend in keccak 0.1.5.
-    # Severity: Low (latent on x86-64 targets).
-    { id = "RUSTSEC-2026-0012", reason = "Unsound ARMv8 asm; latent on x86-64 — assessed Low" },
-    # RUSTSEC-2026-0097: rand unsound with custom logger.
-    # Severity: Informational (requires custom logger; unlikely in this library).
-    { id = "RUSTSEC-2026-0097", reason = "Requires custom logger to trigger; assessed Informational" },
-    # keccak 0.1.5 yanked (superseded by 0.2.0-rc.0).
-    # Severity: Low (ecosystem churn, not a security vulnerability).
-    "keccak@0.1.5",
-]
+# Enforced in CI: `cargo deny check` runs in the Security Audit job,
+# alongside `cargo audit --deny warnings`. Both gate the build.
+#
+# The ignore list is empty and should stay that way where possible:
+# prefer upgrading past an advisory to exempting it. Any entry added
+# here needs a reason and must be re-checked whenever the lockfile
+# moves — stale exemptions silently mask real findings. The previous
+# entries (RUSTSEC-2026-0012, RUSTSEC-2026-0097 and a keccak 0.1.5 yank)
+# were all resolved by dependency upgrades rather than exemption.
+ignore = []
 
 [licenses]
 # All observed dependency licences are OSI-approved permissive.
